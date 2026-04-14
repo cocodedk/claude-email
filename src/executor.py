@@ -1,0 +1,110 @@
+"""Extract commands from email bodies and execute via claude CLI."""
+import email.message
+import logging
+import re
+import subprocess
+from html.parser import HTMLParser
+
+logger = logging.getLogger(__name__)
+
+MAX_OUTPUT_BYTES = 50_000
+_QUOTE_PATTERN = re.compile(r"\n\s*On .+? wrote:\n.*", re.DOTALL)
+
+
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self._parts.append(data)
+
+    def get_text(self) -> str:
+        return "".join(self._parts)
+
+
+def _extract_text_from_html(html: str) -> str:
+    extractor = _HTMLTextExtractor()
+    extractor.feed(html)
+    return extractor.get_text()
+
+
+def extract_command(message: email.message.Message) -> str:
+    """Extract the command text from an email message body.
+
+    Prefers plain-text parts. Falls back to HTML. Strips quoted replies.
+    """
+    body = ""
+
+    if message.is_multipart():
+        for part in message.walk():
+            ct = part.get_content_type()
+            if ct == "text/plain":
+                payload = part.get_payload(decode=True)
+                if payload:
+                    charset = part.get_content_charset() or "utf-8"
+                    body = payload.decode(charset, errors="replace")
+                    break
+        if not body:
+            for part in message.walk():
+                ct = part.get_content_type()
+                if ct == "text/html":
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        charset = part.get_content_charset() or "utf-8"
+                        html = payload.decode(charset, errors="replace")
+                        body = _extract_text_from_html(html)
+                        break
+    else:
+        payload = message.get_payload(decode=True)
+        if payload:
+            charset = message.get_content_charset() or "utf-8"
+            raw = payload.decode(charset, errors="replace")
+            ct = message.get_content_type()
+            if ct == "text/html":
+                body = _extract_text_from_html(raw)
+            else:
+                body = raw
+
+    # Strip quoted replies (lines starting with "On ... wrote:")
+    body = _QUOTE_PATTERN.sub("", body)
+    return body.strip()
+
+
+def execute_command(
+    command: str,
+    claude_bin: str = "claude",
+    timeout: int = 300,
+    max_output_bytes: int = MAX_OUTPUT_BYTES,
+) -> str:
+    """Execute a command via the claude CLI and return the output.
+
+    Uses shell=False to prevent command injection.
+    Truncates output to max_output_bytes.
+    Returns an error message on timeout or failure.
+    """
+    logger.info("Executing command via claude CLI (timeout=%ds)", timeout)
+    try:
+        result = subprocess.run(
+            [claude_bin, "--print", command],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            shell=False,
+        )
+        output = result.stdout
+        if result.stderr:
+            output += f"\n[stderr]:\n{result.stderr}"
+        if len(output.encode()) > max_output_bytes:
+            output = output.encode()[:max_output_bytes].decode(errors="replace")
+            output += "\n[truncated]"
+        return output
+    except subprocess.TimeoutExpired:
+        logger.error("Command timed out after %ds", timeout)
+        return f"[Error: command timed out after {timeout} seconds]"
+    except FileNotFoundError:
+        logger.error("claude binary not found at %r", claude_bin)
+        return f"[Error: claude binary not found at {claude_bin!r}]"
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Unexpected error executing command: %s", exc)
+        return f"[Error: {exc}]"
