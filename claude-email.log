@@ -1,3 +1,0 @@
-2026-04-14 11:14:26,183 INFO __main__: Claude Email Agent starting. Polling every 15s. Authorized sender: bb@cocode.dk
-2026-04-14 11:14:26,255 INFO src.poller: IMAP connected to imap.one.com:993 as claude@cocode.dk
-2026-04-14 11:14:26,263 INFO src.poller: IMAP disconnected
