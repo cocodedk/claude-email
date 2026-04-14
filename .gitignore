@@ -6,5 +6,6 @@ __pycache__/
 dist/
 *.egg-info/
 processed_ids.json
+claude-email.log*
 .codex/
 .venv/
