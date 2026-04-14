@@ -46,6 +46,14 @@ cp .env.example .env
 
 **Shared secret mode**: set Subject to `AUTH:your_secret your command here`. Email body contains the command.
 
+## Logs
+
+```bash
+tail -f ~/0-projects/claude-email/claude-email.log
+```
+
+Rotates at 10 KB, keeps 7 old files (~80 KB max on disk).
+
 ## Architecture
 
 ```

@@ -8,7 +8,7 @@ Wants=network-online.target
 Type=simple
 User=cocodedk
 Group=cocodedk
-WorkingDirectory=/home/cocodedk/0-projects/claude-email
+WorkingDirectory=/home/cocodedk
 EnvironmentFile=/home/cocodedk/0-projects/claude-email/.env
 ExecStart=/home/cocodedk/0-projects/claude-email/.venv/bin/python3 /home/cocodedk/0-projects/claude-email/main.py
 Restart=on-failure
@@ -18,8 +18,8 @@ TimeoutStopSec=30
 # Systemd hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=read-only
-ReadWritePaths=/home/cocodedk/0-projects/claude-email
+ProtectHome=false
+ReadWritePaths=/home/cocodedk
 PrivateTmp=true
 
 [Install]
