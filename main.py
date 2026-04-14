@@ -4,6 +4,7 @@ Polls claude@cocode.dk for commands from bb@cocode.dk, executes them via
 the claude CLI, and replies with the output. Runs as a systemd service.
 """
 import logging
+import logging.handlers
 import os
 import signal
 import sys
@@ -18,10 +19,16 @@ from src.security import is_authorized
 
 load_dotenv()
 
+_LOG_FILE = os.path.join(os.path.dirname(__file__), "claude-email.log")
+_log_handler = logging.handlers.RotatingFileHandler(
+    _LOG_FILE, maxBytes=10_240, backupCount=7
+)
+_log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    stream=sys.stdout,
+    handlers=[logging.StreamHandler(sys.stdout), _log_handler],
 )
 logger = logging.getLogger(__name__)
 
