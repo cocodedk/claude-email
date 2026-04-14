@@ -77,6 +77,24 @@ class TestIsAuthorized:
         msg["Subject"] = f"AUTH:{VALID_SECRET} cmd"
         assert not is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
+    def test_reply_subject_with_re_prefix_passes(self):
+        """Replying to a reply produces 'Re: AUTH:secret' — should still be accepted."""
+        msg = _make_msg(
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
+            subject=f"Re: AUTH:{VALID_SECRET} do something",
+        )
+        assert is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
+
+    def test_multiple_re_prefixes_pass(self):
+        """Re: Re: AUTH:secret should also be accepted."""
+        msg = _make_msg(
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
+            subject=f"Re: Re: AUTH:{VALID_SECRET} do something",
+        )
+        assert is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
+
 
 VALID_FINGERPRINT = "AABBCCDDEEFF00112233445566778899AABBCCDD"
 

@@ -129,6 +129,9 @@ def is_authorized(
         return verify_gpg_signature(message, gpg_fingerprint, gpg_home)
 
     subject = message.get("Subject", "")
+    # Strip any number of "Re: " prefixes added by email clients on reply chains
+    import re as _re
+    subject = _re.sub(r'^(Re:\s*)+', '', subject, flags=_re.IGNORECASE).strip()
     expected_prefix = f"AUTH:{shared_secret}"
     if not subject.startswith(expected_prefix):
         logger.warning("Rejected: Subject does not start with AUTH:<secret>")
