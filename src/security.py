@@ -1,0 +1,137 @@
+"""Sender authorization for incoming email commands."""
+import email.message
+import email.utils
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _extract_address(header_value: str) -> str:
+    """Parse an email address from a header value like 'Name <addr@domain>' or '<addr@domain>'."""
+    _, addr = email.utils.parseaddr(header_value)
+    return addr.strip().lower()
+
+
+def _extract_return_path(header_value: str) -> str:
+    """Strip angle brackets from Return-Path like '<addr@domain>'."""
+    return header_value.strip().strip("<>").lower()
+
+
+def _check_envelope(message: email.message.Message, authorized_sender: str) -> bool:
+    """Check From and Return-Path headers. Common to both auth modes."""
+    authorized = authorized_sender.lower()
+
+    from_header = message.get("From", "")
+    if not from_header:
+        logger.warning("Rejected: missing From header")
+        return False
+    from_addr = _extract_address(from_header)
+    if from_addr != authorized:
+        logger.warning("Rejected: From address %r does not match authorized sender", from_addr)
+        return False
+
+    return_path = message.get("Return-Path", "")
+    if not return_path:
+        logger.warning("Rejected: missing Return-Path header")
+        return False
+    rp_addr = _extract_return_path(return_path)
+    if rp_addr != authorized:
+        logger.warning("Rejected: Return-Path %r does not match authorized sender", rp_addr)
+        return False
+
+    return True
+
+
+def verify_gpg_signature(
+    message: email.message.Message,
+    authorized_fingerprint: str,
+    gpg_home: str | None = None,
+) -> bool:
+    """Verify a GPG signature on an email message.
+
+    Handles both inline PGP (-----BEGIN PGP SIGNED MESSAGE-----) and
+    PGP/MIME (multipart/signed with application/pgp-signature part).
+
+    Returns True only if the signature is valid AND was made by the key
+    with the given fingerprint.
+    """
+    import gnupg
+
+    gpg = gnupg.GPG(gnupghome=gpg_home)
+    fingerprint = authorized_fingerprint.upper()
+
+    content_type = message.get_content_type()
+
+    if content_type == "multipart/signed":
+        # PGP/MIME: find the text part and the signature part
+        sig_bytes = None
+        msg_bytes = None
+        for part in message.get_payload():
+            if part.get_content_type() == "application/pgp-signature":
+                sig_bytes = part.get_payload(decode=True)
+            else:
+                msg_bytes = part.as_bytes()
+        if sig_bytes is None or msg_bytes is None:
+            logger.warning("GPG/MIME: could not find both message and signature parts")
+            return False
+        result = gpg.verify_data(sig_bytes, msg_bytes)
+    else:
+        # Inline PGP: look for PGP block in the plain-text body
+        body = ""
+        if message.is_multipart():
+            for part in message.walk():
+                if part.get_content_type() == "text/plain":
+                    payload = part.get_payload(decode=True)
+                    if payload:
+                        body = payload.decode(part.get_content_charset() or "utf-8", errors="replace")
+                        break
+        else:
+            payload = message.get_payload(decode=True)
+            if payload:
+                body = payload.decode(message.get_content_charset() or "utf-8", errors="replace")
+
+        if "-----BEGIN PGP SIGNED MESSAGE-----" not in body:
+            logger.warning("GPG inline: no PGP signed message block found")
+            return False
+        result = gpg.verify(body)
+
+    if not result.valid:
+        logger.warning("GPG: signature verification failed")
+        return False
+    if not result.fingerprint or result.fingerprint.upper() != fingerprint:
+        logger.warning(
+            "GPG: signature fingerprint %r does not match authorized %r",
+            result.fingerprint,
+            fingerprint,
+        )
+        return False
+
+    return True
+
+
+def is_authorized(
+    message: email.message.Message,
+    authorized_sender: str,
+    shared_secret: str = "",
+    gpg_fingerprint: str = "",
+    gpg_home: str | None = None,
+) -> bool:
+    """Return True only if the message passes envelope checks AND auth check.
+
+    Auth modes (mutually exclusive, GPG takes priority):
+    - GPG mode: if gpg_fingerprint is set, verify GPG signature
+    - Secret mode: Subject must start with AUTH:<shared_secret>
+    """
+    if not _check_envelope(message, authorized_sender):
+        return False
+
+    if gpg_fingerprint:
+        return verify_gpg_signature(message, gpg_fingerprint, gpg_home)
+
+    subject = message.get("Subject", "")
+    expected_prefix = f"AUTH:{shared_secret}"
+    if not subject.startswith(expected_prefix):
+        logger.warning("Rejected: Subject does not start with AUTH:<secret>")
+        return False
+
+    return True

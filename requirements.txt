@@ -1,0 +1,4 @@
+python-dotenv>=1.0
+python-gnupg>=0.5
+pytest>=8.0
+pytest-mock>=3.12
