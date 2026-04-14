@@ -7,3 +7,4 @@ dist/
 *.egg-info/
 processed_ids.json
 .codex/
+.venv/

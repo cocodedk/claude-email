@@ -42,6 +42,7 @@ class TestOrchestration:
             "username": "claude@cocode.dk",
             "password": "pw",
             "claude_timeout": 30,
+            "claude_bin": "claude",
         }
         process_email(msg, config)
         mock_execute.assert_called_once()
@@ -63,6 +64,7 @@ class TestOrchestration:
             "username": "claude@cocode.dk",
             "password": "pw",
             "claude_timeout": 30,
+            "claude_bin": "claude",
         }
         process_email(msg, config)
         mock_execute.assert_not_called()

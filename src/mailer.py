@@ -26,11 +26,12 @@ def send_reply(
     msg = email.message.EmailMessage()
     msg["From"] = username
     msg["To"] = to
-    msg["Subject"] = subject if subject.startswith("Re:") else f"Re: {subject}"
+    clean_subject = " ".join(subject.splitlines()).strip()
+    msg["Subject"] = clean_subject if clean_subject.startswith("Re:") else f"Re: {clean_subject}"
     if in_reply_to:
-        msg["In-Reply-To"] = in_reply_to
+        msg["In-Reply-To"] = " ".join(in_reply_to.splitlines()).strip()
     if references:
-        msg["References"] = references
+        msg["References"] = " ".join(references.splitlines()).strip()
     msg.set_content(body)
 
     ctx = ssl.create_default_context()

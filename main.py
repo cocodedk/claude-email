@@ -52,6 +52,7 @@ def _config() -> dict:
         "gpg_home": os.environ.get("GPG_HOME"),
         "poll_interval": int(os.environ.get("POLL_INTERVAL", "30")),
         "claude_timeout": int(os.environ.get("CLAUDE_TIMEOUT", "300")),
+        "claude_bin": os.environ.get("CLAUDE_BIN", "claude"),
         "state_file": os.environ.get("STATE_FILE", "processed_ids.json"),
     }
 
@@ -74,7 +75,7 @@ def process_email(message, config: dict) -> None:
         return
 
     logger.info("Executing command from authorized sender")
-    output = execute_command(command, timeout=config["claude_timeout"])
+    output = execute_command(command, claude_bin=config["claude_bin"], timeout=config["claude_timeout"])
 
     original_subject = message.get("Subject", "command")
     msg_id = message.get("Message-ID", "")
@@ -128,8 +129,10 @@ def run_loop(config: dict) -> None:
         except Exception as exc:
             logger.error("IMAP error: %s — retrying after %ds", exc, config["poll_interval"])
 
-        if not _shutdown:
-            time.sleep(config["poll_interval"])
+        for _ in range(config["poll_interval"]):
+            if _shutdown:
+                break
+            time.sleep(1)
 
     logger.info("Shutdown complete")
 
