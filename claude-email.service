@@ -1,0 +1,26 @@
+[Unit]
+Description=Claude Email Agent
+Documentation=https://github.com/cocodedk/claude-email
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cocodedk
+Group=cocodedk
+WorkingDirectory=/home/cocodedk/0-projects/claude-email
+EnvironmentFile=/home/cocodedk/0-projects/claude-email/.env
+ExecStart=/home/cocodedk/0-projects/claude-email/.venv/bin/python3 /home/cocodedk/0-projects/claude-email/main.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+# Systemd hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/cocodedk/0-projects/claude-email
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
