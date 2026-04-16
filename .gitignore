@@ -1,14 +1,29 @@
+# Secrets
 .env
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
-.pytest_cache/
+.venv/
 dist/
 *.egg-info/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime state
 processed_ids.json
-claude-email.log*
-.codex/
-.venv/
 claude-chat.db
 claude-chat.db-shm
 claude-chat.db-wal
+claude-email.log*
+
+# IDE / tools
+.codex/
+.idea/
+.vscode/
+*.swp
+*.swo
