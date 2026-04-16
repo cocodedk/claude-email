@@ -1,6 +1,6 @@
 """Claude Email Agent — main orchestration loop.
 
-Polls claude@cocode.dk for commands from bb@cocode.dk, executes them via
+Polls for commands from the authorized sender, executes them via
 the claude CLI, and replies with the output. Runs as a systemd service.
 """
 import logging
@@ -21,7 +21,7 @@ from src.security import is_authorized
 
 load_dotenv()
 
-_LOG_FILE = os.path.join(os.path.dirname(__file__), "claude-email.log")
+_LOG_FILE = os.environ.get("LOG_FILE", os.path.join(os.path.dirname(__file__), "claude-email.log"))
 _log_handler = logging.handlers.RotatingFileHandler(
     _LOG_FILE, maxBytes=10_240, backupCount=7
 )
@@ -48,25 +48,29 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 
 def _config() -> dict:
+    shared_secret = os.environ.get("SHARED_SECRET", "")
     return {
         "imap_host": os.environ["IMAP_HOST"],
-        "imap_port": int(os.environ.get("IMAP_PORT", "993")),
+        "imap_port": int(os.environ["IMAP_PORT"]),
         "smtp_host": os.environ["SMTP_HOST"],
-        "smtp_port": int(os.environ.get("SMTP_PORT", "465")),
+        "smtp_port": int(os.environ["SMTP_PORT"]),
         "username": os.environ["EMAIL_ADDRESS"],
         "password": os.environ["EMAIL_PASSWORD"],
         "authorized_sender": os.environ["AUTHORIZED_SENDER"],
-        "shared_secret": os.environ.get("SHARED_SECRET", ""),
+        "shared_secret": shared_secret,
         "gpg_fingerprint": os.environ.get("GPG_FINGERPRINT", ""),
         "gpg_home": os.environ.get("GPG_HOME"),
-        "poll_interval": int(os.environ.get("POLL_INTERVAL", "30")),
-        "claude_timeout": int(os.environ.get("CLAUDE_TIMEOUT", "300")),
-        "claude_bin": os.environ.get("CLAUDE_BIN", "claude"),
-        "state_file": os.environ.get("STATE_FILE", "processed_ids.json"),
-        "chat_db_path": os.environ.get("CHAT_DB_PATH", "claude-chat.db"),
-        "chat_url": os.environ.get("CHAT_URL", "http://localhost:8420/sse"),
-        "auth_prefix": f"AUTH:{os.environ.get('SHARED_SECRET', '')}",
-        "claude_cwd": os.environ.get("CLAUDE_CWD", os.path.expanduser("~/0-projects")),
+        "poll_interval": int(os.environ["POLL_INTERVAL"]),
+        "claude_timeout": int(os.environ["CLAUDE_TIMEOUT"]),
+        "claude_bin": os.environ["CLAUDE_BIN"],
+        "claude_cwd": os.environ["CLAUDE_CWD"],
+        "state_file": os.environ["STATE_FILE"],
+        "email_domain": os.environ["EMAIL_DOMAIN"],
+        "chat_db_path": os.environ["CHAT_DB_PATH"],
+        "chat_url": os.environ["CHAT_URL"],
+        "service_name_email": os.environ["SERVICE_NAME_EMAIL"],
+        "service_name_chat": os.environ["SERVICE_NAME_CHAT"],
+        "auth_prefix": f"AUTH:{shared_secret}",
     }
 
 
@@ -111,6 +115,7 @@ def process_email(message, config: dict, chat_db=None) -> None:
         body=output,
         in_reply_to=msg_id,
         references=msg_id,
+        email_domain=config.get("email_domain", ""),
     )
 
 

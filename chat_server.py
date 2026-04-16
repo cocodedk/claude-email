@@ -19,9 +19,9 @@ logger = logging.getLogger("chat_server")
 
 
 def main() -> None:
-    db_path = os.getenv("CHAT_DB_PATH", "claude-chat.db")
-    host = os.getenv("CHAT_HOST", "127.0.0.1")
-    port = int(os.getenv("CHAT_PORT", "8420"))
+    db_path = os.environ["CHAT_DB_PATH"]
+    host = os.environ["CHAT_HOST"]
+    port = int(os.environ["CHAT_PORT"])
 
     logger.info("Starting claude-chat MCP server on %s:%d", host, port)
     logger.info("Database: %s", db_path)

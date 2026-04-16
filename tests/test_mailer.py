@@ -61,10 +61,11 @@ class TestSendReply:
             to="bb@cocode.dk",
             subject="test",
             body="ok",
+            email_domain="example.com",
         )
         assert result.startswith("<")
         assert result.endswith(">")
-        assert "cocode.dk" in result
+        assert "example.com" in result
 
     def test_subject_prefixed_with_re(self, mocker):
         mocker.patch("ssl.create_default_context", return_value=MagicMock())

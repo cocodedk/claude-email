@@ -18,6 +18,7 @@ def send_reply(
     body: str,
     in_reply_to: str = "",
     references: str = "",
+    email_domain: str = "",
 ) -> str:
     """Send a plain-text reply via SMTP_SSL with verified TLS.
 
@@ -36,7 +37,7 @@ def send_reply(
     if references:
         msg["References"] = " ".join(references.splitlines()).strip()
     msg.set_content(body)
-    msg["Message-ID"] = email.utils.make_msgid(domain="cocode.dk")
+    msg["Message-ID"] = email.utils.make_msgid(domain=email_domain) if email_domain else email.utils.make_msgid()
 
     ctx = ssl.create_default_context()
     try:

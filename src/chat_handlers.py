@@ -27,6 +27,7 @@ def _send_reply(config: dict, original_message, body: str) -> None:
         body=body,
         in_reply_to=msg_id,
         references=msg_id,
+        email_domain=config.get("email_domain", ""),
     )
 
 
@@ -87,15 +88,17 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
     elif route.meta_command == "restart":
         target = route.meta_args.strip().lower()
         if target == "chat":
+            svc = config["service_name_chat"]
             subprocess.run(
-                ["systemctl", "--user", "restart", "claude-chat.service"],
+                ["systemctl", "--user", "restart", svc],
                 shell=False, check=False,
             )
-            _send_reply(config, message, "Restarted claude-chat.service")
+            _send_reply(config, message, f"Restarted {svc}")
         elif target == "self":
+            svc = config["service_name_email"]
             # No reply — service will restart before it can send
             subprocess.run(
-                ["systemctl", "--user", "restart", "claude-email.service"],
+                ["systemctl", "--user", "restart", svc],
                 shell=False, check=False,
             )
         else:
@@ -115,6 +118,7 @@ def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
             to=config["authorized_sender"],
             subject=subject,
             body=msg["body"],
+            email_domain=config.get("email_domain", ""),
         )
         chat_db.mark_message_delivered(msg["id"])
         if email_msg_id:

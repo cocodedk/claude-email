@@ -23,7 +23,7 @@ class EmailPoller:
         port: int,
         username: str,
         password: str,
-        state_file: str = "processed_ids.json",
+        state_file: str,
         mailbox: str = "INBOX",
     ) -> None:
         self._host = host
