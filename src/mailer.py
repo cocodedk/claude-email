@@ -1,5 +1,6 @@
 """SMTP email sender — sends command results back to the requester."""
 import email.message
+import email.utils
 import logging
 import smtplib
 import ssl
@@ -35,6 +36,7 @@ def send_reply(
     if references:
         msg["References"] = " ".join(references.splitlines()).strip()
     msg.set_content(body)
+    msg["Message-ID"] = email.utils.make_msgid(domain="cocode.dk")
 
     ctx = ssl.create_default_context()
     try:

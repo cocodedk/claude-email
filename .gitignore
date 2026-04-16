@@ -9,3 +9,4 @@ processed_ids.json
 claude-email.log*
 .codex/
 .venv/
+claude-chat.db
