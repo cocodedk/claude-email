@@ -76,11 +76,13 @@ def execute_command(
     claude_bin: str = "claude",
     timeout: int = 300,
     max_output_bytes: int = MAX_OUTPUT_BYTES,
+    cwd: str | None = None,
 ) -> str:
     """Execute a command via the claude CLI and return the output.
 
     Uses shell=False to prevent command injection.
     Truncates output to max_output_bytes.
+    When cwd is set, the claude CLI runs in that directory.
     Returns an error message on timeout or failure.
     """
     logger.info("Executing command via claude CLI (timeout=%ds)", timeout)
@@ -91,6 +93,7 @@ def execute_command(
             text=True,
             timeout=timeout,
             shell=False,
+            cwd=cwd,
         )
         output = result.stdout
         if result.stderr:

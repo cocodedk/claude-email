@@ -66,6 +66,7 @@ def _config() -> dict:
         "chat_db_path": os.environ.get("CHAT_DB_PATH", "claude-chat.db"),
         "chat_url": os.environ.get("CHAT_URL", "http://localhost:8420/sse"),
         "auth_prefix": f"AUTH:{os.environ.get('SHARED_SECRET', '')}",
+        "claude_cwd": os.environ.get("CLAUDE_CWD", os.path.expanduser("~/0-projects")),
     }
 
 
@@ -91,7 +92,10 @@ def process_email(message, config: dict, chat_db=None) -> None:
         return
 
     logger.info("Executing command from authorized sender")
-    output = execute_command(command, claude_bin=config["claude_bin"], timeout=config["claude_timeout"])
+    output = execute_command(
+        command, claude_bin=config["claude_bin"],
+        timeout=config["claude_timeout"], cwd=config.get("claude_cwd"),
+    )
 
     original_subject = message.get("Subject", "command")
     msg_id = message.get("Message-ID", "")
