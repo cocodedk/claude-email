@@ -12,6 +12,8 @@ import time
 
 from dotenv import load_dotenv
 
+from src.chat_db import ChatDB
+from src.chat_handlers import handle_chat_email, relay_outbound_messages
 from src.executor import execute_command, extract_command
 from src.mailer import send_reply
 from src.poller import EmailPoller
@@ -61,10 +63,13 @@ def _config() -> dict:
         "claude_timeout": int(os.environ.get("CLAUDE_TIMEOUT", "300")),
         "claude_bin": os.environ.get("CLAUDE_BIN", "claude"),
         "state_file": os.environ.get("STATE_FILE", "processed_ids.json"),
+        "chat_db_path": os.environ.get("CHAT_DB_PATH", "claude-chat.db"),
+        "chat_url": os.environ.get("CHAT_URL", "http://localhost:8420/sse"),
+        "auth_prefix": f"AUTH:{os.environ.get('SHARED_SECRET', '')}",
     }
 
 
-def process_email(message, config: dict) -> None:
+def process_email(message, config: dict, chat_db=None) -> None:
     """Validate, execute, and reply for a single email message."""
     if not is_authorized(
         message,
@@ -74,6 +79,10 @@ def process_email(message, config: dict) -> None:
         gpg_home=config["gpg_home"],
     ):
         logger.warning("Unauthorized email dropped")
+        return
+
+    # Chat routing: when chat_db is provided, try chat system first
+    if chat_db is not None and handle_chat_email(message, config, chat_db):
         return
 
     command = extract_command(message)
@@ -104,6 +113,7 @@ def process_email(message, config: dict) -> None:
 def run_loop(config: dict) -> None:
     """Main polling loop. Runs until SIGTERM/SIGINT received."""
     global _shutdown
+    chat_db = ChatDB(config["chat_db_path"])
     poller = EmailPoller(
         host=config["imap_host"],
         port=config["imap_port"],
@@ -127,7 +137,7 @@ def run_loop(config: dict) -> None:
                     break
                 msg_id = msg.get("Message-ID", "").strip()
                 try:
-                    process_email(msg, config)
+                    process_email(msg, config, chat_db=chat_db)
                 except Exception as exc:
                     logger.error("Error processing message %s: %s", msg_id, exc)
                 finally:
@@ -135,6 +145,11 @@ def run_loop(config: dict) -> None:
             poller.disconnect()
         except Exception as exc:
             logger.error("IMAP error: %s — retrying after %ds", exc, config["poll_interval"])
+
+        try:
+            relay_outbound_messages(config, chat_db)
+        except Exception as exc:
+            logger.error("Outbound relay error: %s", exc)
 
         for _ in range(config["poll_interval"]):
             if _shutdown:
