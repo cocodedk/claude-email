@@ -13,9 +13,8 @@ logger = logging.getLogger(__name__)
 
 def _send_reply(config: dict, original_message, body: str) -> None:
     """Send an email reply to the authorized sender, threading on the original."""
-    original_subject = original_message.get("Subject", "command")
+    subject = original_message.get("Subject", "command")
     msg_id = original_message.get("Message-ID", "")
-    subject = original_subject if original_subject.startswith("Re:") else f"Re: {original_subject}"
 
     send_reply(
         smtp_host=config["smtp_host"],
@@ -110,6 +109,7 @@ def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
     pending = chat_db.get_pending_messages_for("user")
     for msg in pending:
         subject = f"[{msg['from_name']}] {msg['body'][:60]}"
+        prev_email_id = chat_db.get_last_email_message_id_for_agent(msg["from_name"]) or ""
         email_msg_id = send_reply(
             smtp_host=config["smtp_host"],
             smtp_port=config["smtp_port"],
@@ -118,6 +118,8 @@ def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
             to=config["authorized_sender"],
             subject=subject,
             body=msg["body"],
+            in_reply_to=prev_email_id,
+            references=prev_email_id,
             email_domain=config.get("email_domain", ""),
         )
         chat_db.mark_message_delivered(msg["id"])

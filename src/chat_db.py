@@ -1,4 +1,5 @@
 """Shared SQLite database layer for the claude-chat system."""
+import os
 import sqlite3
 from datetime import datetime, timezone
 
@@ -88,6 +89,21 @@ class ChatDB:
         )
         self._conn.commit()
 
+    def reap_dead_agents(self) -> list[str]:
+        """Check PIDs of running agents, mark dead ones as disconnected."""
+        rows = self._conn.execute(
+            "SELECT name, pid FROM agents WHERE pid IS NOT NULL AND status='running'"
+        ).fetchall()
+        reaped = []
+        for row in rows:
+            try:
+                os.kill(row["pid"], 0)
+            except OSError:
+                self.update_agent_status(row["name"], "disconnected")
+                self._log_event(row["name"], "disconnect", f"Agent {row['name']} (PID {row['pid']}) no longer running")
+                reaped.append(row["name"])
+        return reaped
+
     def touch_agent(self, name: str) -> None:
         self._conn.execute(
             "UPDATE agents SET last_seen_at=? WHERE name=?", (_now(), name)
@@ -140,9 +156,19 @@ class ChatDB:
         ).fetchone()
         return dict(row) if row else None
 
+    def get_last_email_message_id_for_agent(self, agent_name: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT email_message_id FROM messages "
+            "WHERE from_name=? AND email_message_id IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1",
+            (agent_name,),
+        ).fetchone()
+        return row["email_message_id"] if row else None
+
     def get_reply_to_message(self, msg_id: int) -> dict | None:
         row = self._conn.execute(
-            "SELECT * FROM messages WHERE in_reply_to=?", (msg_id,)
+            "SELECT * FROM messages WHERE in_reply_to=? AND type='reply' ORDER BY id DESC LIMIT 1",
+            (msg_id,),
         ).fetchone()
         return dict(row) if row else None
 

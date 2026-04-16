@@ -99,6 +99,28 @@ class TestAgents:
         assert row is not None
 
 
+    def test_reap_dead_agents_marks_disconnected(self, db):
+        db.register_agent("agent-alive", "/p1")
+        db.update_agent_pid("agent-alive", 99999999)  # PID that doesn't exist
+        reaped = db.reap_dead_agents()
+        assert reaped == ["agent-alive"]
+        agent = db.get_agent("agent-alive")
+        assert agent["status"] == "disconnected"
+
+    def test_reap_dead_agents_skips_no_pid(self, db):
+        db.register_agent("agent-nopid", "/p2")
+        # pid is NULL — should not be reaped
+        reaped = db.reap_dead_agents()
+        assert reaped == []
+
+    def test_reap_dead_agents_skips_already_disconnected(self, db):
+        db.register_agent("agent-disc", "/p3")
+        db.update_agent_pid("agent-disc", 99999999)
+        db.update_agent_status("agent-disc", "disconnected")
+        reaped = db.reap_dead_agents()
+        assert reaped == []
+
+
 class TestMessages:
     def test_insert_message_returns_dict(self, db):
         msg = db.insert_message("alice", "bob", "hello", "ask")
@@ -154,9 +176,34 @@ class TestMessages:
         assert found is not None
         assert found["id"] == reply["id"]
 
+    def test_get_reply_to_message_ignores_non_reply_types(self, db):
+        ask = db.insert_message("a", "b", "question?", "ask")
+        # A command referencing the same in_reply_to should NOT be returned
+        db.insert_message("b", "a", "command body", "command", in_reply_to=ask["id"])
+        assert db.get_reply_to_message(ask["id"]) is None
+
+    def test_get_reply_to_message_returns_latest(self, db):
+        ask = db.insert_message("a", "b", "question?", "ask")
+        db.insert_message("b", "a", "first reply", "reply", in_reply_to=ask["id"])
+        second = db.insert_message("b", "a", "second reply", "reply", in_reply_to=ask["id"])
+        found = db.get_reply_to_message(ask["id"])
+        assert found["id"] == second["id"]
+        assert found["body"] == "second reply"
+
     def test_get_reply_to_message_none(self, db):
         ask = db.insert_message("a", "b", "q?", "ask")
         assert db.get_reply_to_message(ask["id"]) is None
+
+    def test_get_last_email_message_id_for_agent(self, db):
+        m1 = db.insert_message("agent-foo", "user", "msg1", "notify")
+        db.set_email_message_id(m1["id"], "<first@example.com>")
+        m2 = db.insert_message("agent-foo", "user", "msg2", "ask")
+        db.set_email_message_id(m2["id"], "<second@example.com>")
+        assert db.get_last_email_message_id_for_agent("agent-foo") == "<second@example.com>"
+
+    def test_get_last_email_message_id_for_agent_none(self, db):
+        db.insert_message("agent-foo", "user", "no email id", "notify")
+        assert db.get_last_email_message_id_for_agent("agent-foo") is None
 
     def test_fk_constraint_on_in_reply_to(self, db):
         with pytest.raises(Exception):

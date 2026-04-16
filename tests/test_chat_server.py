@@ -220,6 +220,42 @@ class TestToolDispatch:
         data = json.loads(result.root.content[0].text)
         assert data["status"] == "deregistered"
 
+    def test_empty_name_rejected(self, app):
+        import asyncio
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_register",
+                    arguments={"name": "  ", "project_path": "/tmp/x"},
+                ),
+            ))
+
+        result = asyncio.run(_call())
+        assert result.root.isError is True
+
+    def test_oversized_message_rejected(self, app):
+        import asyncio
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_notify",
+                    arguments={"_caller": "agent-x", "message": "x" * 200_000},
+                ),
+            ))
+
+        result = asyncio.run(_call())
+        assert result.root.isError is True
+
     def test_call_unknown_tool_returns_error(self, app):
         import asyncio
         from mcp.types import CallToolRequest, CallToolRequestParams

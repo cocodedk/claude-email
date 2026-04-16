@@ -101,9 +101,8 @@ def process_email(message, config: dict, chat_db=None) -> None:
         timeout=config["claude_timeout"], cwd=config.get("claude_cwd"),
     )
 
-    original_subject = message.get("Subject", "command")
+    subject = message.get("Subject", "command")
     msg_id = message.get("Message-ID", "")
-    subject = original_subject if original_subject.startswith("Re:") else f"Re: {original_subject}"
 
     send_reply(
         smtp_host=config["smtp_host"],
@@ -159,6 +158,13 @@ def run_loop(config: dict) -> None:
             relay_outbound_messages(config, chat_db)
         except Exception as exc:
             logger.error("Outbound relay error: %s", exc)
+
+        try:
+            reaped = chat_db.reap_dead_agents()
+            for name in reaped:
+                logger.info("Agent %s marked disconnected (process exited)", name)
+        except Exception as exc:
+            logger.error("Liveness check error: %s", exc)
 
         for _ in range(config["poll_interval"]):
             if _shutdown:

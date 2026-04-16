@@ -10,3 +10,5 @@ claude-email.log*
 .codex/
 .venv/
 claude-chat.db
+claude-chat.db-shm
+claude-chat.db-wal

@@ -4,7 +4,6 @@ import logging
 import os
 import subprocess
 from pathlib import PurePosixPath
-from subprocess import PIPE
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +50,14 @@ def spawn_agent(
     name = build_agent_name(project_dir)
     inject_mcp_config(project_dir, chat_url)
 
-    cmd = [claude_bin, "--print"]
+    cmd = [claude_bin]
     if instruction:
-        cmd.append(instruction)
+        cmd += ["--print", instruction]
 
-    proc = subprocess.Popen(cmd, cwd=project_dir, shell=False, stdout=PIPE, stderr=PIPE)
+    proc = subprocess.Popen(
+        cmd, cwd=project_dir, shell=False,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
 
     db.register_agent(name, project_dir)
     db.update_agent_pid(name, proc.pid)

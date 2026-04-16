@@ -103,6 +103,34 @@ class TestSpawnAgent:
         )
 
         cmd = mock_popen.call_args.args[0]
-        assert "run all tests" in cmd
-        assert cmd[0] == "claude"
-        assert "--print" in cmd
+        assert cmd == ["claude", "--print", "run all tests"]
+
+    def test_spawn_agent_without_instruction_uses_interactive(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 50
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        project_dir = str(tmp_path / "idle")
+        spawn_agent(db, project_dir, "http://localhost:8080/mcp")
+
+        cmd = mock_popen.call_args.args[0]
+        assert cmd == ["claude"]
+        assert "--print" not in cmd
+
+    def test_spawn_agent_uses_devnull(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+        import subprocess
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 7
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        spawn_agent(db, str(tmp_path / "p"), "http://localhost:8080/mcp")
+
+        kwargs = mock_popen.call_args.kwargs
+        assert kwargs["stdout"] == subprocess.DEVNULL
+        assert kwargs["stderr"] == subprocess.DEVNULL

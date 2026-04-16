@@ -146,24 +146,51 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
     return app
 
 
+_MAX_NAME_LEN = 128
+_MAX_MSG_LEN = 100_000
+_MAX_PATH_LEN = 4096
+
+
+def _sanitize_str(value: str, max_len: int, field: str) -> str:
+    """Validate and strip a string parameter."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    value = value.strip()
+    if not value:
+        raise ValueError(f"{field} must not be empty")
+    if len(value) > max_len:
+        raise ValueError(f"{field} exceeds {max_len} chars")
+    return value
+
+
 async def _dispatch(db: ChatDB, name: str, arguments: dict) -> dict:
     """Route a tool call to the appropriate chat.tools function."""
     if name == "chat_register":
         return tools.register_agent(
-            db, arguments["name"], arguments["project_path"],
+            db,
+            _sanitize_str(arguments["name"], _MAX_NAME_LEN, "name"),
+            _sanitize_str(arguments["project_path"], _MAX_PATH_LEN, "project_path"),
         )
     if name == "chat_ask":
         return await tools.ask_user(
-            db, arguments["_caller"], arguments["message"],
+            db,
+            _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
+            _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
         )
     if name == "chat_notify":
         return tools.notify_user(
-            db, arguments["_caller"], arguments["message"],
+            db,
+            _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
+            _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
         )
     if name == "chat_check_messages":
-        return tools.check_messages(db, arguments["_caller"])
+        return tools.check_messages(
+            db, _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
+        )
     if name == "chat_list_agents":
         return tools.list_agents(db)
     if name == "chat_deregister":
-        return tools.deregister_agent(db, arguments["_caller"])
+        return tools.deregister_agent(
+            db, _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
+        )
     raise ValueError(f"Unknown tool: {name}")
