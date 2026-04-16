@@ -6,21 +6,12 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=cocodedk
-Group=cocodedk
-WorkingDirectory=/home/cocodedk
+WorkingDirectory=/home/cocodedk/0-projects/claude-email
 EnvironmentFile=/home/cocodedk/0-projects/claude-email/.env
 ExecStart=/home/cocodedk/0-projects/claude-email/.venv/bin/python3 /home/cocodedk/0-projects/claude-email/main.py
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=30
 
-# Systemd hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=false
-ReadWritePaths=/home/cocodedk
-PrivateTmp=true
-
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

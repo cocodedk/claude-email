@@ -45,6 +45,11 @@ claude-email/
 - All TLS connections use `ssl.create_default_context()` (verified, not default unverified)
 - `processed_ids.json` is the idempotency store — never delete it in production
 
+### Systemd
+- Runs as a **user-level** service (`~/.config/systemd/user/claude-email.service`)
+- Can restart itself: `systemctl --user restart claude-email.service`
+- No sudo required — user-level systemd with lingering enabled
+
 ---
 
 ## Engineering Principles

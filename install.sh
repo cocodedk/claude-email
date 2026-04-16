@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_NAME="claude-email"
+USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
 
 echo "==> Claude Email Agent — installer"
 
@@ -46,16 +47,35 @@ python3 -m venv "$SCRIPT_DIR/.venv"
 "$SCRIPT_DIR/.venv/bin/pip" install --quiet -r "$SCRIPT_DIR/requirements.txt"
 echo "    venv OK"
 
-# --- Systemd service ---
-echo "==> Installing systemd service..."
-sudo cp "$SCRIPT_DIR/$SERVICE_NAME.service" /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable "$SERVICE_NAME"
-sudo systemctl restart "$SERVICE_NAME"
+# --- Remove old system-level service if present ---
+if [[ -f "/etc/systemd/system/$SERVICE_NAME.service" ]]; then
+    echo "==> Migrating from system-level to user-level service..."
+    sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+    sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+    sudo rm -f "/etc/systemd/system/$SERVICE_NAME.service"
+    sudo systemctl daemon-reload
+    echo "    old system service removed"
+fi
+
+# --- Enable lingering (one-time, requires sudo) ---
+if ! loginctl show-user "$(whoami)" -p Linger 2>/dev/null | grep -q "yes"; then
+    echo "==> Enabling lingering for $(whoami) (one-time sudo)..."
+    sudo loginctl enable-linger "$(whoami)"
+    echo "    lingering enabled"
+fi
+
+# --- Install user-level systemd service ---
+echo "==> Installing user-level systemd service..."
+mkdir -p "$USER_SYSTEMD_DIR"
+cp "$SCRIPT_DIR/$SERVICE_NAME.service" "$USER_SYSTEMD_DIR/"
+systemctl --user daemon-reload
+systemctl --user enable "$SERVICE_NAME"
+systemctl --user restart "$SERVICE_NAME"
 echo "    service enabled and started"
 
 # --- Status ---
 echo ""
-sudo systemctl status "$SERVICE_NAME" --no-pager
+systemctl --user status "$SERVICE_NAME" --no-pager
 echo ""
-echo "==> Done. Logs: journalctl -u $SERVICE_NAME -f"
+echo "==> Done. Logs: journalctl --user -u $SERVICE_NAME -f"
+echo "==> Manage: systemctl --user {start|stop|restart|status} $SERVICE_NAME"
