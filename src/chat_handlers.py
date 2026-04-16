@@ -40,7 +40,7 @@ def handle_chat_email(message, config: dict, chat_db: ChatDB) -> bool:
     if route.kind == "chat_reply":
         body = extract_command(message)
         chat_db.insert_message(
-            "user", route.agent_name, body, "chat",
+            "user", route.agent_name, body, "reply",
             in_reply_to=route.original_message_id,
         )
         logger.info("Chat reply routed to %s", route.agent_name)
@@ -107,7 +107,7 @@ def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
     pending = chat_db.get_pending_messages_for("user")
     for msg in pending:
         subject = f"[{msg['from_name']}] {msg['body'][:60]}"
-        send_reply(
+        email_msg_id = send_reply(
             smtp_host=config["smtp_host"],
             smtp_port=config["smtp_port"],
             username=config["username"],
@@ -117,7 +117,6 @@ def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
             body=msg["body"],
         )
         chat_db.mark_message_delivered(msg["id"])
-        # NOTE: send_reply returns None, so we cannot store the outbound
-        # email's Message-ID back in the DB. This limits reply-threading
-        # for agent messages until send_reply is updated to return the ID.
+        if email_msg_id:
+            chat_db.set_email_message_id(msg["id"], email_msg_id)
         logger.info("Relayed message %d from %s to user", msg["id"], msg["from_name"])

@@ -17,11 +17,13 @@ def send_reply(
     body: str,
     in_reply_to: str = "",
     references: str = "",
-) -> None:
+) -> str:
     """Send a plain-text reply via SMTP_SSL with verified TLS.
 
     Creates a fresh connection per send to avoid stale-connection issues in
     long-running service deployments.
+
+    Returns the Message-ID of the sent email.
     """
     msg = email.message.EmailMessage()
     msg["From"] = username
@@ -43,3 +45,4 @@ def send_reply(
     except smtplib.SMTPException as exc:
         logger.error("Failed to send reply: %s", exc)
         raise
+    return msg["Message-ID"] or ""

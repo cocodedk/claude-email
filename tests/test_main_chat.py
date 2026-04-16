@@ -162,7 +162,7 @@ class TestRelayOutboundMessages:
         """Pending agent messages get sent as emails and marked delivered."""
         from src.chat_handlers import relay_outbound_messages
 
-        mock_reply = mocker.patch("src.chat_handlers.send_reply")
+        mock_reply = mocker.patch("src.chat_handlers.send_reply", return_value="<test@cocode.dk>")
 
         # Agent sends a message to user
         chat_db.insert_message("agent-foo", "user", "Build succeeded!", "chat")
