@@ -251,6 +251,52 @@ Incoming Email
 └─────────────────────────────────┘
 ```
 
+## Connecting Claude Code to the Chat Server
+
+When you spawn an agent via the `spawn` email command, the MCP config is injected automatically into the project's `.mcp.json`. To connect a Claude Code session manually, add the chat server to `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "claude-chat": {
+      "url": "http://127.0.0.1:8420/sse"
+    }
+  }
+}
+```
+
+Replace the URL with your `CHAT_URL` from `.env`. Once configured, Claude Code discovers the MCP server on startup and gains access to the chat tools listed below.
+
+### Using the chat tools from Claude Code
+
+After connecting, the agent should register itself, then use the tools to communicate:
+
+```
+You: Register as an agent and ask the user if the tests should include integration tests.
+
+Claude Code:
+  1. Calls chat_register(name="agent-myproject", project_path="/home/user/myproject")
+  2. Calls chat_ask(message="Should I include integration tests in the test suite?")
+  3. Blocks until the user replies via email
+  4. Receives { reply: "Yes, include integration tests for the API endpoints" }
+  5. Continues working with that answer
+```
+
+Agents can also send fire-and-forget status updates:
+
+```
+Claude Code:
+  Calls chat_notify(message="All 42 tests passing. Build complete.")
+  → User receives an email with the status update
+```
+
+### Automatic vs manual setup
+
+| Method | How | When |
+|---|---|---|
+| **Automatic** | `spawn /path/to/project` via email | Creates agent, injects `.mcp.json`, starts Claude Code |
+| **Manual** | Add `.mcp.json` yourself, start `claude` | For existing sessions or custom setups |
+
 ## MCP Tools (for Agents)
 
 Agents connect to the chat server via MCP SSE and use these tools:
