@@ -1,8 +1,8 @@
 [Unit]
 Description=Claude Email Agent
 Documentation=https://github.com/cocodedk/claude-email
-After=network-online.target
-Wants=network-online.target
+After=network-online.target claude-chat.service
+Wants=network-online.target claude-chat.service
 
 [Service]
 Type=simple

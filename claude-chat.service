@@ -1,0 +1,16 @@
+[Unit]
+Description=Claude Chat Relay (MCP Server)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/cocodedk/0-projects/claude-email
+EnvironmentFile=/home/cocodedk/0-projects/claude-email/.env
+ExecStart=/home/cocodedk/0-projects/claude-email/.venv/bin/python3 /home/cocodedk/0-projects/claude-email/chat_server.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

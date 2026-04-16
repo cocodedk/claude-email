@@ -2,10 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVICE_NAME="claude-email"
 USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
 
-echo "==> Claude Email Agent — installer"
+echo "==> Claude Email + Chat — installer"
 
 # --- Prerequisites ---
 echo "==> Checking prerequisites..."
@@ -47,14 +46,18 @@ python3 -m venv "$SCRIPT_DIR/.venv"
 "$SCRIPT_DIR/.venv/bin/pip" install --quiet -r "$SCRIPT_DIR/requirements.txt"
 echo "    venv OK"
 
-# --- Remove old system-level service if present ---
-if [[ -f "/etc/systemd/system/$SERVICE_NAME.service" ]]; then
-    echo "==> Migrating from system-level to user-level service..."
-    sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-    sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || true
-    sudo rm -f "/etc/systemd/system/$SERVICE_NAME.service"
+# --- Remove old system-level services if present ---
+for svc in claude-email claude-chat; do
+    if [[ -f "/etc/systemd/system/$svc.service" ]]; then
+        echo "==> Migrating $svc from system-level to user-level..."
+        sudo systemctl stop "$svc" 2>/dev/null || true
+        sudo systemctl disable "$svc" 2>/dev/null || true
+        sudo rm -f "/etc/systemd/system/$svc.service"
+        echo "    old $svc system service removed"
+    fi
+done
+if [[ -f "/etc/systemd/system/claude-email.service" ]] || [[ -f "/etc/systemd/system/claude-chat.service" ]]; then
     sudo systemctl daemon-reload
-    echo "    old system service removed"
 fi
 
 # --- Enable lingering (one-time, requires sudo) ---
@@ -64,18 +67,31 @@ if ! loginctl show-user "$(whoami)" -p Linger 2>/dev/null | grep -q "yes"; then
     echo "    lingering enabled"
 fi
 
-# --- Install user-level systemd service ---
-echo "==> Installing user-level systemd service..."
+# --- Install user-level systemd services ---
+echo "==> Installing user-level systemd services..."
 mkdir -p "$USER_SYSTEMD_DIR"
-cp "$SCRIPT_DIR/$SERVICE_NAME.service" "$USER_SYSTEMD_DIR/"
+
+# claude-chat first (claude-email depends on it)
+cp "$SCRIPT_DIR/claude-chat.service" "$USER_SYSTEMD_DIR/"
+cp "$SCRIPT_DIR/claude-email.service" "$USER_SYSTEMD_DIR/"
 systemctl --user daemon-reload
-systemctl --user enable "$SERVICE_NAME"
-systemctl --user restart "$SERVICE_NAME"
-echo "    service enabled and started"
+
+systemctl --user enable claude-chat
+systemctl --user restart claude-chat
+echo "    claude-chat enabled and started"
+
+systemctl --user enable claude-email
+systemctl --user restart claude-email
+echo "    claude-email enabled and started"
 
 # --- Status ---
 echo ""
-systemctl --user status "$SERVICE_NAME" --no-pager
+echo "==> Service status:"
+systemctl --user status claude-chat --no-pager || true
 echo ""
-echo "==> Done. Logs: journalctl --user -u $SERVICE_NAME -f"
-echo "==> Manage: systemctl --user {start|stop|restart|status} $SERVICE_NAME"
+systemctl --user status claude-email --no-pager || true
+echo ""
+echo "==> Done."
+echo "==> Logs:   journalctl --user -u claude-chat -f"
+echo "==>         journalctl --user -u claude-email -f"
+echo "==> Manage: systemctl --user {start|stop|restart|status} claude-{chat,email}"
