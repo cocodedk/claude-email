@@ -19,21 +19,28 @@ def notify_user(db: ChatDB, caller: str, message: str) -> dict:
     return {"status": "sent"}
 
 
+_ASK_TIMEOUT = 3600  # 1 hour max wait
+
+
 async def ask_user(
-    db: ChatDB, caller: str, message: str, *, poll_interval: float = 2.0,
+    db: ChatDB, caller: str, message: str, *,
+    poll_interval: float = 2.0, timeout: float = _ASK_TIMEOUT,
 ) -> dict:
     """Send a question to user and block until user replies.
 
     Creates an ask message, then polls for a reply every poll_interval
-    seconds until one appears.
+    seconds until one appears or timeout is reached.
     """
     msg = db.insert_message(caller, "user", message, "ask")
     msg_id = msg["id"]
-    while True:
+    elapsed = 0.0
+    while elapsed < timeout:
         reply = db.get_reply_to_message(msg_id)
         if reply is not None:
             return {"reply": reply["body"]}
         await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+    return {"error": f"No reply received within {int(timeout)}s"}
 
 
 def check_messages(db: ChatDB, caller: str) -> dict:

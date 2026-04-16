@@ -74,6 +74,15 @@ class TestAskUser:
         assert result == {"reply": "yes, go ahead"}
 
     @pytest.mark.asyncio
+    async def test_timeout_returns_error(self, db):
+        db.register_agent("bot", "/p")
+        result = await ask_user(
+            db, "bot", "question?", poll_interval=0.01, timeout=0.03,
+        )
+        assert "error" in result
+        assert "No reply" in result["error"]
+
+    @pytest.mark.asyncio
     async def test_creates_ask_message(self, db):
         db.register_agent("bot", "/p")
 

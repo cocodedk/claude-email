@@ -40,6 +40,15 @@ fi
 
 echo "    .env OK"
 
+# --- Auth safety check ---
+gpg_fp=$(grep "^GPG_FINGERPRINT=" "$SCRIPT_DIR/.env" | cut -d= -f2-)
+secret=$(grep "^SHARED_SECRET=" "$SCRIPT_DIR/.env" | cut -d= -f2-)
+if [[ -z "$gpg_fp" && ( -z "$secret" || "$secret" == "change_this_to_a_strong_secret" ) ]]; then
+    echo "ERROR: Neither GPG_FINGERPRINT nor a real SHARED_SECRET is set."
+    echo "  Set at least one in .env before installing."
+    exit 1
+fi
+
 # --- Virtual environment ---
 echo "==> Setting up Python virtual environment..."
 python3 -m venv "$SCRIPT_DIR/.venv"
@@ -71,9 +80,10 @@ fi
 echo "==> Installing user-level systemd services..."
 mkdir -p "$USER_SYSTEMD_DIR"
 
-# claude-chat first (claude-email depends on it)
-cp "$SCRIPT_DIR/claude-chat.service" "$USER_SYSTEMD_DIR/"
-cp "$SCRIPT_DIR/claude-email.service" "$USER_SYSTEMD_DIR/"
+# Substitute __INSTALL_DIR__ and install service files
+for svc in claude-chat.service claude-email.service; do
+    sed "s|__INSTALL_DIR__|$SCRIPT_DIR|g" "$SCRIPT_DIR/$svc" > "$USER_SYSTEMD_DIR/$svc"
+done
 systemctl --user daemon-reload
 
 systemctl --user enable claude-chat

@@ -77,11 +77,16 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
         if not project_dir:
             _send_reply(config, message, "Usage: spawn <path> [instruction]")
             return
-        name, pid = spawn_agent(
-            chat_db, project_dir, config["chat_url"],
-            instruction=instruction,
-            claude_bin=config["claude_bin"],
-        )
+        try:
+            name, pid = spawn_agent(
+                chat_db, project_dir, config["chat_url"],
+                instruction=instruction,
+                claude_bin=config["claude_bin"],
+                allowed_base=config.get("claude_cwd"),
+            )
+        except ValueError as exc:
+            _send_reply(config, message, f"Spawn rejected: {exc}")
+            return
         _send_reply(config, message, f"Spawned {name} (PID {pid})")
 
     elif route.meta_command == "restart":

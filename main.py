@@ -180,4 +180,7 @@ if __name__ == "__main__":
     except KeyError as exc:
         logger.error("Missing required environment variable: %s", exc)
         sys.exit(1)
+    if not cfg["gpg_fingerprint"] and not cfg["shared_secret"]:
+        logger.error("FATAL: Neither GPG_FINGERPRINT nor SHARED_SECRET is set — refusing to start")
+        sys.exit(1)
     run_loop(cfg)

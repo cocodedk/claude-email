@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import subprocess
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 logger = logging.getLogger(__name__)
 
@@ -36,17 +36,36 @@ def inject_mcp_config(project_dir: str, chat_url: str) -> None:
     logger.info("Wrote MCP config to %s", mcp_path)
 
 
+def validate_project_path(project_dir: str, allowed_base: str | None = None) -> str:
+    """Canonicalize and validate a project directory path.
+
+    Returns the resolved absolute path.
+    Raises ValueError if the path is invalid or outside the allowed base.
+    """
+    resolved = str(Path(project_dir).resolve())
+    if not os.path.isdir(resolved):
+        raise ValueError(f"Directory does not exist: {resolved}")
+    if allowed_base:
+        base = str(Path(allowed_base).resolve())
+        if not resolved.startswith(base + os.sep) and resolved != base:
+            raise ValueError(f"Path {resolved} is outside allowed base {base}")
+    return resolved
+
+
 def spawn_agent(
     db,
     project_dir: str,
     chat_url: str,
     instruction: str = "",
     claude_bin: str = "claude",
+    allowed_base: str | None = None,
 ) -> tuple[str, int]:
     """Spawn a Claude CLI agent in the given project directory.
 
     Returns (agent_name, pid).
+    Raises ValueError if the path is invalid or outside allowed_base.
     """
+    project_dir = validate_project_path(project_dir, allowed_base)
     name = build_agent_name(project_dir)
     inject_mcp_config(project_dir, chat_url)
 
