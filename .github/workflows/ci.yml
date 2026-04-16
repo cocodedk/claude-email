@@ -20,5 +20,8 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Check file line limits
+        run: scripts/check-line-limit.sh
+
       - name: Run tests
         run: pytest tests/ -q
