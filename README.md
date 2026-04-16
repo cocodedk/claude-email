@@ -319,7 +319,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 143 pytest tests
+├── tests/                 # 185 pytest tests (99% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -348,7 +348,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests
+# Run all tests (185 tests, 99% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -356,7 +356,21 @@ tail -f claude-email.log
 
 # Run a specific test file
 .venv/bin/pytest tests/test_chat_db.py -v
+
+# Enforce 200-line file limit (also runs in pre-commit hook and CI)
+scripts/check-line-limit.sh
+
+# Measure test coverage
+.venv/bin/coverage run -m pytest tests/ -q && .venv/bin/coverage report --show-missing
 ```
+
+## Quality
+
+- **185 tests** with **99% code coverage** across all modules
+- **200-line file limit** enforced by automated linter in pre-commit hook and CI
+- **Conventional commits** enforced by commit-msg hook
+- **Pre-commit testing** — all tests must pass before every commit
+- **GitHub Actions CI** — lint + full test suite on every push and PR
 
 ## Security
 

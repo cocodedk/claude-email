@@ -40,7 +40,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 131 pytest tests
+├── tests/                 # 185 pytest tests (99% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -93,5 +93,5 @@ scripts/check-line-limit.sh     # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 143 tests pass
+2. Run `.venv/bin/pytest tests/ -q` — confirm 185 tests pass
 3. Invoke `superpowers:brainstorming` before any feature work
