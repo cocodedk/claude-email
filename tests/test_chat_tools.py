@@ -1,7 +1,6 @@
 """Tests for the MCP tool handler functions (chat/tools.py)."""
 import asyncio
 import pytest
-import pytest_asyncio
 from src.chat_db import ChatDB
 from chat.tools import (
     register_agent,
