@@ -170,10 +170,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=cocodedk
-WorkingDirectory=/home/cocodedk/0-projects/claude-email
-EnvironmentFile=/home/cocodedk/0-projects/claude-email/.env
-ExecStart=/usr/bin/python3 /home/cocodedk/0-projects/claude-email/main.py
+User=__USER__
+WorkingDirectory=__INSTALL_DIR__
+EnvironmentFile=__INSTALL_DIR__/.env
+ExecStart=/usr/bin/python3 __INSTALL_DIR__/main.py
 Restart=on-failure
 RestartSec=10
 

@@ -1547,9 +1547,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/cocodedk/0-projects/claude-email
-EnvironmentFile=/home/cocodedk/0-projects/claude-email/.env
-ExecStart=/home/cocodedk/0-projects/claude-email/.venv/bin/python3 /home/cocodedk/0-projects/claude-email/chat_server.py
+WorkingDirectory=__INSTALL_DIR__
+EnvironmentFile=__INSTALL_DIR__/.env
+ExecStart=__INSTALL_DIR__/.venv/bin/python3 __INSTALL_DIR__/chat_server.py
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=30
@@ -1710,7 +1710,7 @@ curl -s http://localhost:8420/sse -H "Accept: text/event-stream" --max-time 2 ||
 # Quick test: insert a message that claude-email will pick up and send
 from src.chat_db import ChatDB
 db = ChatDB("claude-chat.db")
-db.register_agent("agent-claude-chat", "/home/cocodedk/0-projects/claude-email")
+db.register_agent("agent-claude-chat", "__INSTALL_DIR__")
 db.insert_message(
     "agent-claude-chat",
     "user",

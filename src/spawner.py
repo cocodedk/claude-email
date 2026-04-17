@@ -59,23 +59,31 @@ def spawn_agent(
     instruction: str = "",
     claude_bin: str = "claude",
     allowed_base: str | None = None,
+    yolo: bool = False,
+    extra_env: dict[str, str] | None = None,
 ) -> tuple[str, int]:
     """Spawn a Claude CLI agent in the given project directory.
 
     Returns (agent_name, pid).
     Raises ValueError if the path is invalid or outside allowed_base.
+    When yolo is True, appends --dangerously-skip-permissions.
+    extra_env is merged over os.environ for the spawned process.
     """
     project_dir = validate_project_path(project_dir, allowed_base)
     name = build_agent_name(project_dir)
     inject_mcp_config(project_dir, chat_url)
 
     cmd = [claude_bin]
+    if yolo:
+        cmd.append("--dangerously-skip-permissions")
     if instruction:
         cmd += ["--print", instruction]
 
+    env = {**os.environ, **extra_env} if extra_env else None
     proc = subprocess.Popen(
         cmd, cwd=project_dir, shell=False,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        env=env,
     )
 
     db.register_agent(name, project_dir)

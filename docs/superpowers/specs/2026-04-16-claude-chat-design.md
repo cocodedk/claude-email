@@ -87,7 +87,7 @@ Register as a participant in the chat system.
 ```
 Parameters:
   name: string          # e.g., "agent-fits"
-  project_path: string  # e.g., "/home/cocodedk/0-projects/fits"
+  project_path: string  # e.g., "/path/to/projects/fits"
 
 Returns:
   { "status": "registered", "name": "agent-fits" }
@@ -272,17 +272,17 @@ All data is **denormalized and pre-formatted** — every row is ready to serve w
 ### 5.5 User spawns a new agent
 
 Spawn idle:
-1. User emails: `AUTH:<secret> spawn /home/cocodedk/0-projects/fits`
+1. User emails: `AUTH:<secret> spawn /path/to/projects/fits`
 
 Spawn with initial instruction:
-1. User emails: `AUTH:<secret> spawn /home/cocodedk/0-projects/fits refactor the auth module`
+1. User emails: `AUTH:<secret> spawn /path/to/projects/fits refactor the auth module`
 
 In both cases:
 2. claude-email validates auth, recognizes spawn command
-3. claude-email writes/updates `.mcp.json` in `/home/cocodedk/0-projects/fits` with claude-chat server config
+3. claude-email writes/updates `.mcp.json` in `/path/to/projects/fits` with claude-chat server config
 4. claude-email spawns: `claude --print` (or interactive session) in that directory
 5. claude-email records PID and agent info in `agents` table
-6. Spawned agent starts, reads `.mcp.json`, connects to claude-chat, calls `chat_register("agent-fits", "/home/cocodedk/0-projects/fits")`
+6. Spawned agent starts, reads `.mcp.json`, connects to claude-chat, calls `chat_register("agent-fits", "/path/to/projects/fits")`
 7. claude-email replies: `Agent agent-fits spawned and registered`
 
 ### 5.6 User restarts a service
@@ -367,7 +367,7 @@ This is how Claude Code natively discovers MCP servers.
 - **WAL mode**: Enables concurrent reads from claude-email while claude-chat writes
 - **Busy timeout**: 5000ms — retries on lock contention
 - **Journal**: WAL (write-ahead log)
-- **DB location**: `/home/cocodedk/0-projects/claude-email/claude-chat.db`
+- **DB location**: `__INSTALL_DIR__/claude-chat.db`
 
 ### 9.2 Shared access pattern
 
@@ -396,9 +396,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/cocodedk/0-projects/claude-email
-EnvironmentFile=/home/cocodedk/0-projects/claude-email/.env
-ExecStart=/home/cocodedk/0-projects/claude-email/.venv/bin/python3 /home/cocodedk/0-projects/claude-email/chat_server.py
+WorkingDirectory=__INSTALL_DIR__
+EnvironmentFile=__INSTALL_DIR__/.env
+ExecStart=__INSTALL_DIR__/.venv/bin/python3 __INSTALL_DIR__/chat_server.py
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=30
