@@ -6,6 +6,7 @@
   <title>claude-email — کنترل عامل‌های Claude Code از طریق ایمیل</title>
   <meta name="description" content="پوشش ایمیل‌محور برای Claude Code CLI با رله چت MCP یکپارچه برای مدیریت چندین عامل Claude Code. احراز هویت دوگانه، هماهنگی چند عاملی و سرویس‌های systemd سطح کاربر." />
   <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#f3ead5" />
   <link rel="canonical" href="https://cocodedk.github.io/claude-email/fa/" />
 
   <!-- Hreflang -->
@@ -28,13 +29,12 @@
   <meta name="twitter:description" content="پوشش ایمیل‌محور برای Claude Code CLI با رله چت MCP یکپارچه برای مدیریت چندین عامل Claude Code." />
   <meta name="twitter:image" content="https://cocodedk.github.io/claude-email/og.png" />
 
-  <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
 
-  <!-- Stylesheet -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="../styles.css" />
 
-  <!-- JSON-LD -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -58,130 +58,160 @@
 </head>
 <body>
 
-  <!-- Header -->
   <header class="site-header">
     <div class="container header-inner">
-      <div class="site-title"><code>claude-email</code></div>
+      <div class="site-title"><code>claude-email</code> &nbsp;·&nbsp; نسخه ۱ · متن‌باز</div>
       <a href="../" class="lang-switch">English</a>
     </div>
   </header>
 
-  <!-- Hero -->
   <section class="hero">
+    <div class="postmark" aria-hidden="true">
+      <span>تحویل شد</span>
+      <strong>پست هوایی</strong>
+      <span>user@example.com</span>
+    </div>
     <div class="container">
-      <h1><span>claude-email</span></h1>
-      <p class="tagline">کنترل عامل‌های Claude Code از طریق ایمیل</p>
-      <p class="description">
-        یک پوشش ایمیل‌محور برای خط فرمان Claude Code با رله چت MCP یکپارچه
-        برای مدیریت چندین عامل Claude Code. صندوق ورودی IMAP را بررسی می‌کند،
-        فرستنده را با امضای GPG یا رمز مشترک تایید می‌کند، دستورات را اجرا می‌کند
-        و پاسخ را از طریق SMTP ارسال می‌کند &mdash; همه از هر سرویس‌گیرنده ایمیلی.
+      <div class="hero-eyebrow reveal reveal--1">ارسال شماره ۰۰۱ · ایمیل ← عامل</div>
+      <h1 class="reveal reveal--2">
+        claude-email
+        <em>مکاتبه‌ای با عامل‌های هوشمند</em>
+      </h1>
+      <p class="tagline reveal reveal--3">
+        همان‌طور که به یک همکار نامه می‌نویسید، به Claude نامه بنویسید — از صندوق ورودی خودتان.
       </p>
-      <a href="https://github.com/cocodedk/claude-email" class="btn-primary">مشاهده در GitHub</a>
+      <p class="description reveal reveal--3">
+        پوشش ایمیل‌محور برای خط فرمان Claude Code با رله چت MCP یکپارچه.
+        صندوق IMAP را بررسی می‌کند، فرستنده را با GPG یا رمز مشترک تایید می‌کند، دستور را اجرا می‌کند و پاسخ را با SMTP می‌فرستد.
+        یک پوشش، چندین عامل، و هر سرویس‌گیرنده ایمیلی.
+      </p>
+      <div class="hero-actions reveal reveal--4">
+        <a href="https://github.com/cocodedk/claude-email" class="btn-primary">باز کردن مخزن</a>
+      </div>
     </div>
   </section>
 
-  <!-- Features -->
+  <div class="perf"></div>
+
   <section class="features">
     <div class="container">
-      <h2 class="section-title">ویژگی‌ها</h2>
-      <div class="features-grid">
-
-        <div class="feature-card">
-          <span class="feature-icon">&#9993;</span>
-          <h3>کنترل از طریق ایمیل</h3>
-          <p>از هر سرویس‌گیرنده ایمیلی به عنوان کنترل از راه دور جهانی برای Claude Code استفاده کنید. دستوری بفرستید و نتیجه را در صندوق ورودی خود دریافت کنید.</p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">&#128274;</span>
-          <h3>احراز هویت دوگانه</h3>
-          <p>هر دستور ورودی را با امضای GPG یا رمز مشترک تایید کنید. فقط فرستندگان مجاز می‌توانند دستورات را اجرا کنند.</p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">&#128172;</span>
-          <h3>چت چند عاملی</h3>
-          <p>رله چت مبتنی بر MCP به چندین عامل Claude Code اجازه می‌دهد از طریق گذرگاه پیام SQLite مشترک با انتقال SSE هماهنگ شوند.</p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">&#9881;</span>
-          <h3>مدیریت عامل‌ها</h3>
-          <p>عامل‌ها را مستقیما از ایمیل ایجاد، پیام‌رسانی و مدیریت کنید. از <code>@agent-name</code> برای هدف‌گیری عامل خاص و <code>spawn</code> برای ایجاد عامل جدید استفاده کنید.</p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">&#128640;</span>
-          <h3>مدیریت سرویس</h3>
-          <p>سرویس‌های systemd سطح کاربر &mdash; بدون نیاز به sudo. راه‌اندازی مجدد خودکار، ترتیب وابستگی و پشتیبانی از lingering به صورت پیش‌فرض.</p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">&#9989;</span>
-          <h3>کیفیت</h3>
-          <p>&#1777;&#1785;&#1779; تست با &#1785;&#1785;&#1642; پوشش کد. حالت WAL در SQLite برای دسترسی همزمان ایمن. پایتون &#1779;.&#1777;&#1778;، کاملا تایپ‌شده، بدون تزریق شل.</p>
-        </div>
-
+      <div class="section-head">
+        <div class="section-num">۰۱</div>
+        <h2 class="section-title">
+          <small>فهرست ویژگی‌ها</small>
+          چرا با ایمیل به یک ربات بنویسیم
+        </h2>
       </div>
+
+      <ol class="features-list">
+        <li>
+          <span class="num">№ ۰۱</span>
+          <h3>ایمیل به‌جای ترمینال</h3>
+          <p>هر سرویس‌گیرنده ایمیلی به یک کنترل از راه دور جهانی برای Claude Code تبدیل می‌شود. دستور را می‌فرستید، نتیجه را به‌عنوان پاسخ رشته‌ای دریافت می‌کنید. نه نصب نرم‌افزار، نه VPN.</p>
+        </li>
+        <li>
+          <span class="num">№ ۰۲</span>
+          <h3>احراز هویت دوگانه</h3>
+          <p>هر پیام ورودی با <code>From</code>، <code>Return-Path</code> و یکی از دو روش GPG یا رمز مشترک چرخشی تایید می‌شود. نامه‌های بدون امضا از غریبه‌ها در همان لحظه دور ریخته می‌شوند.</p>
+        </li>
+        <li>
+          <span class="num">№ ۰۳</span>
+          <h3>گذرگاه چت چند عاملی</h3>
+          <p>یک سرور MCP بر بستر SSE و SQLite (حالت WAL) به چندین عامل Claude Code اجازه می‌دهد از طریق رله پیام مشترک هماهنگ شوند. ارزان، محلی، و آن‌قدر ساده که قابل اتکا باشد.</p>
+        </li>
+        <li>
+          <span class="num">№ ۰۴</span>
+          <h3>هماهنگی عامل‌ها</h3>
+          <p>هر عامل را با <code>@agent-name</code> هدف بگیرید، با <code>spawn</code> یکی تازه در مسیر پروژه به‌راه بیندازید، یا همگانی بفرستید. رشته‌بندی، بررسی زنده‌بودن و پاک‌سازی را سیستم انجام می‌دهد.</p>
+        </li>
+        <li>
+          <span class="num">№ ۰۵</span>
+          <h3>systemd سطح کاربر</h3>
+          <p>دو سرویس سبک، بی‌نیاز از sudo، بی‌نیاز از کانتینر. راه‌اندازی مجدد خودکار، ترتیب وابستگی میان ایمیل و چت، و پشتیبانی از lingering تا پس از خروج هم زنده بمانند.</p>
+        </li>
+        <li>
+          <span class="num">№ ۰۶</span>
+          <h3>تست‌شده تا حاشیه‌ها</h3>
+          <p>بیش از ۲۱۰ تست، پوشش ۹۹٪، پایتون ۳.۱۲، کاملا تایپ‌شده، <code>shell=False</code> همه‌جا، و TLS با کانتکست امن. کسل‌کننده به‌عمد؛ تا بردارهای نفوذ بسته بمانند.</p>
+        </li>
+      </ol>
     </div>
   </section>
 
-  <!-- How It Works -->
   <section class="how-it-works">
     <div class="container">
-      <h2 class="section-title">نحوه عملکرد</h2>
+      <div class="section-head">
+        <div class="section-num">۰۲</div>
+        <h2 class="section-title">
+          <small>سازوکار</small>
+          چگونه یک نامه به یک وظیفه بدل می‌شود
+        </h2>
+      </div>
+
       <div class="content">
-        <p>
-          سیستم به صورت دو سرویس systemd سطح کاربر اجرا می‌شود. <strong>claude-email</strong>
-          صندوق ورودی IMAP را بررسی می‌کند، فرستنده را از طریق GPG یا رمز مشترک تایید می‌کند،
-          دستور را از متن ایمیل استخراج می‌کند و آن را از طریق <code>claude --print</code>
-          اجرا می‌کند. نتیجه به صورت پاسخ ایمیل رشته‌ای بازگردانده می‌شود.
-        </p>
-        <p>
-          <strong>claude-chat</strong> یک سرور MCP SSE است که توسط SQLite در حالت WAL
-          پشتیبانی می‌شود. این سرور به عنوان گذرگاه پیام برای چندین عامل Claude Code عمل می‌کند.
-          عامل‌ها ثبت‌نام می‌کنند، پیام ارسال می‌کنند و پاسخ‌ها را از طریق ابزارهای MCP دریافت می‌کنند.
-          سرویس ایمیل به عنوان آواتار کاربر روی این گذرگاه عمل می‌کند &mdash; دستورات ایمیلی را
-          به عامل‌ها هدایت می‌کند و پاسخ‌ها را به صورت ایمیل بازمی‌گرداند.
-        </p>
-        <div class="arch-block">Email Client
-    &#8595;
-IMAP Poll (claude-email)
-    &#8595;
-Sender Verification (GPG / Secret)
-    &#8595;
-&#9500;&#9472; Direct command &#8594; claude --print &#8594; SMTP reply
-&#9492;&#9472; Chat command &#8594; MCP bus (claude-chat) &#8594; Agent &#8594; SMTP reply</div>
+        <div class="prose">
+          <p>
+            دو سرویس systemd سطح کاربر کار را پیش می‌برند. <strong>claude-email</strong>
+            صندوق IMAP را هر چند ثانیه بررسی می‌کند، فرستنده را تایید می‌کند، دستور را از متن ایمیل بیرون می‌کشد،
+            و آن را از راه <code>claude --print</code> اجرا می‌کند. نتیجه به‌صورت پاسخ رشته‌ای بازمی‌گردد.
+          </p>
+          <p>
+            <strong>claude-chat</strong> یک گذرگاه پیام MCP خالص است. عامل‌ها ثبت می‌شوند، پیام می‌فرستند و
+            از راه ابزارهای MCP روی SSE پرس‌وجو می‌کنند. سرویس ایمیل در همین گذرگاه، آواتار <em>شما</em>ست —
+            دستورهای ایمیلی را به عامل‌ها می‌راند و پاسخ‌ها را به‌صورت ایمیل بیرون می‌آورد.
+          </p>
+          <p>
+            به‌جای چت‌بات، به یک مرکز تلگراف قدیم فکر کنید: اپراتورها ترافیک را جابه‌جا می‌کنند، هر پیام امضا می‌شود، هر پرش ثبت می‌شود.
+          </p>
+        </div>
+        <div class="arch-block">  Email Client
+       ↓
+  IMAP Poll          (claude-email)
+       ↓
+  Verify sender      (GPG / shared secret)
+       ↓
+  ├─ Direct  → claude --print ────────→ SMTP reply
+  └─ Chat    → MCP bus (claude-chat)
+                    ↓
+               Agents respond ────────→ SMTP reply</div>
       </div>
     </div>
   </section>
 
-  <!-- Installation -->
   <section class="installation">
     <div class="container">
-      <h2 class="section-title">نصب</h2>
+      <div class="section-head">
+        <div class="section-num">۰۳</div>
+        <h2 class="section-title">
+          <small>شروع کار</small>
+          نصب و ارسال نخستین نامه
+        </h2>
+      </div>
+
       <div class="content">
         <p>مخزن را کلون کرده و نصب‌کننده را اجرا کنید:</p>
-        <pre><code>git clone https://github.com/cocodedk/claude-email.git
+<pre><code>git clone https://github.com/cocodedk/claude-email.git
 cd claude-email
-cp .env.example .env    # ویرایش با اطلاعات IMAP/SMTP خود
-bash install.sh         # ایجاد venv + سرویس‌های systemd</code></pre>
-        <p>نصب‌کننده یک محیط مجازی پایتون ایجاد می‌کند، وابستگی‌ها را نصب می‌کند و هر دو سرویس <code>claude-email</code> و <code>claude-chat</code> را به عنوان سرویس‌های systemd سطح کاربر ثبت می‌کند.</p>
-        <pre><code># بررسی وضعیت سرویس
+cp .env.example .env    # تنظیم IMAP/SMTP و AUTHORIZED_SENDER
+bash install.sh         # ساخت venv + هر دو سرویس systemd</code></pre>
+
+        <p>نصب‌کننده یک محیط مجازی پایتون می‌سازد، وابستگی‌ها را نصب می‌کند و هر دو سرویس <code>claude-email</code> و <code>claude-chat</code> را به‌عنوان سرویس‌های سطح کاربر با ترتیب وابستگی درست ثبت می‌کند.</p>
+
+<pre><code># بررسی وضعیت سرویس
 systemctl --user status claude-email
 systemctl --user status claude-chat
 
-# مشاهده لاگ‌ها
+# دنبال کردن لاگ
 journalctl --user -u claude-email -f</code></pre>
+
+        <p>از آن لحظه به بعد، هر ایمیلی که به نشانی پیکربندی‌شده بفرستید — از فرستنده امضاشده، در قالب خواسته‌شده — توسط Claude اجرا می‌شود و پاسخش به همان نخ برمی‌گردد. می‌توانید دستور را از گوشی، صندوق ورودی، یا <code>mutt</code> بنویسید. بدون نیاز به برنامه.</p>
       </div>
     </div>
   </section>
 
-  <!-- Footer -->
   <footer class="site-footer">
     <div class="container">
-      Apache-2.0 | &copy; &#1778;&#1776;&#1778;&#1782; <a href="https://cocode.dk">Cocode</a> | &#1587;&#1575;&#1582;&#1578;&#1607; &#1588;&#1583;&#1607; &#1578;&#1608;&#1587;&#1591; <a href="https://linkedin.com/in/babakbandpey">&#1576;&#1575;&#1576;&#1705; &#1576;&#1606;&#1583;&#1662;&#1740;</a>
+      Apache-2.0 &nbsp;·&nbsp; &copy; ۲۰۲۶ <a href="https://cocode.dk">Cocode</a> &nbsp;·&nbsp; ارسال‌شده توسط <a href="https://linkedin.com/in/babakbandpey">بابک بندپی</a>
     </div>
   </footer>
 
