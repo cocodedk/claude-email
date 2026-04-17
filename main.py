@@ -13,9 +13,13 @@ import time
 from dotenv import load_dotenv
 
 from src.chat_db import ChatDB
-from src.chat_handlers import handle_chat_email, relay_outbound_messages
+from src.chat_handlers import (
+    handle_chat_email,
+    maybe_cleanup_db,
+    relay_outbound_messages,
+    send_threaded_reply,
+)
 from src.executor import execute_command, extract_command
-from src.mailer import send_reply
 from src.poller import EmailPoller
 from src.security import is_authorized
 
@@ -95,27 +99,21 @@ def process_email(message, config: dict, chat_db=None) -> None:
         logger.warning("Authorized email has empty command body — skipping")
         return
 
+    timeout = config["claude_timeout"]
+    try:
+        send_threaded_reply(
+            config, message,
+            f"Command received. Running (up to {timeout}s)...",
+        )
+    except Exception:
+        logger.exception("Failed to send progress ack — continuing with execution")
+
     logger.info("Executing command from authorized sender")
     output = execute_command(
         command, claude_bin=config["claude_bin"],
-        timeout=config["claude_timeout"], cwd=config.get("claude_cwd"),
+        timeout=timeout, cwd=config.get("claude_cwd"),
     )
-
-    subject = message.get("Subject", "command")
-    msg_id = message.get("Message-ID", "")
-
-    send_reply(
-        smtp_host=config["smtp_host"],
-        smtp_port=config["smtp_port"],
-        username=config["username"],
-        password=config["password"],
-        to=config["authorized_sender"],
-        subject=subject,
-        body=output,
-        in_reply_to=msg_id,
-        references=msg_id,
-        email_domain=config.get("email_domain", ""),
-    )
+    send_threaded_reply(config, message, output)
 
 
 def run_loop(config: dict) -> None:
@@ -144,27 +142,30 @@ def run_loop(config: dict) -> None:
                 if _shutdown:
                     break
                 msg_id = msg.get("Message-ID", "").strip()
+                from_hdr = msg.get("From", "")
                 try:
                     process_email(msg, config, chat_db=chat_db)
-                except Exception as exc:
-                    logger.error("Error processing message %s: %s", msg_id, exc)
+                except Exception:
+                    logger.exception("Error processing message %s from %s", msg_id, from_hdr)
                 finally:
                     poller.mark_processed(uid, msg_id)
             poller.disconnect()
-        except Exception as exc:
-            logger.error("IMAP error: %s — retrying after %ds", exc, config["poll_interval"])
+        except Exception:
+            logger.exception("IMAP error — retrying after %ds", config["poll_interval"])
 
         try:
             relay_outbound_messages(config, chat_db)
-        except Exception as exc:
-            logger.error("Outbound relay error: %s", exc)
+        except Exception:
+            logger.exception("Outbound relay error")
 
         try:
             reaped = chat_db.reap_dead_agents()
             for name in reaped:
                 logger.info("Agent %s marked disconnected (process exited)", name)
-        except Exception as exc:
-            logger.error("Liveness check error: %s", exc)
+        except Exception:
+            logger.exception("Liveness check error")
+
+        maybe_cleanup_db(chat_db)
 
         for _ in range(config["poll_interval"]):
             if _shutdown:

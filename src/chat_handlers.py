@@ -1,6 +1,8 @@
 """Chat-specific email handlers — extracted from main.py to stay under 200 lines."""
 import logging
+import smtplib
 import subprocess
+import time
 
 from src.chat_db import ChatDB
 from src.chat_router import Route, classify_email
@@ -10,13 +12,28 @@ from src.spawner import spawn_agent
 
 logger = logging.getLogger(__name__)
 
+_PERMANENT_SMTP_ERRORS = (
+    smtplib.SMTPRecipientsRefused,
+    smtplib.SMTPSenderRefused,
+    smtplib.SMTPAuthenticationError,
+    smtplib.SMTPHeloError,
+    smtplib.SMTPNotSupportedError,
+)
 
-def _send_reply(config: dict, original_message, body: str) -> None:
-    """Send an email reply to the authorized sender, threading on the original."""
+_CLEANUP_INTERVAL_SECONDS = 86400
+_CLEANUP_RETENTION_DAYS = 30
+_last_cleanup_ts = 0.0
+
+
+def send_threaded_reply(config: dict, original_message, body: str) -> str:
+    """Send an email reply to the authorized sender, threading on the original.
+
+    Returns the Message-ID of the sent email.
+    """
     subject = original_message.get("Subject", "command")
     msg_id = original_message.get("Message-ID", "")
 
-    send_reply(
+    return send_reply(
         smtp_host=config["smtp_host"],
         smtp_port=config["smtp_port"],
         username=config["username"],
@@ -48,7 +65,7 @@ def handle_chat_email(message, config: dict, chat_db: ChatDB) -> bool:
 
     if route.kind == "agent_command":
         chat_db.insert_message("user", route.agent_name, route.body, "command")
-        _send_reply(config, message, f"Command dispatched to {route.agent_name}")
+        send_threaded_reply(config, message, f"Command dispatched to {route.agent_name}")
         logger.info("Agent command dispatched to %s", route.agent_name)
         return True
 
@@ -68,14 +85,14 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
         else:
             lines = [f"{a['name']}  {a['status']}  {a['project_path']}" for a in agents]
             body = "\n".join(lines)
-        _send_reply(config, message, body)
+        send_threaded_reply(config, message, body)
 
     elif route.meta_command == "spawn":
         parts = route.meta_args.split(None, 1)
         project_dir = parts[0] if parts else ""
         instruction = parts[1] if len(parts) > 1 else ""
         if not project_dir:
-            _send_reply(config, message, "Usage: spawn <path> [instruction]")
+            send_threaded_reply(config, message, "Usage: spawn <path> [instruction]")
             return
         try:
             name, pid = spawn_agent(
@@ -85,9 +102,9 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
                 allowed_base=config.get("claude_cwd"),
             )
         except ValueError as exc:
-            _send_reply(config, message, f"Spawn rejected: {exc}")
+            send_threaded_reply(config, message, f"Spawn rejected: {exc}")
             return
-        _send_reply(config, message, f"Spawned {name} (PID {pid})")
+        send_threaded_reply(config, message, f"Spawned {name} (PID {pid})")
 
     elif route.meta_command == "restart":
         target = route.meta_args.strip().lower()
@@ -97,7 +114,7 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
                 ["systemctl", "--user", "restart", svc],
                 shell=False, check=False,
             )
-            _send_reply(config, message, f"Restarted {svc}")
+            send_threaded_reply(config, message, f"Restarted {svc}")
         elif target == "self":
             svc = config["service_name_email"]
             # No reply — service will restart before it can send
@@ -106,28 +123,59 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
                 shell=False, check=False,
             )
         else:
-            _send_reply(config, message, f"Unknown restart target: {target}")
+            send_threaded_reply(config, message, f"Unknown restart target: {target}")
 
 
 def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
-    """Pick up pending agent-to-user messages and send them as emails."""
+    """Pick up pending agent-to-user messages and send them as emails.
+
+    On permanent SMTP errors, the message is marked failed so it won't be
+    retried forever. On transient errors, it stays pending and we stop
+    iterating to avoid hammering a broken connection.
+    """
     pending = chat_db.get_pending_messages_for("user")
     for msg in pending:
-        subject = f"[{msg['from_name']}] {msg['body'][:60]}"
+        subject = f"[{msg['from_name']}] message"
         prev_email_id = chat_db.get_last_email_message_id_for_agent(msg["from_name"]) or ""
-        email_msg_id = send_reply(
-            smtp_host=config["smtp_host"],
-            smtp_port=config["smtp_port"],
-            username=config["username"],
-            password=config["password"],
-            to=config["authorized_sender"],
-            subject=subject,
-            body=msg["body"],
-            in_reply_to=prev_email_id,
-            references=prev_email_id,
-            email_domain=config.get("email_domain", ""),
-        )
-        chat_db.mark_message_delivered(msg["id"])
+        try:
+            email_msg_id = send_reply(
+                smtp_host=config["smtp_host"],
+                smtp_port=config["smtp_port"],
+                username=config["username"],
+                password=config["password"],
+                to=config["authorized_sender"],
+                subject=subject,
+                body=msg["body"],
+                in_reply_to=prev_email_id,
+                references=prev_email_id,
+                email_domain=config.get("email_domain", ""),
+            )
+        except _PERMANENT_SMTP_ERRORS as exc:
+            logger.error("Permanent SMTP error relaying message %d: %s — marking failed", msg["id"], exc)
+            chat_db.mark_message_failed(msg["id"])
+            continue
+        except (smtplib.SMTPException, OSError) as exc:
+            logger.warning("Transient SMTP error relaying message %d: %s — will retry", msg["id"], exc)
+            return
         if email_msg_id:
             chat_db.set_email_message_id(msg["id"], email_msg_id)
+        chat_db.mark_message_delivered(msg["id"])
         logger.info("Relayed message %d from %s to user", msg["id"], msg["from_name"])
+
+
+def maybe_cleanup_db(chat_db: ChatDB) -> None:
+    """Prune old delivered/failed messages + events once per day."""
+    global _last_cleanup_ts
+    now = time.time()
+    if now - _last_cleanup_ts < _CLEANUP_INTERVAL_SECONDS:
+        return
+    _last_cleanup_ts = now
+    try:
+        counts = chat_db.cleanup_old(days=_CLEANUP_RETENTION_DAYS)
+        if counts["messages"] or counts["events"]:
+            logger.info(
+                "DB cleanup: removed %d messages, %d events",
+                counts["messages"], counts["events"],
+            )
+    except Exception:
+        logger.exception("DB cleanup failed")

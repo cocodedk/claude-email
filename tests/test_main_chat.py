@@ -53,7 +53,7 @@ class TestProcessEmailChatReply:
         chat_db.set_email_message_id(original["id"], "<agent-msg-001@mail>")
 
         mocker.patch("main.is_authorized", return_value=True)
-        mocker.patch("main.send_reply")
+        mocker.patch("main.send_threaded_reply")
         mock_execute = mocker.patch("main.execute_command")
 
         msg = _make_msg(
@@ -82,7 +82,7 @@ class TestProcessEmailAgentCommand:
         chat_db.register_agent("agent-foo", "/tmp/foo")
 
         mocker.patch("main.is_authorized", return_value=True)
-        mock_reply = mocker.patch("src.chat_handlers.send_reply")
+        mock_reply = mocker.patch("src.chat_handlers.send_threaded_reply")
         mock_execute = mocker.patch("main.execute_command")
 
         msg = _make_msg(
@@ -111,7 +111,7 @@ class TestProcessEmailCLIFallback:
 
         mocker.patch("main.is_authorized", return_value=True)
         mock_execute = mocker.patch("main.execute_command", return_value="output")
-        mock_reply = mocker.patch("main.send_reply")
+        mock_reply = mocker.patch("main.send_threaded_reply")
 
         msg = _make_msg(
             subject="AUTH:testsecret list files",
@@ -123,7 +123,8 @@ class TestProcessEmailCLIFallback:
 
         # Should fall through to CLI execution
         mock_execute.assert_called_once()
-        mock_reply.assert_called_once()
+        # Two replies: progress ack + final output
+        assert mock_reply.call_count == 2
 
 
 class TestProcessEmailNoChatDB:
@@ -132,7 +133,7 @@ class TestProcessEmailNoChatDB:
         from main import process_email
 
         mock_execute = mocker.patch("main.execute_command", return_value="file list output")
-        mock_reply = mocker.patch("main.send_reply")
+        mock_reply = mocker.patch("main.send_threaded_reply")
 
         msg = _make_msg(
             subject="AUTH:testsecret list files",
@@ -154,34 +155,35 @@ class TestProcessEmailNoChatDB:
         }
         process_email(msg, config)
         mock_execute.assert_called_once()
-        mock_reply.assert_called_once()
+        # Two replies: progress ack + final output
+        assert mock_reply.call_count == 2
 
 
 class TestHandleMetaStatus:
     def test_status_no_agents(self, mocker, chat_db):
         from src.chat_handlers import handle_chat_email
 
-        mock_reply = mocker.patch("src.chat_handlers.send_reply")
+        mock_reply = mocker.patch("src.chat_handlers.send_threaded_reply")
         msg = _make_msg(subject="AUTH:testsecret status", body="")
         config = _make_config()
         result = handle_chat_email(msg, config, chat_db)
 
         assert result is True
         mock_reply.assert_called_once()
-        body_arg = mock_reply.call_args.kwargs.get("body") or mock_reply.call_args[0][6]
+        body_arg = mock_reply.call_args[0][2]
         assert "No agents registered" in str(body_arg)
 
     def test_status_with_agents(self, mocker, chat_db):
         from src.chat_handlers import handle_chat_email
 
         chat_db.register_agent("agent-foo", "/proj/foo")
-        mock_reply = mocker.patch("src.chat_handlers.send_reply")
+        mock_reply = mocker.patch("src.chat_handlers.send_threaded_reply")
         msg = _make_msg(subject="AUTH:testsecret status", body="")
         config = _make_config()
         handle_chat_email(msg, config, chat_db)
 
         call_kwargs = mock_reply.call_args
-        body_arg = call_kwargs.kwargs.get("body") or call_kwargs[0][6]
+        body_arg = call_kwargs[0][2]
         assert "agent-foo" in str(body_arg)
 
 
@@ -189,7 +191,7 @@ class TestHandleMetaSpawn:
     def test_spawn_with_path(self, mocker, chat_db):
         from src.chat_handlers import handle_chat_email
 
-        mock_reply = mocker.patch("src.chat_handlers.send_reply")
+        mock_reply = mocker.patch("src.chat_handlers.send_threaded_reply")
         mock_spawn = mocker.patch(
             "src.chat_handlers.spawn_agent", return_value=("agent-proj", 123)
         )
@@ -199,14 +201,14 @@ class TestHandleMetaSpawn:
 
         mock_spawn.assert_called_once()
         call_kwargs = mock_reply.call_args
-        body_arg = call_kwargs.kwargs.get("body") or call_kwargs[0][6]
+        body_arg = call_kwargs[0][2]
         assert "agent-proj" in str(body_arg)
         assert "123" in str(body_arg)
 
     def test_spawn_with_instruction(self, mocker, chat_db):
         from src.chat_handlers import handle_chat_email
 
-        mock_reply = mocker.patch("src.chat_handlers.send_reply")
+        mock_reply = mocker.patch("src.chat_handlers.send_threaded_reply")
         mock_spawn = mocker.patch(
             "src.chat_handlers.spawn_agent", return_value=("agent-proj", 42)
         )
@@ -221,13 +223,13 @@ class TestHandleMetaSpawn:
     def test_spawn_empty_path(self, mocker, chat_db):
         from src.chat_handlers import handle_chat_email
 
-        mock_reply = mocker.patch("src.chat_handlers.send_reply")
+        mock_reply = mocker.patch("src.chat_handlers.send_threaded_reply")
         msg = _make_msg(subject="AUTH:testsecret spawn", body="")
         config = _make_config()
         handle_chat_email(msg, config, chat_db)
 
         call_kwargs = mock_reply.call_args
-        body_arg = call_kwargs.kwargs.get("body") or call_kwargs[0][6]
+        body_arg = call_kwargs[0][2]
         assert "Usage" in str(body_arg)
 
 
@@ -235,7 +237,7 @@ class TestHandleMetaRestart:
     def test_restart_chat(self, mocker, chat_db):
         from src.chat_handlers import handle_chat_email
 
-        mock_reply = mocker.patch("src.chat_handlers.send_reply")
+        mock_reply = mocker.patch("src.chat_handlers.send_threaded_reply")
         mock_run = mocker.patch("src.chat_handlers.subprocess.run")
         msg = _make_msg(subject="AUTH:testsecret restart chat", body="")
         config = _make_config()
@@ -251,7 +253,7 @@ class TestHandleMetaRestart:
     def test_restart_self(self, mocker, chat_db):
         from src.chat_handlers import handle_chat_email
 
-        mock_reply = mocker.patch("src.chat_handlers.send_reply")
+        mock_reply = mocker.patch("src.chat_handlers.send_threaded_reply")
         mock_run = mocker.patch("src.chat_handlers.subprocess.run")
         msg = _make_msg(subject="AUTH:testsecret restart self", body="")
         config = _make_config()
@@ -268,7 +270,7 @@ class TestHandleMetaRestart:
     def test_restart_unknown_target(self, mocker, chat_db):
         from src.chat_handlers import handle_chat_email
 
-        mock_reply = mocker.patch("src.chat_handlers.send_reply")
+        mock_reply = mocker.patch("src.chat_handlers.send_threaded_reply")
         mocker.patch("src.chat_handlers.subprocess.run")
         msg = _make_msg(subject="AUTH:testsecret restart bogus", body="")
         config = _make_config()
@@ -277,7 +279,7 @@ class TestHandleMetaRestart:
         handle_chat_email(msg, config, chat_db)
 
         call_kwargs = mock_reply.call_args
-        body_arg = call_kwargs.kwargs.get("body") or call_kwargs[0][6]
+        body_arg = call_kwargs[0][2]
         assert "Unknown restart target" in str(body_arg)
 
 
@@ -298,3 +300,64 @@ class TestRelayOutboundMessages:
         assert mock_reply.call_count == 2
         # Both should now be delivered
         assert chat_db.get_pending_messages_for("user") == []
+
+    def test_relay_marks_failed_on_permanent_smtp_error(self, mocker, chat_db):
+        """Permanent SMTP errors (auth, bad recipient) mark the message failed, no retry."""
+        import smtplib
+        from src.chat_handlers import relay_outbound_messages
+
+        mocker.patch(
+            "src.chat_handlers.send_reply",
+            side_effect=smtplib.SMTPRecipientsRefused({"x@y": (550, b"no such user")}),
+        )
+
+        msg = chat_db.insert_message("agent-foo", "user", "Build succeeded!", "chat")
+        config = _make_config()
+        relay_outbound_messages(config, chat_db)
+
+        # Message should NOT be pending (won't retry) — must be marked failed
+        assert chat_db.get_pending_messages_for("user") == []
+        row = chat_db._conn.execute(
+            "SELECT status FROM messages WHERE id=?", (msg["id"],)
+        ).fetchone()
+        assert row["status"] == "failed"
+
+    def test_relay_keeps_pending_on_transient_smtp_error(self, mocker, chat_db):
+        """Transient errors (connection drop, timeout) keep message pending for retry."""
+        import smtplib
+        from src.chat_handlers import relay_outbound_messages
+
+        mocker.patch(
+            "src.chat_handlers.send_reply",
+            side_effect=smtplib.SMTPServerDisconnected("connection lost"),
+        )
+
+        msg = chat_db.insert_message("agent-foo", "user", "Build succeeded!", "chat")
+        config = _make_config()
+        relay_outbound_messages(config, chat_db)
+
+        # Still pending — will retry next loop
+        pending = chat_db.get_pending_messages_for("user")
+        assert len(pending) == 1
+        assert pending[0]["id"] == msg["id"]
+
+    def test_relay_stops_after_transient_to_avoid_hammering(self, mocker, chat_db):
+        """On transient SMTP failure, stop iterating — don't hammer broken connection."""
+        import smtplib
+        from src.chat_handlers import relay_outbound_messages
+
+        mock_reply = mocker.patch(
+            "src.chat_handlers.send_reply",
+            side_effect=smtplib.SMTPServerDisconnected("connection lost"),
+        )
+
+        chat_db.insert_message("agent-foo", "user", "msg1", "chat")
+        chat_db.insert_message("agent-bar", "user", "msg2", "chat")
+
+        config = _make_config()
+        relay_outbound_messages(config, chat_db)
+
+        # Only one send attempt — we bail on first transient failure
+        assert mock_reply.call_count == 1
+        # Both still pending
+        assert len(chat_db.get_pending_messages_for("user")) == 2

@@ -1,7 +1,7 @@
 """Shared SQLite database layer for the claude-chat system."""
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS agents (
@@ -142,6 +142,10 @@ class ChatDB:
         )
         self._conn.commit()
 
+    def mark_message_failed(self, msg_id: int) -> None:
+        self._conn.execute("UPDATE messages SET status='failed' WHERE id=?", (msg_id,))
+        self._conn.commit()
+
     def set_email_message_id(self, msg_id: int, email_message_id: str) -> None:
         self._conn.execute(
             "UPDATE messages SET email_message_id=? WHERE id=?",
@@ -171,6 +175,19 @@ class ChatDB:
             (msg_id,),
         ).fetchone()
         return dict(row) if row else None
+
+    def cleanup_old(self, days: int = 30) -> dict:
+        """Prune delivered/failed messages and old events. Pending rows preserved."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        m = self._conn.execute(
+            "DELETE FROM messages WHERE status IN ('delivered','failed') AND created_at < ?",
+            (cutoff,),
+        ).rowcount
+        e = self._conn.execute(
+            "DELETE FROM events WHERE created_at < ?", (cutoff,)
+        ).rowcount
+        self._conn.commit()
+        return {"messages": m, "events": e}
 
     # ── Events (internal) ──────────────────────────────────
 

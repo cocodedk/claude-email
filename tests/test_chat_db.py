@@ -159,6 +159,16 @@ class TestMessages:
         pending = db.get_pending_messages_for("b")
         assert len(pending) == 0
 
+    def test_mark_message_failed(self, db):
+        msg = db.insert_message("a", "b", "hi", "ask")
+        db.mark_message_failed(msg["id"])
+        # Failed messages are not pending (won't be retried)
+        assert db.get_pending_messages_for("b") == []
+        row = db._conn.execute(
+            "SELECT status FROM messages WHERE id=?", (msg["id"],)
+        ).fetchone()
+        assert row["status"] == "failed"
+
     def test_set_email_message_id(self, db):
         msg = db.insert_message("a", "b", "hi", "ask")
         db.set_email_message_id(msg["id"], "<abc@example.com>")
@@ -208,3 +218,61 @@ class TestMessages:
     def test_fk_constraint_on_in_reply_to(self, db):
         with pytest.raises(Exception):
             db.insert_message("a", "b", "bad", "reply", in_reply_to=99999)
+
+
+class TestCleanupOld:
+    def _backdate(self, db, table: str, row_id: int, days_ago: int) -> None:
+        from datetime import datetime, timedelta, timezone
+        ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+        db._conn.execute(f"UPDATE {table} SET created_at=? WHERE id=?", (ts, row_id))
+        db._conn.commit()
+
+    def test_deletes_old_delivered_messages(self, db):
+        old = db.insert_message("a", "b", "old", "chat")
+        db.mark_message_delivered(old["id"])
+        self._backdate(db, "messages", old["id"], days_ago=60)
+
+        result = db.cleanup_old(days=30)
+        assert result["messages"] == 1
+        assert db._conn.execute(
+            "SELECT 1 FROM messages WHERE id=?", (old["id"],)
+        ).fetchone() is None
+
+    def test_deletes_old_failed_messages(self, db):
+        old = db.insert_message("a", "b", "old", "chat")
+        db.mark_message_failed(old["id"])
+        self._backdate(db, "messages", old["id"], days_ago=60)
+
+        result = db.cleanup_old(days=30)
+        assert result["messages"] == 1
+
+    def test_keeps_recent_messages(self, db):
+        recent = db.insert_message("a", "b", "recent", "chat")
+        db.mark_message_delivered(recent["id"])
+        # Not backdated — created_at is now
+
+        result = db.cleanup_old(days=30)
+        assert result["messages"] == 0
+        assert db._conn.execute(
+            "SELECT 1 FROM messages WHERE id=?", (recent["id"],)
+        ).fetchone() is not None
+
+    def test_keeps_pending_even_if_old(self, db):
+        """Never delete pending messages — they may still need delivery."""
+        stuck = db.insert_message("a", "b", "stuck", "chat")
+        self._backdate(db, "messages", stuck["id"], days_ago=365)
+
+        result = db.cleanup_old(days=30)
+        assert result["messages"] == 0
+        assert db.get_pending_messages_for("b")[0]["id"] == stuck["id"]
+
+    def test_deletes_old_events(self, db):
+        # Register + insert_message create events; backdate them
+        db.register_agent("a1", "/p")
+        rows = db._conn.execute("SELECT id FROM events").fetchall()
+        assert rows
+        for r in rows:
+            self._backdate(db, "events", r["id"], days_ago=60)
+
+        result = db.cleanup_old(days=30)
+        assert result["events"] >= 1
