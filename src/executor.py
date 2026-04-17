@@ -1,6 +1,7 @@
 """Extract commands from email bodies and execute via claude CLI."""
 import email.message
 import logging
+import os
 import re
 import subprocess
 from html.parser import HTMLParser
@@ -77,23 +78,34 @@ def execute_command(
     timeout: int = 300,
     max_output_bytes: int = MAX_OUTPUT_BYTES,
     cwd: str | None = None,
+    yolo: bool = False,
+    extra_env: dict[str, str] | None = None,
 ) -> str:
     """Execute a command via the claude CLI and return the output.
 
     Uses shell=False to prevent command injection.
     Truncates output to max_output_bytes.
     When cwd is set, the claude CLI runs in that directory.
+    When yolo is True, passes --dangerously-skip-permissions so the agent
+    auto-approves tool calls (needed for non-interactive email-driven runs).
+    extra_env is merged over os.environ for the subprocess.
     Returns an error message on timeout or failure.
     """
-    logger.info("Executing command via claude CLI (timeout=%ds)", timeout)
+    argv = [claude_bin]
+    if yolo:
+        argv.append("--dangerously-skip-permissions")
+    argv += ["--print", command]
+    env = {**os.environ, **extra_env} if extra_env else None
+    logger.info("Executing command via claude CLI (timeout=%ds, yolo=%s)", timeout, yolo)
     try:
         result = subprocess.run(
-            [claude_bin, "--print", command],
+            argv,
             capture_output=True,
             text=True,
             timeout=timeout,
             shell=False,
             cwd=cwd,
+            env=env,
         )
         output = result.stdout
         if result.stderr:

@@ -53,6 +53,12 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 def _config() -> dict:
     shared_secret = os.environ.get("SHARED_SECRET", "")
+    extra_env = {
+        k: v for k, v in (
+            ("CLAUDE_CONFIG_DIR", os.environ.get("CLAUDE_CONFIG_DIR", "")),
+            ("IS_SANDBOX", os.environ.get("IS_SANDBOX", "")),
+        ) if v
+    }
     return {
         "imap_host": os.environ["IMAP_HOST"],
         "imap_port": int(os.environ["IMAP_PORT"]),
@@ -68,6 +74,8 @@ def _config() -> dict:
         "claude_timeout": int(os.environ["CLAUDE_TIMEOUT"]),
         "claude_bin": os.environ["CLAUDE_BIN"],
         "claude_cwd": os.environ["CLAUDE_CWD"],
+        "claude_yolo": os.environ.get("CLAUDE_YOLO", "") == "1",
+        "claude_extra_env": extra_env,
         "state_file": os.environ["STATE_FILE"],
         "email_domain": os.environ["EMAIL_DOMAIN"],
         "chat_db_path": os.environ["CHAT_DB_PATH"],
@@ -112,6 +120,8 @@ def process_email(message, config: dict, chat_db=None) -> None:
     output = execute_command(
         command, claude_bin=config["claude_bin"],
         timeout=timeout, cwd=config.get("claude_cwd"),
+        yolo=config.get("claude_yolo", False),
+        extra_env=config.get("claude_extra_env") or None,
     )
     send_threaded_reply(config, message, output)
 

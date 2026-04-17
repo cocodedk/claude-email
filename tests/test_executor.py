@@ -66,6 +66,7 @@ class TestExecuteCommand:
             timeout=30,
             shell=False,
             cwd=None,
+            env=None,
         )
 
     def test_cwd_passed_to_subprocess(self, mocker):
@@ -112,6 +113,47 @@ class TestExecuteCommand:
         result = execute_command("hello")
         assert "[Error:" in result
         assert "permission denied" in result
+
+    def test_yolo_adds_skip_permissions_flag(self, mocker):
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        execute_command("hello", yolo=True)
+        cmd = mock_run.call_args.args[0]
+        assert "--dangerously-skip-permissions" in cmd
+        # Default behavior: no flag
+        mock_run.reset_mock()
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        execute_command("hello")
+        cmd = mock_run.call_args.args[0]
+        assert "--dangerously-skip-permissions" not in cmd
+
+    def test_extra_env_merged_into_subprocess_env(self, mocker):
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        execute_command(
+            "hello",
+            extra_env={"CLAUDE_CONFIG_DIR": "/home/u/.claude-personal", "IS_SANDBOX": "1"},
+        )
+        env = mock_run.call_args.kwargs["env"]
+        assert env["CLAUDE_CONFIG_DIR"] == "/home/u/.claude-personal"
+        assert env["IS_SANDBOX"] == "1"
+        # Parent env still present
+        assert "PATH" in env
+
+    def test_no_extra_env_leaves_env_unset(self, mocker):
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        execute_command("hello")
+        # When extra_env is not provided, don't pass env= so child inherits parent
+        assert mock_run.call_args.kwargs.get("env") is None
 
 
 class TestExtractCommandHtmlOnly:
