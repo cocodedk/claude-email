@@ -6,6 +6,7 @@
   <title>claude-email — Control Claude Code Agents via Email</title>
   <meta name="description" content="An email-driven wrapper for the Claude Code CLI with an integrated MCP chat relay for managing multiple Claude Code agents. Dual auth, multi-agent orchestration, and user-level systemd services." />
   <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#f3ead5" />
   <link rel="canonical" href="https://cocodedk.github.io/claude-email/" />
 
   <!-- Hreflang -->
@@ -28,13 +29,12 @@
   <meta name="twitter:description" content="Email-driven wrapper for the Claude Code CLI with integrated MCP chat relay for managing multiple Claude Code agents." />
   <meta name="twitter:image" content="https://cocodedk.github.io/claude-email/og.png" />
 
-  <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
 
-  <!-- Stylesheet -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="styles.css" />
 
-  <!-- JSON-LD -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -58,128 +58,161 @@
 </head>
 <body>
 
-  <!-- Header -->
   <header class="site-header">
     <div class="container header-inner">
-      <div class="site-title"><code>claude-email</code></div>
+      <div class="site-title"><code>claude-email</code> &nbsp;·&nbsp; v1 · OSS</div>
       <a href="fa/" class="lang-switch">&#1601;&#1575;&#1585;&#1587;&#1740;</a>
     </div>
   </header>
 
-  <!-- Hero -->
   <section class="hero">
+    <div class="postmark" aria-hidden="true">
+      <span>Delivered</span>
+      <strong>AIR MAIL</strong>
+      <span>bb@cocode.dk</span>
+    </div>
     <div class="container">
-      <h1><span>claude-email</span></h1>
-      <p class="tagline">Control Claude Code Agents via Email</p>
-      <p class="description">
-        An email-driven wrapper for the Claude Code CLI with an integrated MCP chat relay
-        for managing multiple Claude Code agents. Poll IMAP, verify senders with GPG signatures
-        or a shared secret, execute commands, and reply via SMTP &mdash; all from any email client.
+      <div class="hero-eyebrow reveal reveal--1">Dispatch №001 · Email → Agent</div>
+      <h1 class="reveal reveal--2">
+        claude-email
+        <em>a correspondence with your agents</em>
+      </h1>
+      <p class="tagline reveal reveal--3">
+        Write to Claude the way you write to a colleague — from your inbox.
       </p>
-      <a href="https://github.com/cocodedk/claude-email" class="btn-primary">View on GitHub</a>
+      <p class="description reveal reveal--3">
+        An email-driven wrapper for the Claude Code CLI with an integrated MCP chat relay.
+        Poll IMAP, verify senders with GPG or a shared secret, execute commands, and reply by SMTP.
+        One wrapper, many agents, any email client.
+      </p>
+      <div class="hero-actions reveal reveal--4">
+        <a href="https://github.com/cocodedk/claude-email" class="btn-primary">Open the Repository</a>
+      </div>
     </div>
   </section>
 
-  <!-- Features -->
+  <div class="perf"></div>
+
   <section class="features">
     <div class="container">
-      <h2 class="section-title">Features</h2>
-      <div class="features-grid">
-
-        <div class="feature-card">
-          <span class="feature-icon">&#9993;</span>
-          <h3>Email Control</h3>
-          <p>Use any email client as a universal remote control for Claude Code. Send a command, get the result back in your inbox.</p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">&#128274;</span>
-          <h3>Dual Authentication</h3>
-          <p>Verify every incoming command with GPG signatures or a shared secret. Only authorized senders can execute commands.</p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">&#128172;</span>
-          <h3>Multi-Agent Chat</h3>
-          <p>MCP-based chat relay lets multiple Claude Code agents coordinate through a shared SQLite message bus with SSE transport.</p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">&#9881;</span>
-          <h3>Agent Management</h3>
-          <p>Spawn, message, and manage agents directly from email. Use <code>@agent-name</code> to target specific agents, <code>spawn</code> to create new ones.</p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">&#128640;</span>
-          <h3>Service Management</h3>
-          <p>User-level systemd services &mdash; no sudo required. Auto-restart, dependency ordering, and lingering support out of the box.</p>
-        </div>
-
-        <div class="feature-card">
-          <span class="feature-icon">&#9989;</span>
-          <h3>Quality</h3>
-          <p>204 tests with 99% code coverage. SQLite WAL mode for safe concurrent access. Python 3.12, fully typed, no shell injection.</p>
-        </div>
-
+      <div class="section-head">
+        <div class="section-num">01</div>
+        <h2 class="section-title">
+          <small>The Feature Set</small>
+          Why write to a bot by email
+        </h2>
       </div>
+
+      <ol class="features-list">
+        <li>
+          <span class="num">№ 01</span>
+          <h3>Email as Terminal</h3>
+          <p>Any mail client becomes a universal remote for Claude Code. Send a command, receive the result threaded as a reply. No app install. No VPN. Just a stamp and a keyboard.</p>
+        </li>
+        <li>
+          <span class="num">№ 02</span>
+          <h3>Dual Authentication</h3>
+          <p>Every incoming message is verified by <code>From</code>, <code>Return-Path</code>, and either a GPG signature or a rotating shared secret. Unsigned mail from strangers is dropped on sight.</p>
+        </li>
+        <li>
+          <span class="num">№ 03</span>
+          <h3>Multi-Agent Chat Bus</h3>
+          <p>An MCP SSE server backed by SQLite (WAL mode) lets many Claude Code agents coordinate through a shared message relay. Cheap, local, and boring enough to be reliable.</p>
+        </li>
+        <li>
+          <span class="num">№ 04</span>
+          <h3>Agent Orchestration</h3>
+          <p>Target any agent by <code>@agent-name</code>, <code>spawn</code> a new one against a project path, or broadcast. Threading, liveness checks, and reaping are handled for you.</p>
+        </li>
+        <li>
+          <span class="num">№ 05</span>
+          <h3>User-Level Systemd</h3>
+          <p>Two lightweight services, no sudo, no container. Auto-restart, dependency ordering between email and chat, and lingering so it survives logout.</p>
+        </li>
+        <li>
+          <span class="num">№ 06</span>
+          <h3>Tested to the Margins</h3>
+          <p>210+ tests, 99% coverage, Python 3.12, fully typed, <code>shell=False</code> everywhere, verified TLS contexts. Boring on purpose; invasive vectors locked out.</p>
+        </li>
+      </ol>
     </div>
   </section>
 
-  <!-- How It Works -->
   <section class="how-it-works">
     <div class="container">
-      <h2 class="section-title">How It Works</h2>
+      <div class="section-head">
+        <div class="section-num">02</div>
+        <h2 class="section-title">
+          <small>Mechanics</small>
+          How a letter becomes a task
+        </h2>
+      </div>
+
       <div class="content">
-        <p>
-          The system runs as two user-level systemd services. <strong>claude-email</strong> polls
-          an IMAP mailbox, validates the sender via GPG or shared secret, extracts the command from the
-          email body, and executes it through <code>claude --print</code>. The result is sent back as
-          a threaded email reply.
-        </p>
-        <p>
-          <strong>claude-chat</strong> is an MCP SSE server backed by SQLite in WAL mode.
-          It acts as a message bus for multiple Claude Code agents. Agents register, send messages,
-          and poll for responses through MCP tools. The email service acts as the user's avatar on
-          this bus &mdash; routing email commands to agents and relaying responses back as emails.
-        </p>
-        <div class="arch-block">Email Client
-    &#8595;
-IMAP Poll (claude-email)
-    &#8595;
-Sender Verification (GPG / Secret)
-    &#8595;
-&#9500;&#9472; Direct command &#8594; claude --print &#8594; SMTP reply
-&#9492;&#9472; Chat command &#8594; MCP bus (claude-chat) &#8594; Agent &#8594; SMTP reply</div>
+        <div class="prose">
+          <p>
+            Two user-level systemd services do the work. <strong>claude-email</strong> polls an IMAP
+            mailbox every few seconds, validates the sender, extracts a command from the body, and
+            runs it through <code>claude --print</code>. The result comes back as a threaded reply.
+          </p>
+          <p>
+            <strong>claude-chat</strong> is a pure MCP message bus. Agents register, send, and poll
+            through MCP tools over SSE. The email service also acts as <em>your</em> avatar on that
+            bus — routing commands into agents, and carrying agent answers out as email.
+          </p>
+          <p>
+            Think of it less as a chatbot and more as an old telegraph exchange: operators relaying
+            traffic, every message signed, every hop logged.
+          </p>
+        </div>
+        <div class="arch-block">  Email Client
+       ↓
+  IMAP Poll          (claude-email)
+       ↓
+  Verify sender      (GPG / shared secret)
+       ↓
+  ├─ Direct  → claude --print ────────→ SMTP reply
+  └─ Chat    → MCP bus (claude-chat)
+                    ↓
+               Agents respond ────────→ SMTP reply</div>
       </div>
     </div>
   </section>
 
-  <!-- Installation -->
   <section class="installation">
     <div class="container">
-      <h2 class="section-title">Installation</h2>
+      <div class="section-head">
+        <div class="section-num">03</div>
+        <h2 class="section-title">
+          <small>Getting Started</small>
+          Install &amp; post your first letter
+        </h2>
+      </div>
+
       <div class="content">
         <p>Clone the repository and run the installer:</p>
-        <pre><code>git clone https://github.com/cocodedk/claude-email.git
+<pre><code>git clone https://github.com/cocodedk/claude-email.git
 cd claude-email
-cp .env.example .env    # edit with your IMAP/SMTP credentials
-bash install.sh         # creates venv + systemd services</code></pre>
-        <p>The installer sets up a Python virtual environment, installs dependencies, and registers both <code>claude-email</code> and <code>claude-chat</code> as user-level systemd services.</p>
-        <pre><code># Check service status
+cp .env.example .env    # fill in IMAP/SMTP credentials + AUTHORIZED_SENDER
+bash install.sh         # creates venv + both systemd services</code></pre>
+
+        <p>The installer provisions a Python virtual environment, installs dependencies, and registers <code>claude-email</code> and <code>claude-chat</code> as user-level systemd services with the correct dependency order.</p>
+
+<pre><code># Check service status
 systemctl --user status claude-email
 systemctl --user status claude-chat
 
-# View logs
+# Follow the logs
 journalctl --user -u claude-email -f</code></pre>
+
+        <p>From that point on, anything you email to your configured address — from your signed sender, in the required format — is executed by Claude and replied to. You can compose commands from a phone, an inbox, or <code>mutt</code>. No app required.</p>
       </div>
     </div>
   </section>
 
-  <!-- Footer -->
   <footer class="site-footer">
     <div class="container">
-      Apache-2.0 | &copy; 2026 <a href="https://cocode.dk">Cocode</a> | Created by <a href="https://linkedin.com/in/babakbandpey">Babak Bandpey</a>
+      Apache-2.0 &nbsp;·&nbsp; &copy; 2026 <a href="https://cocode.dk">Cocode</a> &nbsp;·&nbsp; Dispatched by <a href="https://linkedin.com/in/babakbandpey">Babak Bandpey</a>
     </div>
   </footer>
 
