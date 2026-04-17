@@ -211,3 +211,53 @@ class TestSpawnAgent:
                 db, str(outside), "http://localhost:8080/mcp",
                 allowed_base=str(base),
             )
+
+    def test_spawn_agent_yolo_adds_skip_permissions(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 11
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        spawn_agent(
+            db, str(project_dir), "http://localhost:8080/mcp",
+            instruction="go", yolo=True,
+        )
+        cmd = mock_popen.call_args.args[0]
+        assert cmd == ["claude", "--dangerously-skip-permissions", "--print", "go"]
+
+    def test_spawn_agent_yolo_without_instruction(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 12
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        spawn_agent(db, str(project_dir), "http://localhost:8080/mcp", yolo=True)
+        cmd = mock_popen.call_args.args[0]
+        assert cmd == ["claude", "--dangerously-skip-permissions"]
+
+    def test_spawn_agent_extra_env(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 13
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        spawn_agent(
+            db, str(project_dir), "http://localhost:8080/mcp",
+            extra_env={"CLAUDE_CONFIG_DIR": "/home/u/.claude-personal", "IS_SANDBOX": "1"},
+        )
+        env = mock_popen.call_args.kwargs["env"]
+        assert env["CLAUDE_CONFIG_DIR"] == "/home/u/.claude-personal"
+        assert env["IS_SANDBOX"] == "1"
+        assert "PATH" in env

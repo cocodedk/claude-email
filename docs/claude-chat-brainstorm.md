@@ -63,7 +63,7 @@ The SQLite DB is the **single source of truth**. All writes are event-driven. Al
 
 **agents**
 - `name` — e.g., `agent-fits` (primary key)
-- `project_path` — e.g., `/home/cocodedk/0-projects/fits`
+- `project_path` — e.g., `/path/to/projects/fits`
 - `status` — `running`, `idle`, `disconnected`
 - `pid` — OS process ID (if spawned by claude-email)
 - `registered_at` — timestamp

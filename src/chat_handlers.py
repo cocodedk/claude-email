@@ -100,6 +100,8 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
                 instruction=instruction,
                 claude_bin=config["claude_bin"],
                 allowed_base=config.get("claude_cwd"),
+                yolo=config.get("claude_yolo", False),
+                extra_env=config.get("claude_extra_env") or None,
             )
         except ValueError as exc:
             send_threaded_reply(config, message, f"Spawn rejected: {exc}")
