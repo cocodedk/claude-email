@@ -1,0 +1,213 @@
+"""Tests for agent spawner — name building, MCP injection, process spawning."""
+import json
+import os
+import subprocess
+import pytest
+from src.chat_db import ChatDB
+
+
+class TestBuildAgentName:
+    def test_build_agent_name(self):
+        from src.spawner import build_agent_name
+        assert build_agent_name("/home/user/0-projects/fits") == "agent-fits"
+
+    def test_build_agent_name_trailing_slash(self):
+        from src.spawner import build_agent_name
+        assert build_agent_name("/home/user/0-projects/fits/") == "agent-fits"
+
+
+class TestInjectMcpConfig:
+    def test_inject_mcp_config_creates_file(self, tmp_path):
+        from src.spawner import inject_mcp_config
+
+        project_dir = str(tmp_path)
+        inject_mcp_config(project_dir, "http://localhost:8080/mcp")
+
+        mcp_file = tmp_path / ".mcp.json"
+        assert mcp_file.exists()
+        data = json.loads(mcp_file.read_text())
+        assert data == {
+            "mcpServers": {
+                "claude-chat": {"url": "http://localhost:8080/mcp"}
+            }
+        }
+
+    def test_inject_mcp_config_merges_existing(self, tmp_path):
+        from src.spawner import inject_mcp_config
+
+        mcp_file = tmp_path / ".mcp.json"
+        existing = {
+            "mcpServers": {
+                "playwright": {
+                    "command": "npx",
+                    "args": ["@playwright/mcp@latest"],
+                }
+            }
+        }
+        mcp_file.write_text(json.dumps(existing))
+
+        inject_mcp_config(str(tmp_path), "http://localhost:9090/mcp")
+
+        data = json.loads(mcp_file.read_text())
+        # Existing server preserved
+        assert data["mcpServers"]["playwright"] == {
+            "command": "npx",
+            "args": ["@playwright/mcp@latest"],
+        }
+        # New server added
+        assert data["mcpServers"]["claude-chat"] == {
+            "url": "http://localhost:9090/mcp"
+        }
+
+
+class TestValidateProjectPath:
+    def test_valid_path_returns_resolved(self, tmp_path):
+        from src.spawner import validate_project_path
+
+        d = tmp_path / "proj"
+        d.mkdir()
+        result = validate_project_path(str(d))
+        assert result == str(d.resolve())
+
+    def test_nonexistent_dir_raises(self, tmp_path):
+        from src.spawner import validate_project_path
+
+        with pytest.raises(ValueError, match="does not exist"):
+            validate_project_path(str(tmp_path / "nope"))
+
+    def test_outside_allowed_base_raises(self, tmp_path):
+        from src.spawner import validate_project_path
+
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        allowed = tmp_path / "allowed"
+        allowed.mkdir()
+
+        with pytest.raises(ValueError, match="outside allowed base"):
+            validate_project_path(str(outside), allowed_base=str(allowed))
+
+    def test_inside_allowed_base_passes(self, tmp_path):
+        from src.spawner import validate_project_path
+
+        base = tmp_path / "base"
+        base.mkdir()
+        proj = base / "proj"
+        proj.mkdir()
+
+        result = validate_project_path(str(proj), allowed_base=str(base))
+        assert result == str(proj.resolve())
+
+    def test_traversal_blocked(self, tmp_path):
+        from src.spawner import validate_project_path
+
+        base = tmp_path / "base"
+        base.mkdir()
+        # tmp_path exists but is outside base
+        with pytest.raises(ValueError, match="outside allowed base"):
+            validate_project_path(str(base / ".."), allowed_base=str(base))
+
+
+class TestSpawnAgent:
+    @pytest.fixture
+    def db(self, tmp_path):
+        return ChatDB(str(tmp_path / "test.db"))
+
+    def test_spawn_agent_calls_subprocess(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 42
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+        name, pid = spawn_agent(db, str(project_dir), "http://localhost:8080/mcp")
+
+        assert name == "agent-my-project"
+        assert pid == 42
+
+        mock_popen.assert_called_once()
+        call_kwargs = mock_popen.call_args
+        assert call_kwargs.kwargs["cwd"] == str(project_dir)
+        assert call_kwargs.kwargs["shell"] is False
+
+        # DB was updated
+        agent = db.get_agent("agent-my-project")
+        assert agent is not None
+        assert agent["pid"] == 42
+
+    def test_spawn_agent_with_instruction(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 99
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        name, pid = spawn_agent(
+            db, str(project_dir), "http://localhost:8080/mcp",
+            instruction="run all tests",
+        )
+
+        cmd = mock_popen.call_args.args[0]
+        assert cmd == ["claude", "--print", "run all tests"]
+
+    def test_spawn_agent_without_instruction_uses_interactive(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 50
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        project_dir = tmp_path / "idle"
+        project_dir.mkdir()
+        spawn_agent(db, str(project_dir), "http://localhost:8080/mcp")
+
+        cmd = mock_popen.call_args.args[0]
+        assert cmd == ["claude"]
+        assert "--print" not in cmd
+
+    def test_spawn_agent_uses_devnull(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+        import subprocess
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 7
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        project_dir = tmp_path / "p"
+        project_dir.mkdir()
+        spawn_agent(db, str(project_dir), "http://localhost:8080/mcp")
+
+        kwargs = mock_popen.call_args.kwargs
+        assert kwargs["stdout"] == subprocess.DEVNULL
+        assert kwargs["stderr"] == subprocess.DEVNULL
+
+    def test_spawn_nonexistent_dir_raises(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        with pytest.raises(ValueError, match="does not exist"):
+            spawn_agent(db, str(tmp_path / "nope"), "http://localhost:8080/mcp")
+
+    def test_spawn_outside_allowed_base_raises(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        base = tmp_path / "base"
+        base.mkdir()
+
+        with pytest.raises(ValueError, match="outside allowed base"):
+            spawn_agent(
+                db, str(outside), "http://localhost:8080/mcp",
+                allowed_base=str(base),
+            )

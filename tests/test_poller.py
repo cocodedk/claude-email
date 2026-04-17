@@ -97,6 +97,154 @@ class TestEmailPoller:
         # Should not raise, processed IDs are loaded
         assert "<test123@mail>" in poller._processed_ids
 
+    def test_corrupted_state_file_starts_fresh(self, tmp_path):
+        state_file = tmp_path / "ids.json"
+        state_file.write_text("NOT VALID JSON{{{")
+
+        poller = EmailPoller(
+            host="imap.one.com", port=993,
+            username="u", password="p",
+            state_file=str(state_file),
+        )
+        assert poller._processed_ids == set()
+
+    def test_fetch_unseen_not_connected_raises(self, tmp_path):
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(tmp_path / "ids.json"),
+        )
+        with pytest.raises(RuntimeError, match="Not connected"):
+            poller.fetch_unseen()
+
+    def test_fetch_unseen_no_results(self, mocker, tmp_path):
+        mock_class, mock_conn = _mock_imap(mocker, uid_list=[])
+        mocker.patch("ssl.create_default_context", return_value=MagicMock())
+
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(tmp_path / "ids.json"),
+        )
+        poller.connect()
+        assert poller.fetch_unseen() == []
+
+    def test_fetch_unseen_bad_fetch_skipped(self, mocker, tmp_path):
+        """If FETCH returns bad data, the message is skipped."""
+        mocker.patch("ssl.create_default_context", return_value=MagicMock())
+        mock_class = mocker.patch("imaplib.IMAP4_SSL")
+        mock_conn = MagicMock()
+        mock_class.return_value = mock_conn
+        mock_conn.login.return_value = ("OK", [b"ok"])
+        mock_conn.select.return_value = ("OK", [b"1"])
+
+        def handler(cmd, *args):
+            if cmd == "SEARCH":
+                return ("OK", [b"1"])
+            if cmd == "FETCH":
+                return ("OK", [(None, None)])  # bad fetch
+            return ("OK", [b""])
+        mock_conn.uid.side_effect = handler
+
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(tmp_path / "ids.json"),
+        )
+        poller.connect()
+        assert poller.fetch_unseen() == []
+
+    def test_fetch_unseen_non_bytes_payload_skipped(self, mocker, tmp_path):
+        """If raw payload is not bytes, skip it."""
+        mocker.patch("ssl.create_default_context", return_value=MagicMock())
+        mock_class = mocker.patch("imaplib.IMAP4_SSL")
+        mock_conn = MagicMock()
+        mock_class.return_value = mock_conn
+        mock_conn.login.return_value = ("OK", [b"ok"])
+        mock_conn.select.return_value = ("OK", [b"1"])
+
+        def handler(cmd, *args):
+            if cmd == "SEARCH":
+                return ("OK", [b"1"])
+            if cmd == "FETCH":
+                return ("OK", [(b"1 (RFC822 ...)", "not bytes")])
+            return ("OK", [b""])
+        mock_conn.uid.side_effect = handler
+
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(tmp_path / "ids.json"),
+        )
+        poller.connect()
+        assert poller.fetch_unseen() == []
+
+    def test_disconnect_when_not_connected(self, tmp_path):
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(tmp_path / "ids.json"),
+        )
+        poller.disconnect()  # should not raise
+
+    def test_disconnect_handles_close_exception(self, mocker, tmp_path):
+        mocker.patch("ssl.create_default_context", return_value=MagicMock())
+        mock_class, mock_conn = _mock_imap(mocker)
+        mock_conn.close.side_effect = Exception("mailbox not selected")
+        mock_conn.logout.return_value = ("BYE", [b"bye"])
+
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(tmp_path / "ids.json"),
+        )
+        poller.connect()
+        poller.disconnect()  # should not raise
+        assert poller._conn is None
+
+    def test_mark_processed_no_connection(self, tmp_path):
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(tmp_path / "ids.json"),
+        )
+        poller.mark_processed("1", "<test@mail>")  # should not raise
+
+    def test_mark_processed_store_failure(self, mocker, tmp_path):
+        mocker.patch("ssl.create_default_context", return_value=MagicMock())
+        mock_class, mock_conn = _mock_imap(mocker)
+        mock_conn.uid.side_effect = Exception("store failed")
+
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(tmp_path / "ids.json"),
+        )
+        poller.connect()
+        poller.mark_processed("1", "<test@mail>")  # should not raise
+        # Message ID still recorded despite STORE failure
+        assert "<test@mail>" in poller._processed_ids
+
+    def test_mark_processed_saves_state(self, mocker, tmp_path):
+        mocker.patch("ssl.create_default_context", return_value=MagicMock())
+        mock_class, mock_conn = _mock_imap(mocker)
+
+        state_file = tmp_path / "ids.json"
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(state_file),
+        )
+        poller.connect()
+        poller.mark_processed("1", "<saved@mail>")
+
+        saved = json.loads(state_file.read_text())
+        assert "<saved@mail>" in saved
+
+    def test_mark_processed_empty_message_id(self, mocker, tmp_path):
+        mocker.patch("ssl.create_default_context", return_value=MagicMock())
+        mock_class, mock_conn = _mock_imap(mocker)
+
+        state_file = tmp_path / "ids.json"
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(state_file),
+        )
+        poller.connect()
+        poller.mark_processed("1", "")  # empty message_id — should not save
+        assert not state_file.exists()
+
     def test_disconnect_calls_logout(self, mocker, tmp_path):
         mock_class, mock_conn = _mock_imap(mocker)
         mock_conn.login.return_value = ("OK", [b"ok"])
@@ -110,3 +258,63 @@ class TestEmailPoller:
         poller.connect()
         poller.disconnect()
         mock_conn.logout.assert_called_once()
+
+    def test_disconnect_handles_logout_exception(self, mocker, tmp_path):
+        """If both close() and logout() raise, disconnect still succeeds."""
+        mocker.patch("ssl.create_default_context", return_value=MagicMock())
+        mock_class, mock_conn = _mock_imap(mocker)
+        mock_conn.close.side_effect = Exception("close failed")
+        mock_conn.logout.side_effect = Exception("logout failed")
+
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(tmp_path / "ids.json"),
+        )
+        poller.connect()
+        poller.disconnect()  # should not raise
+        assert poller._conn is None
+
+    def test_fetch_unseen_bad_status_skipped(self, mocker, tmp_path):
+        """If FETCH returns non-OK status, the message is skipped."""
+        mocker.patch("ssl.create_default_context", return_value=MagicMock())
+        mock_class = mocker.patch("imaplib.IMAP4_SSL")
+        mock_conn = MagicMock()
+        mock_class.return_value = mock_conn
+        mock_conn.login.return_value = ("OK", [b"ok"])
+        mock_conn.select.return_value = ("OK", [b"1"])
+
+        def handler(cmd, *args):
+            if cmd == "SEARCH":
+                return ("OK", [b"1"])
+            if cmd == "FETCH":
+                return ("NO", [])  # non-OK status
+            return ("OK", [b""])
+        mock_conn.uid.side_effect = handler
+
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(tmp_path / "ids.json"),
+        )
+        poller.connect()
+        assert poller.fetch_unseen() == []
+
+    def test_fetch_unseen_already_processed_skipped(self, mocker, tmp_path):
+        """Messages whose Message-ID is already in processed set are skipped."""
+        state_file = tmp_path / "ids.json"
+        state_file.write_text(json.dumps(["<already@mail>"]))
+
+        msg = email.message.EmailMessage()
+        msg["Subject"] = "test"
+        msg["Message-ID"] = "<already@mail>"
+        msg.set_content("hello")
+
+        mocker.patch("ssl.create_default_context", return_value=MagicMock())
+        mock_class, mock_conn = _mock_imap(mocker, uid_list=[b"1"], raw_email=msg)
+
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(state_file),
+        )
+        poller.connect()
+        results = poller.fetch_unseen()
+        assert results == []

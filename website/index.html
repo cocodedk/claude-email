@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>claude-email — Control Claude Code Agents via Email</title>
+  <meta name="description" content="An email-driven wrapper for the Claude Code CLI with an integrated MCP chat relay for managing multiple Claude Code agents. Dual auth, multi-agent orchestration, and user-level systemd services." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://cocodedk.github.io/claude-email/" />
+
+  <!-- Hreflang -->
+  <link rel="alternate" hreflang="en" href="https://cocodedk.github.io/claude-email/" />
+  <link rel="alternate" hreflang="fa" href="https://cocodedk.github.io/claude-email/fa/" />
+  <link rel="alternate" hreflang="x-default" href="https://cocodedk.github.io/claude-email/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="claude-email — Control Claude Code Agents via Email" />
+  <meta property="og:description" content="Email-driven wrapper for the Claude Code CLI with integrated MCP chat relay for managing multiple Claude Code agents." />
+  <meta property="og:url" content="https://cocodedk.github.io/claude-email/" />
+  <meta property="og:image" content="https://cocodedk.github.io/claude-email/og.png" />
+  <meta property="og:locale" content="en_US" />
+  <meta property="og:locale:alternate" content="fa_IR" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="claude-email — Control Claude Code Agents via Email" />
+  <meta name="twitter:description" content="Email-driven wrapper for the Claude Code CLI with integrated MCP chat relay for managing multiple Claude Code agents." />
+  <meta name="twitter:image" content="https://cocodedk.github.io/claude-email/og.png" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- JSON-LD -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "claude-email",
+    "description": "Email-driven wrapper for the Claude Code CLI with integrated MCP chat relay for managing multiple Claude Code agents.",
+    "url": "https://cocode.dk",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux",
+    "programmingLanguage": "Python",
+    "codeRepository": "https://github.com/cocodedk/claude-email",
+    "license": "https://opensource.org/licenses/Apache-2.0",
+    "inLanguage": "en",
+    "author": {
+      "@type": "Person",
+      "name": "Babak Bandpey",
+      "url": "https://linkedin.com/in/babakbandpey"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <div class="site-title"><code>claude-email</code></div>
+      <a href="fa/" class="lang-switch">&#1601;&#1575;&#1585;&#1587;&#1740;</a>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <h1><span>claude-email</span></h1>
+      <p class="tagline">Control Claude Code Agents via Email</p>
+      <p class="description">
+        An email-driven wrapper for the Claude Code CLI with an integrated MCP chat relay
+        for managing multiple Claude Code agents. Poll IMAP, verify senders with GPG signatures
+        or a shared secret, execute commands, and reply via SMTP &mdash; all from any email client.
+      </p>
+      <a href="https://github.com/cocodedk/claude-email" class="btn-primary">View on GitHub</a>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features">
+    <div class="container">
+      <h2 class="section-title">Features</h2>
+      <div class="features-grid">
+
+        <div class="feature-card">
+          <span class="feature-icon">&#9993;</span>
+          <h3>Email Control</h3>
+          <p>Use any email client as a universal remote control for Claude Code. Send a command, get the result back in your inbox.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&#128274;</span>
+          <h3>Dual Authentication</h3>
+          <p>Verify every incoming command with GPG signatures or a shared secret. Only authorized senders can execute commands.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&#128172;</span>
+          <h3>Multi-Agent Chat</h3>
+          <p>MCP-based chat relay lets multiple Claude Code agents coordinate through a shared SQLite message bus with SSE transport.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&#9881;</span>
+          <h3>Agent Management</h3>
+          <p>Spawn, message, and manage agents directly from email. Use <code>@agent-name</code> to target specific agents, <code>spawn</code> to create new ones.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&#128640;</span>
+          <h3>Service Management</h3>
+          <p>User-level systemd services &mdash; no sudo required. Auto-restart, dependency ordering, and lingering support out of the box.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&#9989;</span>
+          <h3>Quality</h3>
+          <p>204 tests with 99% code coverage. SQLite WAL mode for safe concurrent access. Python 3.12, fully typed, no shell injection.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section class="how-it-works">
+    <div class="container">
+      <h2 class="section-title">How It Works</h2>
+      <div class="content">
+        <p>
+          The system runs as two user-level systemd services. <strong>claude-email</strong> polls
+          an IMAP mailbox, validates the sender via GPG or shared secret, extracts the command from the
+          email body, and executes it through <code>claude --print</code>. The result is sent back as
+          a threaded email reply.
+        </p>
+        <p>
+          <strong>claude-chat</strong> is an MCP SSE server backed by SQLite in WAL mode.
+          It acts as a message bus for multiple Claude Code agents. Agents register, send messages,
+          and poll for responses through MCP tools. The email service acts as the user's avatar on
+          this bus &mdash; routing email commands to agents and relaying responses back as emails.
+        </p>
+        <div class="arch-block">Email Client
+    &#8595;
+IMAP Poll (claude-email)
+    &#8595;
+Sender Verification (GPG / Secret)
+    &#8595;
+&#9500;&#9472; Direct command &#8594; claude --print &#8594; SMTP reply
+&#9492;&#9472; Chat command &#8594; MCP bus (claude-chat) &#8594; Agent &#8594; SMTP reply</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Installation -->
+  <section class="installation">
+    <div class="container">
+      <h2 class="section-title">Installation</h2>
+      <div class="content">
+        <p>Clone the repository and run the installer:</p>
+        <pre><code>git clone https://github.com/cocodedk/claude-email.git
+cd claude-email
+cp .env.example .env    # edit with your IMAP/SMTP credentials
+bash install.sh         # creates venv + systemd services</code></pre>
+        <p>The installer sets up a Python virtual environment, installs dependencies, and registers both <code>claude-email</code> and <code>claude-chat</code> as user-level systemd services.</p>
+        <pre><code># Check service status
+systemctl --user status claude-email
+systemctl --user status claude-chat
+
+# View logs
+journalctl --user -u claude-email -f</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      Apache-2.0 | &copy; 2026 <a href="https://cocode.dk">Cocode</a> | Created by <a href="https://linkedin.com/in/babakbandpey">Babak Bandpey</a>
+    </div>
+  </footer>
+
+</body>
+</html>
