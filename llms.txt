@@ -1,0 +1,28 @@
+# claude-email
+
+> Email-driven wrapper for the Claude Code CLI with an integrated MCP chat relay for managing multiple Claude Code agents.
+
+## Overview
+
+claude-email polls an IMAP mailbox for authorized commands, executes them via `claude --print`, and replies via SMTP. It includes a full MCP-based chat system where claude-email acts as the user's avatar, brokering conversations between the user (via email) and multiple Claude Code agents (via MCP tools).
+
+## Key Features
+
+- Email as universal remote control for Claude Code CLI
+- Dual authentication: GPG signatures or shared secret in Subject
+- Multi-agent chat relay via MCP SSE server
+- Spawn, message, and manage Claude Code agents from any email client
+- User-level systemd services (no sudo required)
+- SQLite with WAL mode for safe concurrent access
+- 204 tests with 99% code coverage
+
+## Links
+
+- Source: https://github.com/cocodedk/claude-email
+- Website: https://cocodedk.github.io/claude-email/
+- Author: Babak Bandpey (https://linkedin.com/in/babakbandpey)
+- Company: Cocode (https://cocode.dk)
+
+## License
+
+Apache-2.0
