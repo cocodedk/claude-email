@@ -65,7 +65,17 @@ class TestExecuteCommand:
             text=True,
             timeout=30,
             shell=False,
+            cwd=None,
         )
+
+    def test_cwd_passed_to_subprocess(self, mocker):
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        execute_command("hello", cwd="/home/user/projects")
+        _, kwargs = mock_run.call_args
+        assert kwargs["cwd"] == "/home/user/projects"
 
     def test_timeout_returns_error_message(self, mocker):
         mocker.patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=5))
@@ -90,3 +100,24 @@ class TestExecuteCommand:
         result = execute_command("big", max_output_bytes=50_000)
         assert len(result) <= 51_000  # some tolerance for truncation message
         assert "[truncated]" in result
+
+    def test_file_not_found_returns_error(self, mocker):
+        mocker.patch("subprocess.run", side_effect=FileNotFoundError())
+        result = execute_command("hello", claude_bin="/nonexistent/claude")
+        assert "[Error:" in result
+        assert "not found" in result
+
+    def test_generic_exception_returns_error(self, mocker):
+        mocker.patch("subprocess.run", side_effect=OSError("permission denied"))
+        result = execute_command("hello")
+        assert "[Error:" in result
+        assert "permission denied" in result
+
+
+class TestExtractCommandHtmlOnly:
+    def test_single_part_html(self):
+        msg = email.message.EmailMessage()
+        msg["Subject"] = "test"
+        msg.set_content("<p>run tests</p>", subtype="html")
+        result = extract_command(msg)
+        assert "run tests" in result

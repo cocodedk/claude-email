@@ -2,9 +2,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SERVICE_NAME="claude-email"
+USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
 
-echo "==> Claude Email Agent — installer"
+echo "==> Claude Email + Chat — installer"
 
 # --- Prerequisites ---
 echo "==> Checking prerequisites..."
@@ -26,7 +26,7 @@ if [[ ! -f "$SCRIPT_DIR/.env" ]]; then
     exit 1
 fi
 
-required_vars=(IMAP_HOST IMAP_PORT SMTP_HOST SMTP_PORT EMAIL_ADDRESS EMAIL_PASSWORD AUTHORIZED_SENDER)
+required_vars=(IMAP_HOST IMAP_PORT SMTP_HOST SMTP_PORT EMAIL_ADDRESS EMAIL_PASSWORD AUTHORIZED_SENDER EMAIL_DOMAIN POLL_INTERVAL CLAUDE_TIMEOUT CLAUDE_BIN CLAUDE_CWD STATE_FILE CHAT_DB_PATH CHAT_HOST CHAT_PORT CHAT_URL SERVICE_NAME_EMAIL SERVICE_NAME_CHAT)
 missing=()
 for var in "${required_vars[@]}"; do
     if ! grep -q "^${var}=" "$SCRIPT_DIR/.env"; then
@@ -40,22 +40,68 @@ fi
 
 echo "    .env OK"
 
+# --- Auth safety check ---
+gpg_fp=$(grep "^GPG_FINGERPRINT=" "$SCRIPT_DIR/.env" | cut -d= -f2-)
+secret=$(grep "^SHARED_SECRET=" "$SCRIPT_DIR/.env" | cut -d= -f2-)
+if [[ -z "$gpg_fp" && ( -z "$secret" || "$secret" == "change_this_to_a_strong_secret" ) ]]; then
+    echo "ERROR: Neither GPG_FINGERPRINT nor a real SHARED_SECRET is set."
+    echo "  Set at least one in .env before installing."
+    exit 1
+fi
+
 # --- Virtual environment ---
 echo "==> Setting up Python virtual environment..."
 python3 -m venv "$SCRIPT_DIR/.venv"
 "$SCRIPT_DIR/.venv/bin/pip" install --quiet -r "$SCRIPT_DIR/requirements.txt"
 echo "    venv OK"
 
-# --- Systemd service ---
-echo "==> Installing systemd service..."
-sudo cp "$SCRIPT_DIR/$SERVICE_NAME.service" /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable "$SERVICE_NAME"
-sudo systemctl restart "$SERVICE_NAME"
-echo "    service enabled and started"
+# --- Remove old system-level services if present ---
+for svc in claude-email claude-chat; do
+    if [[ -f "/etc/systemd/system/$svc.service" ]]; then
+        echo "==> Migrating $svc from system-level to user-level..."
+        sudo systemctl stop "$svc" 2>/dev/null || true
+        sudo systemctl disable "$svc" 2>/dev/null || true
+        sudo rm -f "/etc/systemd/system/$svc.service"
+        echo "    old $svc system service removed"
+    fi
+done
+if [[ -f "/etc/systemd/system/claude-email.service" ]] || [[ -f "/etc/systemd/system/claude-chat.service" ]]; then
+    sudo systemctl daemon-reload
+fi
+
+# --- Enable lingering (one-time, requires sudo) ---
+if ! loginctl show-user "$(whoami)" -p Linger 2>/dev/null | grep -q "yes"; then
+    echo "==> Enabling lingering for $(whoami) (one-time sudo)..."
+    sudo loginctl enable-linger "$(whoami)"
+    echo "    lingering enabled"
+fi
+
+# --- Install user-level systemd services ---
+echo "==> Installing user-level systemd services..."
+mkdir -p "$USER_SYSTEMD_DIR"
+
+# Substitute __INSTALL_DIR__ and install service files
+for svc in claude-chat.service claude-email.service; do
+    sed "s|__INSTALL_DIR__|$SCRIPT_DIR|g" "$SCRIPT_DIR/$svc" > "$USER_SYSTEMD_DIR/$svc"
+done
+systemctl --user daemon-reload
+
+systemctl --user enable claude-chat
+systemctl --user restart claude-chat
+echo "    claude-chat enabled and started"
+
+systemctl --user enable claude-email
+systemctl --user restart claude-email
+echo "    claude-email enabled and started"
 
 # --- Status ---
 echo ""
-sudo systemctl status "$SERVICE_NAME" --no-pager
+echo "==> Service status:"
+systemctl --user status claude-chat --no-pager || true
 echo ""
-echo "==> Done. Logs: journalctl -u $SERVICE_NAME -f"
+systemctl --user status claude-email --no-pager || true
+echo ""
+echo "==> Done."
+echo "==> Logs:   journalctl --user -u claude-chat -f"
+echo "==>         journalctl --user -u claude-email -f"
+echo "==> Manage: systemctl --user {start|stop|restart|status} claude-{chat,email}"

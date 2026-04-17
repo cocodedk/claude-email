@@ -4,10 +4,13 @@ import email.message
 import imaplib
 import json
 import logging
+import os
 import ssl
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+_MAX_PROCESSED_IDS = 10_000
 
 
 class EmailPoller:
@@ -23,7 +26,7 @@ class EmailPoller:
         port: int,
         username: str,
         password: str,
-        state_file: str = "processed_ids.json",
+        state_file: str,
         mailbox: str = "INBOX",
     ) -> None:
         self._host = host
@@ -43,13 +46,27 @@ class EmailPoller:
         if self._state_file.exists():
             try:
                 data = json.loads(self._state_file.read_text())
+                # Keep only the most recent entries to bound memory
+                if len(data) > _MAX_PROCESSED_IDS:
+                    data = data[-_MAX_PROCESSED_IDS:]
                 return set(data)
             except (json.JSONDecodeError, TypeError):
                 logger.warning("State file corrupted, starting fresh")
         return set()
 
     def _save_state(self) -> None:
-        self._state_file.write_text(json.dumps(list(self._processed_ids)))
+        """Atomic write: temp file + rename prevents corruption on crash."""
+        ids = list(self._processed_ids)
+        if len(ids) > _MAX_PROCESSED_IDS:
+            ids = ids[-_MAX_PROCESSED_IDS:]
+            self._processed_ids = set(ids)
+        data = json.dumps(ids)
+        tmp = str(self._state_file) + ".tmp"
+        with open(tmp, "w") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.rename(tmp, str(self._state_file))
 
     # ------------------------------------------------------------------
     # Connection management

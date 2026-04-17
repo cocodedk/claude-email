@@ -1,6 +1,6 @@
 """Claude Email Agent — main orchestration loop.
 
-Polls claude@cocode.dk for commands from bb@cocode.dk, executes them via
+Polls for commands from the authorized sender, executes them via
 the claude CLI, and replies with the output. Runs as a systemd service.
 """
 import logging
@@ -12,14 +12,20 @@ import time
 
 from dotenv import load_dotenv
 
+from src.chat_db import ChatDB
+from src.chat_handlers import (
+    handle_chat_email,
+    maybe_cleanup_db,
+    relay_outbound_messages,
+    send_threaded_reply,
+)
 from src.executor import execute_command, extract_command
-from src.mailer import send_reply
 from src.poller import EmailPoller
 from src.security import is_authorized
 
 load_dotenv()
 
-_LOG_FILE = os.path.join(os.path.dirname(__file__), "claude-email.log")
+_LOG_FILE = os.environ.get("LOG_FILE", os.path.join(os.path.dirname(__file__), "claude-email.log"))
 _log_handler = logging.handlers.RotatingFileHandler(
     _LOG_FILE, maxBytes=10_240, backupCount=7
 )
@@ -46,25 +52,33 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 
 def _config() -> dict:
+    shared_secret = os.environ.get("SHARED_SECRET", "")
     return {
         "imap_host": os.environ["IMAP_HOST"],
-        "imap_port": int(os.environ.get("IMAP_PORT", "993")),
+        "imap_port": int(os.environ["IMAP_PORT"]),
         "smtp_host": os.environ["SMTP_HOST"],
-        "smtp_port": int(os.environ.get("SMTP_PORT", "465")),
+        "smtp_port": int(os.environ["SMTP_PORT"]),
         "username": os.environ["EMAIL_ADDRESS"],
         "password": os.environ["EMAIL_PASSWORD"],
         "authorized_sender": os.environ["AUTHORIZED_SENDER"],
-        "shared_secret": os.environ.get("SHARED_SECRET", ""),
+        "shared_secret": shared_secret,
         "gpg_fingerprint": os.environ.get("GPG_FINGERPRINT", ""),
         "gpg_home": os.environ.get("GPG_HOME"),
-        "poll_interval": int(os.environ.get("POLL_INTERVAL", "30")),
-        "claude_timeout": int(os.environ.get("CLAUDE_TIMEOUT", "300")),
-        "claude_bin": os.environ.get("CLAUDE_BIN", "claude"),
-        "state_file": os.environ.get("STATE_FILE", "processed_ids.json"),
+        "poll_interval": int(os.environ["POLL_INTERVAL"]),
+        "claude_timeout": int(os.environ["CLAUDE_TIMEOUT"]),
+        "claude_bin": os.environ["CLAUDE_BIN"],
+        "claude_cwd": os.environ["CLAUDE_CWD"],
+        "state_file": os.environ["STATE_FILE"],
+        "email_domain": os.environ["EMAIL_DOMAIN"],
+        "chat_db_path": os.environ["CHAT_DB_PATH"],
+        "chat_url": os.environ["CHAT_URL"],
+        "service_name_email": os.environ["SERVICE_NAME_EMAIL"],
+        "service_name_chat": os.environ["SERVICE_NAME_CHAT"],
+        "auth_prefix": f"AUTH:{shared_secret}",
     }
 
 
-def process_email(message, config: dict) -> None:
+def process_email(message, config: dict, chat_db=None) -> None:
     """Validate, execute, and reply for a single email message."""
     if not is_authorized(
         message,
@@ -76,34 +90,36 @@ def process_email(message, config: dict) -> None:
         logger.warning("Unauthorized email dropped")
         return
 
+    # Chat routing: when chat_db is provided, try chat system first
+    if chat_db is not None and handle_chat_email(message, config, chat_db):
+        return
+
     command = extract_command(message)
     if not command:
         logger.warning("Authorized email has empty command body — skipping")
         return
 
+    timeout = config["claude_timeout"]
+    try:
+        send_threaded_reply(
+            config, message,
+            f"Command received. Running (up to {timeout}s)...",
+        )
+    except Exception:
+        logger.exception("Failed to send progress ack — continuing with execution")
+
     logger.info("Executing command from authorized sender")
-    output = execute_command(command, claude_bin=config["claude_bin"], timeout=config["claude_timeout"])
-
-    original_subject = message.get("Subject", "command")
-    msg_id = message.get("Message-ID", "")
-    subject = original_subject if original_subject.startswith("Re:") else f"Re: {original_subject}"
-
-    send_reply(
-        smtp_host=config["smtp_host"],
-        smtp_port=config["smtp_port"],
-        username=config["username"],
-        password=config["password"],
-        to=config["authorized_sender"],
-        subject=subject,
-        body=output,
-        in_reply_to=msg_id,
-        references=msg_id,
+    output = execute_command(
+        command, claude_bin=config["claude_bin"],
+        timeout=timeout, cwd=config.get("claude_cwd"),
     )
+    send_threaded_reply(config, message, output)
 
 
 def run_loop(config: dict) -> None:
     """Main polling loop. Runs until SIGTERM/SIGINT received."""
     global _shutdown
+    chat_db = ChatDB(config["chat_db_path"])
     poller = EmailPoller(
         host=config["imap_host"],
         port=config["imap_port"],
@@ -126,15 +142,30 @@ def run_loop(config: dict) -> None:
                 if _shutdown:
                     break
                 msg_id = msg.get("Message-ID", "").strip()
+                from_hdr = msg.get("From", "")
                 try:
-                    process_email(msg, config)
-                except Exception as exc:
-                    logger.error("Error processing message %s: %s", msg_id, exc)
+                    process_email(msg, config, chat_db=chat_db)
+                except Exception:
+                    logger.exception("Error processing message %s from %s", msg_id, from_hdr)
                 finally:
                     poller.mark_processed(uid, msg_id)
             poller.disconnect()
-        except Exception as exc:
-            logger.error("IMAP error: %s — retrying after %ds", exc, config["poll_interval"])
+        except Exception:
+            logger.exception("IMAP error — retrying after %ds", config["poll_interval"])
+
+        try:
+            relay_outbound_messages(config, chat_db)
+        except Exception:
+            logger.exception("Outbound relay error")
+
+        try:
+            reaped = chat_db.reap_dead_agents()
+            for name in reaped:
+                logger.info("Agent %s marked disconnected (process exited)", name)
+        except Exception:
+            logger.exception("Liveness check error")
+
+        maybe_cleanup_db(chat_db)
 
         for _ in range(config["poll_interval"]):
             if _shutdown:
@@ -149,5 +180,8 @@ if __name__ == "__main__":
         cfg = _config()
     except KeyError as exc:
         logger.error("Missing required environment variable: %s", exc)
+        sys.exit(1)
+    if not cfg["gpg_fingerprint"] and not cfg["shared_secret"]:
+        logger.error("FATAL: Neither GPG_FINGERPRINT nor SHARED_SECRET is set — refusing to start")
         sys.exit(1)
     run_loop(cfg)

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>claude-email — کنترل عامل‌های Claude Code از طریق ایمیل</title>
+  <meta name="description" content="پوشش ایمیل‌محور برای Claude Code CLI با رله چت MCP یکپارچه برای مدیریت چندین عامل Claude Code. احراز هویت دوگانه، هماهنگی چند عاملی و سرویس‌های systemd سطح کاربر." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://cocodedk.github.io/claude-email/fa/" />
+
+  <!-- Hreflang -->
+  <link rel="alternate" hreflang="en" href="https://cocodedk.github.io/claude-email/" />
+  <link rel="alternate" hreflang="fa" href="https://cocodedk.github.io/claude-email/fa/" />
+  <link rel="alternate" hreflang="x-default" href="https://cocodedk.github.io/claude-email/" />
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="claude-email — کنترل عامل‌های Claude Code از طریق ایمیل" />
+  <meta property="og:description" content="پوشش ایمیل‌محور برای Claude Code CLI با رله چت MCP یکپارچه برای مدیریت چندین عامل Claude Code." />
+  <meta property="og:url" content="https://cocodedk.github.io/claude-email/fa/" />
+  <meta property="og:image" content="https://cocodedk.github.io/claude-email/og.png" />
+  <meta property="og:locale" content="fa_IR" />
+  <meta property="og:locale:alternate" content="en_US" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="claude-email — کنترل عامل‌های Claude Code از طریق ایمیل" />
+  <meta name="twitter:description" content="پوشش ایمیل‌محور برای Claude Code CLI با رله چت MCP یکپارچه برای مدیریت چندین عامل Claude Code." />
+  <meta name="twitter:image" content="https://cocodedk.github.io/claude-email/og.png" />
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="../styles.css" />
+
+  <!-- JSON-LD -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "claude-email",
+    "description": "پوشش ایمیل‌محور برای Claude Code CLI با رله چت MCP یکپارچه برای مدیریت چندین عامل Claude Code.",
+    "url": "https://cocode.dk",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Linux",
+    "programmingLanguage": "Python",
+    "codeRepository": "https://github.com/cocodedk/claude-email",
+    "license": "https://opensource.org/licenses/Apache-2.0",
+    "inLanguage": "fa",
+    "author": {
+      "@type": "Person",
+      "name": "بابک بندپی",
+      "url": "https://linkedin.com/in/babakbandpey"
+    }
+  }
+  </script>
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <div class="site-title"><code>claude-email</code></div>
+      <a href="../" class="lang-switch">English</a>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <h1><span>claude-email</span></h1>
+      <p class="tagline">کنترل عامل‌های Claude Code از طریق ایمیل</p>
+      <p class="description">
+        یک پوشش ایمیل‌محور برای خط فرمان Claude Code با رله چت MCP یکپارچه
+        برای مدیریت چندین عامل Claude Code. صندوق ورودی IMAP را بررسی می‌کند،
+        فرستنده را با امضای GPG یا رمز مشترک تایید می‌کند، دستورات را اجرا می‌کند
+        و پاسخ را از طریق SMTP ارسال می‌کند &mdash; همه از هر سرویس‌گیرنده ایمیلی.
+      </p>
+      <a href="https://github.com/cocodedk/claude-email" class="btn-primary">مشاهده در GitHub</a>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="features">
+    <div class="container">
+      <h2 class="section-title">ویژگی‌ها</h2>
+      <div class="features-grid">
+
+        <div class="feature-card">
+          <span class="feature-icon">&#9993;</span>
+          <h3>کنترل از طریق ایمیل</h3>
+          <p>از هر سرویس‌گیرنده ایمیلی به عنوان کنترل از راه دور جهانی برای Claude Code استفاده کنید. دستوری بفرستید و نتیجه را در صندوق ورودی خود دریافت کنید.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&#128274;</span>
+          <h3>احراز هویت دوگانه</h3>
+          <p>هر دستور ورودی را با امضای GPG یا رمز مشترک تایید کنید. فقط فرستندگان مجاز می‌توانند دستورات را اجرا کنند.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&#128172;</span>
+          <h3>چت چند عاملی</h3>
+          <p>رله چت مبتنی بر MCP به چندین عامل Claude Code اجازه می‌دهد از طریق گذرگاه پیام SQLite مشترک با انتقال SSE هماهنگ شوند.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&#9881;</span>
+          <h3>مدیریت عامل‌ها</h3>
+          <p>عامل‌ها را مستقیما از ایمیل ایجاد، پیام‌رسانی و مدیریت کنید. از <code>@agent-name</code> برای هدف‌گیری عامل خاص و <code>spawn</code> برای ایجاد عامل جدید استفاده کنید.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&#128640;</span>
+          <h3>مدیریت سرویس</h3>
+          <p>سرویس‌های systemd سطح کاربر &mdash; بدون نیاز به sudo. راه‌اندازی مجدد خودکار، ترتیب وابستگی و پشتیبانی از lingering به صورت پیش‌فرض.</p>
+        </div>
+
+        <div class="feature-card">
+          <span class="feature-icon">&#9989;</span>
+          <h3>کیفیت</h3>
+          <p>&#1777;&#1785;&#1779; تست با &#1785;&#1785;&#1642; پوشش کد. حالت WAL در SQLite برای دسترسی همزمان ایمن. پایتون &#1779;.&#1777;&#1778;، کاملا تایپ‌شده، بدون تزریق شل.</p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section class="how-it-works">
+    <div class="container">
+      <h2 class="section-title">نحوه عملکرد</h2>
+      <div class="content">
+        <p>
+          سیستم به صورت دو سرویس systemd سطح کاربر اجرا می‌شود. <strong>claude-email</strong>
+          صندوق ورودی IMAP را بررسی می‌کند، فرستنده را از طریق GPG یا رمز مشترک تایید می‌کند،
+          دستور را از متن ایمیل استخراج می‌کند و آن را از طریق <code>claude --print</code>
+          اجرا می‌کند. نتیجه به صورت پاسخ ایمیل رشته‌ای بازگردانده می‌شود.
+        </p>
+        <p>
+          <strong>claude-chat</strong> یک سرور MCP SSE است که توسط SQLite در حالت WAL
+          پشتیبانی می‌شود. این سرور به عنوان گذرگاه پیام برای چندین عامل Claude Code عمل می‌کند.
+          عامل‌ها ثبت‌نام می‌کنند، پیام ارسال می‌کنند و پاسخ‌ها را از طریق ابزارهای MCP دریافت می‌کنند.
+          سرویس ایمیل به عنوان آواتار کاربر روی این گذرگاه عمل می‌کند &mdash; دستورات ایمیلی را
+          به عامل‌ها هدایت می‌کند و پاسخ‌ها را به صورت ایمیل بازمی‌گرداند.
+        </p>
+        <div class="arch-block">Email Client
+    &#8595;
+IMAP Poll (claude-email)
+    &#8595;
+Sender Verification (GPG / Secret)
+    &#8595;
+&#9500;&#9472; Direct command &#8594; claude --print &#8594; SMTP reply
+&#9492;&#9472; Chat command &#8594; MCP bus (claude-chat) &#8594; Agent &#8594; SMTP reply</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Installation -->
+  <section class="installation">
+    <div class="container">
+      <h2 class="section-title">نصب</h2>
+      <div class="content">
+        <p>مخزن را کلون کرده و نصب‌کننده را اجرا کنید:</p>
+        <pre><code>git clone https://github.com/cocodedk/claude-email.git
+cd claude-email
+cp .env.example .env    # ویرایش با اطلاعات IMAP/SMTP خود
+bash install.sh         # ایجاد venv + سرویس‌های systemd</code></pre>
+        <p>نصب‌کننده یک محیط مجازی پایتون ایجاد می‌کند، وابستگی‌ها را نصب می‌کند و هر دو سرویس <code>claude-email</code> و <code>claude-chat</code> را به عنوان سرویس‌های systemd سطح کاربر ثبت می‌کند.</p>
+        <pre><code># بررسی وضعیت سرویس
+systemctl --user status claude-email
+systemctl --user status claude-chat
+
+# مشاهده لاگ‌ها
+journalctl --user -u claude-email -f</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="site-footer">
+    <div class="container">
+      Apache-2.0 | &copy; &#1778;&#1776;&#1778;&#1782; <a href="https://cocode.dk">Cocode</a> | &#1587;&#1575;&#1582;&#1578;&#1607; &#1588;&#1583;&#1607; &#1578;&#1608;&#1587;&#1591; <a href="https://linkedin.com/in/babakbandpey">&#1576;&#1575;&#1576;&#1705; &#1576;&#1606;&#1583;&#1662;&#1740;</a>
+    </div>
+  </footer>
+
+</body>
+</html>

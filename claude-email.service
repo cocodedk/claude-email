@@ -1,26 +1,17 @@
 [Unit]
 Description=Claude Email Agent
 Documentation=https://github.com/cocodedk/claude-email
-After=network-online.target
-Wants=network-online.target
+After=network-online.target claude-chat.service
+Wants=network-online.target claude-chat.service
 
 [Service]
 Type=simple
-User=cocodedk
-Group=cocodedk
-WorkingDirectory=/home/cocodedk
-EnvironmentFile=/home/cocodedk/0-projects/claude-email/.env
-ExecStart=/home/cocodedk/0-projects/claude-email/.venv/bin/python3 /home/cocodedk/0-projects/claude-email/main.py
+WorkingDirectory=__INSTALL_DIR__
+EnvironmentFile=__INSTALL_DIR__/.env
+ExecStart=__INSTALL_DIR__/.venv/bin/python3 __INSTALL_DIR__/main.py
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=30
 
-# Systemd hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=false
-ReadWritePaths=/home/cocodedk
-PrivateTmp=true
-
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
