@@ -106,6 +106,37 @@ class TestValidateProjectPath:
         with pytest.raises(ValueError, match="outside allowed base"):
             validate_project_path(str(base / ".."), allowed_base=str(base))
 
+    def test_bare_name_resolved_against_allowed_base(self, tmp_path):
+        from src.spawner import validate_project_path
+
+        base = tmp_path / "base"
+        base.mkdir()
+        proj = base / "babakcast"
+        proj.mkdir()
+
+        result = validate_project_path("babakcast", allowed_base=str(base))
+        assert result == str(proj.resolve())
+
+    def test_relative_subpath_resolved_against_allowed_base(self, tmp_path):
+        from src.spawner import validate_project_path
+
+        base = tmp_path / "base"
+        base.mkdir()
+        nested = base / "group" / "sub"
+        nested.mkdir(parents=True)
+
+        result = validate_project_path("group/sub", allowed_base=str(base))
+        assert result == str(nested.resolve())
+
+    def test_bare_name_without_allowed_base_falls_through(self, tmp_path, monkeypatch):
+        from src.spawner import validate_project_path
+
+        # With no allowed_base, "foo" resolves against cwd — unchanged legacy behavior
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "foo").mkdir()
+        result = validate_project_path("foo")
+        assert result == str((tmp_path / "foo").resolve())
+
 
 class TestSpawnAgent:
     @pytest.fixture

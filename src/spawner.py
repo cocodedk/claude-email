@@ -41,7 +41,11 @@ def validate_project_path(project_dir: str, allowed_base: str | None = None) -> 
 
     Returns the resolved absolute path.
     Raises ValueError if the path is invalid or outside the allowed base.
+    Non-absolute inputs are resolved relative to allowed_base when set, so
+    email commands can spell `spawn babakcast` instead of the full path.
     """
+    if allowed_base and not os.path.isabs(project_dir):
+        project_dir = os.path.join(allowed_base, project_dir)
     resolved = str(Path(project_dir).resolve())
     if not os.path.isdir(resolved):
         raise ValueError(f"Directory does not exist: {resolved}")

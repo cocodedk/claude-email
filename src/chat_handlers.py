@@ -92,7 +92,7 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
         project_dir = parts[0] if parts else ""
         instruction = parts[1] if len(parts) > 1 else ""
         if not project_dir:
-            send_threaded_reply(config, message, "Usage: spawn <path> [instruction]")
+            send_threaded_reply(config, message, "Usage: spawn <name-or-path> [instruction]")
             return
         try:
             name, pid = spawn_agent(
