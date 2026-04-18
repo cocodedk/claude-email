@@ -108,6 +108,45 @@ class TestEmailPoller:
         )
         assert poller._processed_ids == set()
 
+    def test_dict_state_file_starts_fresh(self, tmp_path):
+        """A JSON object (not list) must not leak its keys into processed_ids.
+
+        Prior behavior: json.loads returned a dict, set(dict) yielded the keys,
+        and those keys polluted the idempotency store. Now strictly requires
+        a list of strings.
+        """
+        state_file = tmp_path / "ids.json"
+        state_file.write_text('{"sneaky-key": "value"}')
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(state_file),
+        )
+        assert poller._processed_ids == set(), (
+            f"dict keys leaked: {poller._processed_ids}"
+        )
+
+    def test_list_with_non_string_entries_starts_fresh(self, tmp_path):
+        """A list containing non-strings (int, None, dict) must be rejected."""
+        state_file = tmp_path / "ids.json"
+        state_file.write_text('["<valid-id@cocode.dk>", 42, null, {"x": 1}]')
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(state_file),
+        )
+        assert poller._processed_ids == set(), (
+            f"hetero list accepted: {poller._processed_ids}"
+        )
+
+    def test_list_of_strings_loads_normally(self, tmp_path):
+        """The happy path stays happy."""
+        state_file = tmp_path / "ids.json"
+        state_file.write_text('["<a@cocode.dk>", "<b@cocode.dk>"]')
+        poller = EmailPoller(
+            host="h", port=993, username="u", password="p",
+            state_file=str(state_file),
+        )
+        assert poller._processed_ids == {"<a@cocode.dk>", "<b@cocode.dk>"}
+
     def test_fetch_unseen_not_connected_raises(self, tmp_path):
         poller = EmailPoller(
             host="h", port=993, username="u", password="p",

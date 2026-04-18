@@ -46,6 +46,8 @@ class EmailPoller:
         if self._state_file.exists():
             try:
                 data = json.loads(self._state_file.read_text())
+                if not isinstance(data, list) or not all(isinstance(x, str) for x in data):
+                    raise TypeError("state file must contain a JSON list of strings")
                 # Keep only the most recent entries to bound memory
                 if len(data) > _MAX_PROCESSED_IDS:
                     data = data[-_MAX_PROCESSED_IDS:]

@@ -61,7 +61,9 @@ def inject_mcp_config(project_dir: str, chat_url: str) -> None:
         data = {}
 
     servers = data.setdefault("mcpServers", {})
-    servers["claude-chat"] = {"url": chat_url}
+    # Claude Code requires explicit transport type for network MCP servers;
+    # without it the server is silently skipped at session start.
+    servers["claude-chat"] = {"type": "sse", "url": chat_url}
 
     with open(mcp_path, "w") as f:
         json.dump(data, f, indent=2)

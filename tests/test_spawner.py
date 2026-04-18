@@ -28,7 +28,7 @@ class TestInjectMcpConfig:
         data = json.loads(mcp_file.read_text())
         assert data == {
             "mcpServers": {
-                "claude-chat": {"url": "http://localhost:8080/mcp"}
+                "claude-chat": {"type": "sse", "url": "http://localhost:8080/mcp"}
             }
         }
 
@@ -54,9 +54,10 @@ class TestInjectMcpConfig:
             "command": "npx",
             "args": ["@playwright/mcp@latest"],
         }
-        # New server added
+        # New server added with explicit SSE transport type
         assert data["mcpServers"]["claude-chat"] == {
-            "url": "http://localhost:9090/mcp"
+            "type": "sse",
+            "url": "http://localhost:9090/mcp",
         }
 
 
