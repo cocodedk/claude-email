@@ -528,7 +528,7 @@ class TestRunLoop:
         assert len(sleep_calls) == 0
 
     def test_run_loop_reaped_agents_logged(self, mocker, tmp_path):
-        """Cover lines 174-175: reaped agents names are logged."""
+        """Each reaped agent name is logged at INFO level."""
         import main
 
         call_count = 0
@@ -549,6 +549,7 @@ class TestRunLoop:
         mock_chat_db.reap_dead_agents.return_value = ["agent-alpha", "agent-beta"]
         mock_chat_db_cls.return_value = mock_chat_db
 
+        mock_logger = mocker.patch("main.logger")
         mocker.patch("main.relay_outbound_messages")
 
         config = {
@@ -567,9 +568,17 @@ class TestRunLoop:
             main._shutdown = original
 
         mock_chat_db.reap_dead_agents.assert_called()
+        # Assert each reaped name is in an info log call
+        info_messages = [
+            (call.args[0] % call.args[1:] if call.args else "")
+            for call in mock_logger.info.call_args_list
+        ]
+        joined = " | ".join(info_messages)
+        assert "agent-alpha" in joined, f"agent-alpha not logged; got: {joined}"
+        assert "agent-beta" in joined, f"agent-beta not logged; got: {joined}"
 
     def test_run_loop_handles_reap_error(self, mocker, tmp_path):
-        """Cover line 176: reap_dead_agents exception is caught and logged."""
+        """reap_dead_agents exception is caught and logged via logger.exception."""
         import main
 
         call_count = 0
@@ -590,6 +599,7 @@ class TestRunLoop:
         mock_chat_db.reap_dead_agents.side_effect = RuntimeError("db locked")
         mock_chat_db_cls.return_value = mock_chat_db
 
+        mock_logger = mocker.patch("main.logger")
         mocker.patch("main.relay_outbound_messages")
 
         config = {
@@ -608,6 +618,8 @@ class TestRunLoop:
             main._shutdown = original
 
         mock_chat_db.reap_dead_agents.assert_called()
+        # The exception must land in logger.exception, not get silently swallowed
+        mock_logger.exception.assert_any_call("Liveness check error")
 
     def test_run_loop_sleep_shutdown_break(self, mocker, tmp_path):
         """Cover line 182: the if _shutdown: break inside the sleep for-loop."""

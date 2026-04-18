@@ -415,7 +415,13 @@ class TestSSEHandler:
         assert callable(sse_route.endpoint)
 
     def test_sse_handler_calls_server_run(self, tmp_path):
-        """Exercise handle_sse: enters connect_sse and calls server.run with the streams."""
+        """handle_sse forwards request.scope/receive/_send into connect_sse
+        and then invokes server.run with the yielded streams.
+
+        Asserts the handoff arguments so a regression that passed wrong or
+        dropped channels (e.g. scope/scope/scope) would be caught — the
+        fake connect_sse no longer silently ignores its args.
+        """
         import asyncio
         from contextlib import asynccontextmanager
         from types import SimpleNamespace
@@ -436,15 +442,18 @@ class TestSSEHandler:
         mock_streams = (mock_read_stream, mock_write_stream)
         mock_server_run = AsyncMock()
 
+        handoff_capture = {}
+
         @asynccontextmanager
         async def fake_connect_sse(self_sse, scope, receive, send):
+            handoff_capture["scope"] = scope
+            handoff_capture["receive"] = receive
+            handoff_capture["send"] = send
             yield mock_streams
 
         async def _test():
-            # handle_sse now accepts a Starlette Request; fake one with the
-            # attributes it reaches for: scope, receive, _send.
             fake_request = SimpleNamespace(
-                scope={"type": "http"},
+                scope={"type": "http", "marker": "from-fake-request"},
                 receive=AsyncMock(),
                 _send=AsyncMock(),
             )
@@ -455,13 +464,21 @@ class TestSSEHandler:
             ):
                 with patch.object(local_app.state.mcp_server, "run", mock_server_run):
                     result = await handle_sse(fake_request)
-            return result
+            return result, fake_request
 
-        result = asyncio.run(_test())
+        result, fake_request = asyncio.run(_test())
+
+        # server.run received the streams yielded by connect_sse
         mock_server_run.assert_awaited_once()
         call_args = mock_server_run.call_args
         assert call_args.args[0] is mock_read_stream
         assert call_args.args[1] is mock_write_stream
+
+        # connect_sse received the request's actual scope/receive/_send
+        assert handoff_capture["scope"] is fake_request.scope
+        assert handoff_capture["receive"] is fake_request.receive
+        assert handoff_capture["send"] is fake_request._send
+
         # The handler returns an empty Response after the SSE stream closes
         from starlette.responses import Response
         assert isinstance(result, Response)

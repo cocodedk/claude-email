@@ -449,6 +449,7 @@ class TestSpawnAgentModelEffortBudget:
         spawn_agent(db, str(project_dir), "http://localhost:8080/mcp", effort="low")
         cmd = mock_popen.call_args.args[0]
         assert "--effort" in cmd
+        assert cmd[cmd.index("--effort") + 1] == "low"
 
     def test_max_budget_usd_in_spawn_with_instruction(self, db, tmp_path, mocker):
         from src.spawner import spawn_agent
