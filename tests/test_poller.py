@@ -106,22 +106,17 @@ class TestEmailPoller:
             username="u", password="p",
             state_file=str(state_file),
         )
-        assert poller._processed_ids == set()
+        assert len(poller._processed_ids) == 0
 
     def test_dict_state_file_starts_fresh(self, tmp_path):
-        """A JSON object (not list) must not leak its keys into processed_ids.
-
-        Prior behavior: json.loads returned a dict, set(dict) yielded the keys,
-        and those keys polluted the idempotency store. Now strictly requires
-        a list of strings.
-        """
+        """A JSON object (not list) must not leak its keys into processed_ids."""
         state_file = tmp_path / "ids.json"
         state_file.write_text('{"sneaky-key": "value"}')
         poller = EmailPoller(
             host="h", port=993, username="u", password="p",
             state_file=str(state_file),
         )
-        assert poller._processed_ids == set(), (
+        assert len(poller._processed_ids) == 0, (
             f"dict keys leaked: {poller._processed_ids}"
         )
 
@@ -133,7 +128,7 @@ class TestEmailPoller:
             host="h", port=993, username="u", password="p",
             state_file=str(state_file),
         )
-        assert poller._processed_ids == set(), (
+        assert len(poller._processed_ids) == 0, (
             f"hetero list accepted: {poller._processed_ids}"
         )
 
@@ -145,7 +140,7 @@ class TestEmailPoller:
             host="h", port=993, username="u", password="p",
             state_file=str(state_file),
         )
-        assert poller._processed_ids == {"<a@cocode.dk>", "<b@cocode.dk>"}
+        assert set(poller._processed_ids) == {"<a@cocode.dk>", "<b@cocode.dk>"}
 
     def test_fetch_unseen_not_connected_raises(self, tmp_path):
         poller = EmailPoller(
@@ -380,30 +375,63 @@ class TestEmailPoller:
         finally:
             poller_module._MAX_PROCESSED_IDS = original_max
 
-    def test_save_state_truncates_oversized_set(self, mocker, tmp_path):
-        """If _processed_ids exceeds _MAX_PROCESSED_IDS at save time, it's truncated (lines 61-62)."""
+    def test_save_state_truncates_preserving_insertion_order(self, mocker, tmp_path):
+        """When _processed_ids exceeds _MAX, truncation must drop the OLDEST,
+        not arbitrary entries, and the freshly-added ID must survive.
+
+        Prior bug (CodeRabbit Major on PR #10): _processed_ids was a set, so
+        list(self._processed_ids)[-N:] in _save_state had no insertion-order
+        semantics — the newly-appended Message-ID could be dropped if it
+        happened to fall outside the arbitrary tail of set-to-list conversion,
+        silently breaking replay protection.
+        """
         import src.poller as poller_module
         original_max = poller_module._MAX_PROCESSED_IDS
         poller_module._MAX_PROCESSED_IDS = 5
         try:
             mocker.patch("ssl.create_default_context", return_value=MagicMock())
-            mock_class, mock_conn = _mock_imap(mocker)
+            _mock_imap(mocker)
 
             state_file = tmp_path / "ids.json"
+            # Seed ordered state via the state file itself
+            state_file.write_text(json.dumps([f"<msg{i}@mail>" for i in range(10)]))
             poller = EmailPoller(
                 host="h", port=993, username="u", password="p",
                 state_file=str(state_file),
             )
             poller.connect()
 
-            # Manually fill _processed_ids beyond the limit
-            poller._processed_ids = {f"<msg{i}@mail>" for i in range(10)}
-            # Trigger _save_state by marking a processed message
             poller.mark_processed("1", "<msg10@mail>")
 
-            # _processed_ids should now be capped at 5 (+1 from mark_processed = 6
-            # unless truncation happened first — the save truncates the list)
             saved = json.loads(state_file.read_text())
-            assert len(saved) <= poller_module._MAX_PROCESSED_IDS
+            # With MAX=5, the 5 most-recently-inserted survive: msg6..msg10.
+            # Crucially, the freshly marked <msg10@mail> must be present.
+            assert saved == [f"<msg{i}@mail>" for i in range(6, 11)]
+            assert "<msg10@mail>" in saved
+        finally:
+            poller_module._MAX_PROCESSED_IDS = original_max
+
+    def test_save_state_preserves_newest_even_if_processed_ids_was_full(
+        self, mocker, tmp_path,
+    ):
+        """Direct demonstration: newly added id survives even when at cap."""
+        import src.poller as poller_module
+        original_max = poller_module._MAX_PROCESSED_IDS
+        poller_module._MAX_PROCESSED_IDS = 3
+        try:
+            mocker.patch("ssl.create_default_context", return_value=MagicMock())
+            _mock_imap(mocker)
+            state_file = tmp_path / "ids.json"
+            state_file.write_text(json.dumps(["<a>", "<b>", "<c>"]))
+            poller = EmailPoller(
+                host="h", port=993, username="u", password="p",
+                state_file=str(state_file),
+            )
+            poller.connect()
+            poller.mark_processed("1", "<d>")
+            saved = json.loads(state_file.read_text())
+            assert saved == ["<b>", "<c>", "<d>"], (
+                f"newest-first invariant broken: {saved}"
+            )
         finally:
             poller_module._MAX_PROCESSED_IDS = original_max

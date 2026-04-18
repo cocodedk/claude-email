@@ -36,13 +36,17 @@ class EmailPoller:
         self._state_file = Path(state_file)
         self._mailbox = mailbox
         self._conn: imaplib.IMAP4_SSL | None = None
-        self._processed_ids: set[str] = self._load_state()
+        # dict[str, None] acts as an insertion-ordered set. We rely on the
+        # insertion order so _save_state can drop the OLDEST entries when
+        # truncating — a plain set() would lose the most-recent-added id
+        # on a random truncation, silently breaking replay protection.
+        self._processed_ids: dict[str, None] = self._load_state()
 
     # ------------------------------------------------------------------
     # State persistence
     # ------------------------------------------------------------------
 
-    def _load_state(self) -> set[str]:
+    def _load_state(self) -> dict[str, None]:
         if self._state_file.exists():
             try:
                 data = json.loads(self._state_file.read_text())
@@ -51,18 +55,21 @@ class EmailPoller:
                 # Keep only the most recent entries to bound memory
                 if len(data) > _MAX_PROCESSED_IDS:
                     data = data[-_MAX_PROCESSED_IDS:]
-                return set(data)
+                return {x: None for x in data}
             except (json.JSONDecodeError, TypeError):
                 logger.warning("State file corrupted, starting fresh")
-        return set()
+        return {}
 
     def _save_state(self) -> None:
-        """Atomic write: temp file + rename prevents corruption on crash."""
-        ids = list(self._processed_ids)
-        if len(ids) > _MAX_PROCESSED_IDS:
-            ids = ids[-_MAX_PROCESSED_IDS:]
-            self._processed_ids = set(ids)
-        data = json.dumps(ids)
+        """Atomic write: temp file + rename prevents corruption on crash.
+
+        Trims from the FRONT (oldest insertions) so the newly-added id is
+        always preserved.
+        """
+        while len(self._processed_ids) > _MAX_PROCESSED_IDS:
+            # Pop oldest — dict iteration yields keys in insertion order
+            self._processed_ids.pop(next(iter(self._processed_ids)))
+        data = json.dumps(list(self._processed_ids))
         tmp = str(self._state_file) + ".tmp"
         with open(tmp, "w") as f:
             f.write(data)
@@ -141,5 +148,5 @@ class EmailPoller:
             logger.warning("Failed to mark UID %s as seen: %s", uid, exc)
 
         if message_id:
-            self._processed_ids.add(message_id)
+            self._processed_ids[message_id] = None
             self._save_state()
