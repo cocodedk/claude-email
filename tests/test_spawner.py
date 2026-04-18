@@ -373,6 +373,5 @@ class TestSpawnAgentModelEffortBudget:
         assert "--max-budget-usd" not in cmd
         # should log exactly one INFO message about skipping
         info_calls = [c for c in mock_logger.info.call_args_list
-                      if "budget" in str(c).lower() or "max_budget" in str(c).lower()
-                      or "max-budget" in str(c).lower()]
-        assert len(info_calls) >= 1
+                      if "budget" in c.args[0].lower()]
+        assert len(info_calls) == 1

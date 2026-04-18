@@ -19,6 +19,7 @@ from src.chat_handlers import (
     relay_outbound_messages,
     send_threaded_reply,
 )
+from src.config_validators import validated_effort
 from src.executor import execute_command, extract_command
 from src.poller import EmailPoller
 from src.security import is_authorized
@@ -72,7 +73,7 @@ def _config() -> dict:
         "claude_cwd": os.environ["CLAUDE_CWD"],
         "claude_yolo": os.environ.get("CLAUDE_YOLO", "") == "1",
         "claude_model": os.environ.get("CLAUDE_MODEL") or None,
-        "claude_effort": os.environ.get("CLAUDE_EFFORT") or None,
+        "claude_effort": validated_effort(os.environ.get("CLAUDE_EFFORT", "").strip() or None),
         "claude_max_budget_usd": os.environ.get("CLAUDE_MAX_BUDGET_USD") or None,
         "claude_extra_env": extra_env,
         "state_file": os.environ["STATE_FILE"],

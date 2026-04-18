@@ -120,7 +120,7 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 | `POLL_INTERVAL` | Seconds between IMAP polls | `15` |
 | `CLAUDE_TIMEOUT` | Max seconds for CLI execution | `300` |
 | `CLAUDE_BIN` | Path to Claude CLI binary | `/home/user/.local/bin/claude` |
-| `CLAUDE_CWD` | Working directory for CLI commands; also base for bare-name spawns | `/home/user/projects` |
+| `CLAUDE_CWD` | Working directory for CLI commands; also the allowed base for spawn paths — bare names resolve against it, absolute paths must resolve under it. | `/home/user/projects` |
 | `STATE_FILE` | Message-ID idempotency store | `processed_ids.json` |
 | `CLAUDE_MODEL` | *Optional.* Model alias (`sonnet`, `haiku`) or full name. Leave unset for auto-mode. | `claude-sonnet-4-6` |
 | `CLAUDE_EFFORT` | *Optional.* Thinking effort: `low`, `medium`, `high`, `xhigh`, `max`. | `low` |

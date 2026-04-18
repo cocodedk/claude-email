@@ -189,6 +189,52 @@ class TestConfig:
         with pytest.raises(KeyError):
             _config()
 
+    def _base_env(self, monkeypatch):
+        """Set all required env vars; return dict for optional overrides."""
+        env = {
+            "IMAP_HOST": "imap.x.com", "IMAP_PORT": "993",
+            "SMTP_HOST": "smtp.x.com", "SMTP_PORT": "465",
+            "EMAIL_ADDRESS": "a@x.com", "EMAIL_PASSWORD": "pw",
+            "AUTHORIZED_SENDER": "b@x.com", "SHARED_SECRET": "sec",
+            "POLL_INTERVAL": "15", "CLAUDE_TIMEOUT": "60",
+            "CLAUDE_BIN": "/usr/bin/claude", "CLAUDE_CWD": "/tmp",
+            "STATE_FILE": "ids.json", "EMAIL_DOMAIN": "x.com",
+            "CHAT_DB_PATH": "chat.db", "CHAT_URL": "http://localhost:8420/sse",
+            "SERVICE_NAME_EMAIL": "email.service",
+            "SERVICE_NAME_CHAT": "chat.service",
+        }
+        for k, v in env.items():
+            monkeypatch.setenv(k, v)
+        return env
+
+    def test_config_valid_effort_passes(self, monkeypatch):
+        self._base_env(monkeypatch)
+        monkeypatch.setenv("CLAUDE_EFFORT", "xhigh")
+        from main import _config
+        cfg = _config()
+        assert cfg["claude_effort"] == "xhigh"
+
+    def test_config_invalid_effort_raises(self, monkeypatch):
+        self._base_env(monkeypatch)
+        monkeypatch.setenv("CLAUDE_EFFORT", "ultra")
+        from main import _config
+        with pytest.raises(ValueError, match="CLAUDE_EFFORT"):
+            _config()
+
+    def test_config_empty_effort_is_none(self, monkeypatch):
+        self._base_env(monkeypatch)
+        monkeypatch.setenv("CLAUDE_EFFORT", "")
+        from main import _config
+        cfg = _config()
+        assert cfg["claude_effort"] is None
+
+    def test_config_unset_effort_is_none(self, monkeypatch):
+        self._base_env(monkeypatch)
+        monkeypatch.delenv("CLAUDE_EFFORT", raising=False)
+        from main import _config
+        cfg = _config()
+        assert cfg["claude_effort"] is None
+
 
 class TestSignalHandler:
     def test_handle_signal_sets_shutdown(self):
