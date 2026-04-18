@@ -24,6 +24,14 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 ---
 
+## Memory (mem0 via user-scope MCP)
+
+Every email-driven invocation starts with `mcp__mem0__search_memory` scoped to `project="claude-email"`, `user_id="bb"`, and a one-line summary of the request. Fold relevant hits into the reply or plan.
+
+Persist durable facts with `mcp__mem0__add_memory` at the same scope when the user asks to remember something, or when an incident, sender preference, or routing quirk surfaces. Skip storing anything already captured in code, git log, or this file.
+
+---
+
 ## Architecture
 
 ```
