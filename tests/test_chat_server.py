@@ -19,8 +19,9 @@ class TestCreateApp:
         assert "/sse" in paths
 
     def test_has_messages_route(self, app):
+        # Starlette's Mount normalizes "/messages/" to "/messages" in .path
         paths = [r.path for r in app.routes]
-        assert "/messages/" in paths
+        assert "/messages" in paths
 
     def test_sse_route_is_get(self, app):
         for route in app.routes:
@@ -31,13 +32,16 @@ class TestCreateApp:
         else:
             pytest.fail("/sse route not found")
 
-    def test_messages_route_is_post(self, app):
+    def test_messages_route_is_mount(self, app):
+        """/messages/ is mounted as an ASGI app (MCP SDK's handle_post_message)."""
+        from starlette.routing import Mount
         for route in app.routes:
-            if getattr(route, "path", None) == "/messages/":
-                assert "POST" in route.methods
+            if getattr(route, "path", None) == "/messages":
+                assert isinstance(route, Mount)
+                assert route.app is not None
                 break
         else:
-            pytest.fail("/messages/ route not found")
+            pytest.fail("/messages mount not found")
 
 
 class TestToolRegistration:
@@ -411,16 +415,15 @@ class TestSSEHandler:
         assert callable(sse_route.endpoint)
 
     def test_sse_handler_calls_server_run(self, tmp_path):
-        """Exercise lines 131-132: handle_sse enters connect_sse and calls server.run."""
+        """Exercise handle_sse: enters connect_sse and calls server.run with the streams."""
         import asyncio
         from contextlib import asynccontextmanager
+        from types import SimpleNamespace
         from unittest.mock import AsyncMock, patch
 
-        # Create app; then inject a mock SSE transport whose connect_sse yields streams
         from chat.server import create_app
         local_app = create_app(str(tmp_path / "test.db"), "127.0.0.1", 8422)
 
-        # Find handle_sse from /sse route
         handle_sse = None
         for route in local_app.routes:
             if getattr(route, "path", None) == "/sse":
@@ -438,20 +441,27 @@ class TestSSEHandler:
             yield mock_streams
 
         async def _test():
-            scope = {"type": "http"}
-            receive = AsyncMock()
-            send = AsyncMock()
+            # handle_sse now accepts a Starlette Request; fake one with the
+            # attributes it reaches for: scope, receive, _send.
+            fake_request = SimpleNamespace(
+                scope={"type": "http"},
+                receive=AsyncMock(),
+                _send=AsyncMock(),
+            )
 
             with patch(
                 "mcp.server.sse.SseServerTransport.connect_sse",
                 new=fake_connect_sse,
             ):
                 with patch.object(local_app.state.mcp_server, "run", mock_server_run):
-                    await handle_sse(scope, receive, send)
+                    result = await handle_sse(fake_request)
+            return result
 
-        asyncio.run(_test())
-        # server.run was called with the two streams from the context manager
+        result = asyncio.run(_test())
         mock_server_run.assert_awaited_once()
         call_args = mock_server_run.call_args
         assert call_args.args[0] is mock_read_stream
         assert call_args.args[1] is mock_write_stream
+        # The handler returns an empty Response after the SSE stream closes
+        from starlette.responses import Response
+        assert isinstance(result, Response)
