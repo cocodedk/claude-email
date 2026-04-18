@@ -47,6 +47,50 @@ class TestExtractCommand:
         assert isinstance(result, str)
         assert len(result) >= 0  # does not crash
 
+    def test_strips_outlook_quote_block(self):
+        """Outlook replies include a _____ separator + From:/Sent:/... header
+        block + the full quoted message. All of that must be stripped so
+        thread length doesn't balloon the CLI prompt or chat_db bodies.
+        """
+        msg = _text_msg(
+            "Fix the bug please\n"
+            "\n"
+            "\n"
+            "________________________________\n"
+            "From: claude@cocode.dk <claude@cocode.dk>\n"
+            "Sent: Saturday, April 18, 2026 5:52:14 PM\n"
+            "To: Babak Bandpey <bb@cocode.dk>\n"
+            "Subject: Re: [master-fixer] message\n"
+            "\n"
+            "This is the prior long email chain that shouldn't be in the "
+            "command prompt — " + "x " * 200
+        )
+        result = extract_command(msg)
+        assert result == "Fix the bug please"
+        assert "From:" not in result
+        assert "x x x" not in result
+
+    def test_strips_original_message_separator(self):
+        """Some clients use '----- Original Message -----' instead of Outlook's underscores."""
+        msg = _text_msg(
+            "My new reply\n"
+            "\n"
+            "----- Original Message -----\n"
+            "From: someone@example.com\n"
+            "the old message body"
+        )
+        result = extract_command(msg)
+        assert result == "My new reply"
+
+    def test_keeps_non_quote_underscores(self):
+        """A normal paragraph with underscores must not be mistaken for an Outlook quote.
+
+        Short rules of thumb matter: the underscore line must be long (>=20)
+        AND immediately followed by 'From:' for it to count as a quote.
+        """
+        msg = _text_msg("my command __ with __ underscores __ in text")
+        assert extract_command(msg) == "my command __ with __ underscores __ in text"
+
 
 class TestExecuteCommand:
     def test_successful_execution(self, mocker):
@@ -154,6 +198,67 @@ class TestExecuteCommand:
         execute_command("hello")
         # When extra_env is not provided, don't pass env= so child inherits parent
         assert mock_run.call_args.kwargs.get("env") is None
+
+
+class TestExecuteCommandModelEffortBudget:
+    """Tests for CLAUDE_MODEL, CLAUDE_EFFORT, CLAUDE_MAX_BUDGET_USD knobs."""
+
+    def _ok(self, mocker):
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        return mock_run
+
+    def test_model_flag_appended_when_set(self, mocker):
+        mock_run = self._ok(mocker)
+        execute_command("hello", model="claude-opus-4-5")
+        cmd = mock_run.call_args.args[0]
+        assert "--model" in cmd
+        idx = cmd.index("--model")
+        assert cmd[idx + 1] == "claude-opus-4-5"
+
+    def test_model_flag_absent_when_not_set(self, mocker):
+        mock_run = self._ok(mocker)
+        execute_command("hello")
+        cmd = mock_run.call_args.args[0]
+        assert "--model" not in cmd
+
+    def test_effort_flag_appended_when_set(self, mocker):
+        mock_run = self._ok(mocker)
+        execute_command("hello", effort="high")
+        cmd = mock_run.call_args.args[0]
+        assert "--effort" in cmd
+        idx = cmd.index("--effort")
+        assert cmd[idx + 1] == "high"
+
+    def test_effort_flag_absent_when_not_set(self, mocker):
+        mock_run = self._ok(mocker)
+        execute_command("hello")
+        cmd = mock_run.call_args.args[0]
+        assert "--effort" not in cmd
+
+    def test_max_budget_usd_appended_for_execute_command(self, mocker):
+        mock_run = self._ok(mocker)
+        execute_command("hello", max_budget_usd="2.50")
+        cmd = mock_run.call_args.args[0]
+        assert "--max-budget-usd" in cmd
+        idx = cmd.index("--max-budget-usd")
+        assert cmd[idx + 1] == "2.50"
+
+    def test_max_budget_usd_absent_when_not_set(self, mocker):
+        mock_run = self._ok(mocker)
+        execute_command("hello")
+        cmd = mock_run.call_args.args[0]
+        assert "--max-budget-usd" not in cmd
+
+    def test_all_three_flags_together(self, mocker):
+        mock_run = self._ok(mocker)
+        execute_command("hello", model="claude-sonnet-4-5", effort="low", max_budget_usd="1.00")
+        cmd = mock_run.call_args.args[0]
+        assert "--model" in cmd
+        assert "--effort" in cmd
+        assert "--max-budget-usd" in cmd
 
 
 class TestExtractCommandHtmlOnly:

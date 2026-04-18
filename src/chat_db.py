@@ -1,7 +1,8 @@
 """Shared SQLite database layer for the claude-chat system."""
-import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
+
+from src.process_liveness import is_alive
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS agents (
@@ -90,15 +91,13 @@ class ChatDB:
         self._conn.commit()
 
     def reap_dead_agents(self) -> list[str]:
-        """Check PIDs of running agents, mark dead ones as disconnected."""
+        """Mark dead agents as disconnected; reap zombie children via is_alive."""
         rows = self._conn.execute(
             "SELECT name, pid FROM agents WHERE pid IS NOT NULL AND status='running'"
         ).fetchall()
         reaped = []
         for row in rows:
-            try:
-                os.kill(row["pid"], 0)
-            except OSError:
+            if not is_alive(row["pid"]):
                 self.update_agent_status(row["name"], "disconnected")
                 self._log_event(row["name"], "disconnect", f"Agent {row['name']} (PID {row['pid']}) no longer running")
                 reaped.append(row["name"])

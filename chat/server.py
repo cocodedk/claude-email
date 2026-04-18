@@ -10,7 +10,8 @@ from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
 from mcp.types import Tool, TextContent
 from starlette.applications import Starlette
-from starlette.routing import Route
+from starlette.responses import Response
+from starlette.routing import Mount, Route
 
 from src.chat_db import ChatDB
 from chat import tools
@@ -127,18 +128,21 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
         return [TextContent(type="text", text=json.dumps(result))]
 
     # ── SSE endpoint ────────────────────────────────────────
-    async def handle_sse(scope, receive, send):
-        async with sse.connect_sse(scope, receive, send) as streams:
+    async def handle_sse(request):
+        async with sse.connect_sse(
+            request.scope, request.receive, request._send,
+        ) as streams:
             await server.run(
                 streams[0],
                 streams[1],
                 server.create_initialization_options(),
             )
+        return Response()
 
     app = Starlette(
         routes=[
-            Route("/sse", endpoint=handle_sse, methods=["GET"]),
-            Route("/messages/", endpoint=sse.handle_post_message, methods=["POST"]),
+            Route("/sse", endpoint=handle_sse),
+            Mount("/messages/", app=sse.handle_post_message),
         ],
     )
     # Expose server on app.state for testing

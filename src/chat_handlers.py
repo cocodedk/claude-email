@@ -55,7 +55,7 @@ def handle_chat_email(message, config: dict, chat_db: ChatDB) -> bool:
     route = classify_email(message, chat_db, auth_prefix=config["auth_prefix"])
 
     if route.kind == "chat_reply":
-        body = extract_command(message)
+        body = extract_command(message, strip_secret=config.get("shared_secret", ""))
         chat_db.insert_message(
             "user", route.agent_name, body, "reply",
             in_reply_to=route.original_message_id,
@@ -92,7 +92,7 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
         project_dir = parts[0] if parts else ""
         instruction = parts[1] if len(parts) > 1 else ""
         if not project_dir:
-            send_threaded_reply(config, message, "Usage: spawn <path> [instruction]")
+            send_threaded_reply(config, message, "Usage: spawn <name-or-path> [instruction]")
             return
         try:
             name, pid = spawn_agent(
@@ -102,6 +102,9 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
                 allowed_base=config.get("claude_cwd"),
                 yolo=config.get("claude_yolo", False),
                 extra_env=config.get("claude_extra_env") or None,
+                model=config.get("claude_model"),
+                effort=config.get("claude_effort"),
+                max_budget_usd=config.get("claude_max_budget_usd"),
             )
         except ValueError as exc:
             send_threaded_reply(config, message, f"Spawn rejected: {exc}")
