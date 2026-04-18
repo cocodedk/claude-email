@@ -340,3 +340,118 @@ class TestToolDispatch:
 
         result = asyncio.run(_call())
         assert result.root.isError is True
+
+    def test_chat_ask_dispatch(self, app):
+        """Cover line 175: chat_ask branch in _dispatch by mocking tools.ask_user."""
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+        from unittest.mock import patch, AsyncMock
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+
+            # Register agent first
+            await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_register",
+                    arguments={"name": "asker", "project_path": "/p"},
+                ),
+            ))
+
+            # Mock ask_user to return immediately without blocking
+            mock_ask = AsyncMock(return_value={"reply": "the answer"})
+            with patch("chat.tools.ask_user", mock_ask):
+                result = await handler(CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="chat_ask",
+                        arguments={"_caller": "asker", "message": "question?"},
+                    ),
+                ))
+            return result
+
+        result = asyncio.run(_call())
+        data = json.loads(result.root.content[0].text)
+        assert data["reply"] == "the answer"
+
+
+class TestSanitizeStr:
+    """Covers line 157: non-string value rejected."""
+
+    def test_non_string_raises_value_error(self):
+        from chat.server import _sanitize_str
+        with pytest.raises(ValueError, match="must be a string"):
+            _sanitize_str(123, 10, "myfield")
+
+    def test_integer_zero_raises_value_error(self):
+        from chat.server import _sanitize_str
+        with pytest.raises(ValueError, match="must be a string"):
+            _sanitize_str(0, 10, "field")
+
+    def test_none_raises_value_error(self):
+        from chat.server import _sanitize_str
+        with pytest.raises(ValueError, match="must be a string"):
+            _sanitize_str(None, 10, "field")
+
+
+class TestSSEHandler:
+    """Covers lines 131-132: SSE handler body (connect_sse context manager)."""
+
+    def test_sse_endpoint_exists_and_is_callable(self, app):
+        """Verify the /sse route endpoint is present — integration smoke test."""
+        sse_route = None
+        for route in app.routes:
+            if getattr(route, "path", None) == "/sse":
+                sse_route = route
+                break
+        assert sse_route is not None
+        assert callable(sse_route.endpoint)
+
+    def test_sse_handler_calls_server_run(self, tmp_path):
+        """Exercise lines 131-132: handle_sse enters connect_sse and calls server.run."""
+        import asyncio
+        from contextlib import asynccontextmanager
+        from unittest.mock import AsyncMock, patch
+
+        # Create app; then inject a mock SSE transport whose connect_sse yields streams
+        from chat.server import create_app
+        local_app = create_app(str(tmp_path / "test.db"), "127.0.0.1", 8422)
+
+        # Find handle_sse from /sse route
+        handle_sse = None
+        for route in local_app.routes:
+            if getattr(route, "path", None) == "/sse":
+                handle_sse = route.endpoint
+                break
+        assert handle_sse is not None
+
+        mock_read_stream = AsyncMock()
+        mock_write_stream = AsyncMock()
+        mock_streams = (mock_read_stream, mock_write_stream)
+        mock_server_run = AsyncMock()
+
+        @asynccontextmanager
+        async def fake_connect_sse(self_sse, scope, receive, send):
+            yield mock_streams
+
+        async def _test():
+            scope = {"type": "http"}
+            receive = AsyncMock()
+            send = AsyncMock()
+
+            with patch(
+                "mcp.server.sse.SseServerTransport.connect_sse",
+                new=fake_connect_sse,
+            ):
+                with patch.object(local_app.state.mcp_server, "run", mock_server_run):
+                    await handle_sse(scope, receive, send)
+
+        asyncio.run(_test())
+        # server.run was called with the two streams from the context manager
+        mock_server_run.assert_awaited_once()
+        call_args = mock_server_run.call_args
+        assert call_args.args[0] is mock_read_stream
+        assert call_args.args[1] is mock_write_stream

@@ -318,3 +318,53 @@ class TestEmailPoller:
         poller.connect()
         results = poller.fetch_unseen()
         assert results == []
+
+    def test_load_state_truncates_oversized_file(self, tmp_path):
+        """If the state file has more than _MAX_PROCESSED_IDS entries, only the last N are kept (line 51)."""
+        import src.poller as poller_module
+        original_max = poller_module._MAX_PROCESSED_IDS
+        poller_module._MAX_PROCESSED_IDS = 5
+        try:
+            # Write 10 IDs — exceeds the limit of 5
+            ids = [f"<msg{i}@mail>" for i in range(10)]
+            state_file = tmp_path / "ids.json"
+            state_file.write_text(json.dumps(ids))
+
+            poller = EmailPoller(
+                host="h", port=993, username="u", password="p",
+                state_file=str(state_file),
+            )
+            # Should contain only the last 5
+            assert len(poller._processed_ids) == 5
+            assert "<msg9@mail>" in poller._processed_ids
+            assert "<msg0@mail>" not in poller._processed_ids
+        finally:
+            poller_module._MAX_PROCESSED_IDS = original_max
+
+    def test_save_state_truncates_oversized_set(self, mocker, tmp_path):
+        """If _processed_ids exceeds _MAX_PROCESSED_IDS at save time, it's truncated (lines 61-62)."""
+        import src.poller as poller_module
+        original_max = poller_module._MAX_PROCESSED_IDS
+        poller_module._MAX_PROCESSED_IDS = 5
+        try:
+            mocker.patch("ssl.create_default_context", return_value=MagicMock())
+            mock_class, mock_conn = _mock_imap(mocker)
+
+            state_file = tmp_path / "ids.json"
+            poller = EmailPoller(
+                host="h", port=993, username="u", password="p",
+                state_file=str(state_file),
+            )
+            poller.connect()
+
+            # Manually fill _processed_ids beyond the limit
+            poller._processed_ids = {f"<msg{i}@mail>" for i in range(10)}
+            # Trigger _save_state by marking a processed message
+            poller.mark_processed("1", "<msg10@mail>")
+
+            # _processed_ids should now be capped at 5 (+1 from mark_processed = 6
+            # unless truncation happened first — the save truncates the list)
+            saved = json.loads(state_file.read_text())
+            assert len(saved) <= poller_module._MAX_PROCESSED_IDS
+        finally:
+            poller_module._MAX_PROCESSED_IDS = original_max
