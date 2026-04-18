@@ -9,7 +9,17 @@ from html.parser import HTMLParser
 logger = logging.getLogger(__name__)
 
 MAX_OUTPUT_BYTES = 50_000
-_QUOTE_PATTERN = re.compile(r"\n\s*On .+? wrote:\n.*", re.DOTALL)
+# Strip quoted-reply trailers so multi-turn email threads don't balloon the
+# CLI prompt or chat_db bodies. Each pattern matches the separator that
+# introduces the quote and everything after it.
+_QUOTE_PATTERNS = (
+    # Gmail / most Unix clients: "On <date>, <sender> wrote:"
+    re.compile(r"\n\s*On .+? wrote:\n.*", re.DOTALL),
+    # Outlook desktop/web: "________________________________\nFrom: ..."
+    re.compile(r"\n\s*_{20,}\s*\n\s*From:.*", re.DOTALL),
+    # Various clients: "----- Original Message -----"
+    re.compile(r"\n\s*-{3,}\s*Original Message\s*-{3,}.*", re.DOTALL | re.IGNORECASE),
+)
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -70,8 +80,9 @@ def extract_command(message: email.message.Message, strip_secret: str = "") -> s
             else:
                 body = raw
 
-    # Strip quoted replies (lines starting with "On ... wrote:")
-    body = _QUOTE_PATTERN.sub("", body)
+    # Strip quoted-reply trailers so the prompt / chat_db body stays small.
+    for pattern in _QUOTE_PATTERNS:
+        body = pattern.sub("", body)
     if strip_secret:
         body = body.replace(f"AUTH:{strip_secret}", "")
     return body.strip()

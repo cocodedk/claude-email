@@ -47,6 +47,50 @@ class TestExtractCommand:
         assert isinstance(result, str)
         assert len(result) >= 0  # does not crash
 
+    def test_strips_outlook_quote_block(self):
+        """Outlook replies include a _____ separator + From:/Sent:/... header
+        block + the full quoted message. All of that must be stripped so
+        thread length doesn't balloon the CLI prompt or chat_db bodies.
+        """
+        msg = _text_msg(
+            "Fix the bug please\n"
+            "\n"
+            "\n"
+            "________________________________\n"
+            "From: claude@cocode.dk <claude@cocode.dk>\n"
+            "Sent: Saturday, April 18, 2026 5:52:14 PM\n"
+            "To: Babak Bandpey <bb@cocode.dk>\n"
+            "Subject: Re: [master-fixer] message\n"
+            "\n"
+            "This is the prior long email chain that shouldn't be in the "
+            "command prompt — " + "x " * 200
+        )
+        result = extract_command(msg)
+        assert result == "Fix the bug please"
+        assert "From:" not in result
+        assert "x x x" not in result
+
+    def test_strips_original_message_separator(self):
+        """Some clients use '----- Original Message -----' instead of Outlook's underscores."""
+        msg = _text_msg(
+            "My new reply\n"
+            "\n"
+            "----- Original Message -----\n"
+            "From: someone@example.com\n"
+            "the old message body"
+        )
+        result = extract_command(msg)
+        assert result == "My new reply"
+
+    def test_keeps_non_quote_underscores(self):
+        """A normal paragraph with underscores must not be mistaken for an Outlook quote.
+
+        Short rules of thumb matter: the underscore line must be long (>=20)
+        AND immediately followed by 'From:' for it to count as a quote.
+        """
+        msg = _text_msg("my command __ with __ underscores __ in text")
+        assert extract_command(msg) == "my command __ with __ underscores __ in text"
+
 
 class TestExecuteCommand:
     def test_successful_execution(self, mocker):
