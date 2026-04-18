@@ -203,6 +203,40 @@ class TestApproveMcpServerForProject:
         data = json.loads((tmp_path / ".claude.json").read_text())
         assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
 
+    def test_handles_wrong_shape_top_level(self, tmp_path):
+        """Valid JSON of the wrong shape (e.g. list) must not crash."""
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps([1, 2, 3]))
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
+
+    def test_handles_projects_as_list(self, tmp_path):
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps({"projects": []}))
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
+
+    def test_handles_non_list_enabled_servers(self, tmp_path):
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps({
+            "projects": {"/p": {"enabledMcpjsonServers": "not-a-list"}}
+        }))
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
+
+    def test_handles_project_entry_as_string(self, tmp_path):
+        """A non-dict project entry gets normalized, not crashed on."""
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps({
+            "projects": {"/p": "unexpected-string-shape"}
+        }))
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
+
 
 class TestSpawnAgent:
     @pytest.fixture

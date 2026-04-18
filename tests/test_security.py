@@ -243,6 +243,21 @@ class TestReplyAuthorization:
             msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
         )
 
+    def test_empty_shared_secret_rejects_auth_prefix(self):
+        """If shared_secret is empty, a bare 'AUTH:' prefix must NOT pass.
+
+        Defense-in-depth: main.py refuses to start with no secret and no
+        GPG, but is_authorized must also reject bare 'AUTH:' directly.
+        """
+        msg = _make_msg(
+            "Babak <bb@cocode.dk>",
+            return_path="<bb@cocode.dk>",
+            subject="AUTH: do something",
+        )
+        assert not is_authorized(
+            msg, authorized_sender="bb@cocode.dk", shared_secret="",
+        )
+
     def test_single_part_html_body_secret_accepted(self):
         """Cover the non-multipart HTML body branch in _extract_body_text."""
         from email.message import EmailMessage

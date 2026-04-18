@@ -38,9 +38,19 @@ def approve_mcp_server_for_project(
         except (FileNotFoundError, json.JSONDecodeError):
             data = {}
 
-        projects = data.setdefault("projects", {})
-        project_entry = projects.setdefault(project_dir, {})
-        approved = project_entry.setdefault("enabledMcpjsonServers", [])
+        # Normalize shape: valid JSON can still have the wrong types
+        # (e.g. projects: []) that would crash setdefault/append.
+        if not isinstance(data, dict):
+            data = {}
+        if not isinstance(data.get("projects"), dict):
+            data["projects"] = {}
+        projects = data["projects"]
+        if not isinstance(projects.get(project_dir), dict):
+            projects[project_dir] = {}
+        project_entry = projects[project_dir]
+        if not isinstance(project_entry.get("enabledMcpjsonServers"), list):
+            project_entry["enabledMcpjsonServers"] = []
+        approved = project_entry["enabledMcpjsonServers"]
         if server_name not in approved:
             approved.append(server_name)
             with open(cfg_path, "w") as f:

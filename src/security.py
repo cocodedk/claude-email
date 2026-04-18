@@ -177,7 +177,7 @@ def is_authorized(
     subject = message.get("Subject", "")
     subject = _re.sub(r'^(Re:\s*)+', '', subject, flags=_re.IGNORECASE).strip()
     expected_prefix = f"AUTH:{shared_secret}"
-    if subject.startswith(expected_prefix):
+    if shared_secret and subject.startswith(expected_prefix):
         return True
 
     if shared_secret and expected_prefix in _extract_body_text(message):

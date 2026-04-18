@@ -16,7 +16,14 @@ def is_alive(pid: int) -> bool:
     a naive liveness check would leak zombies forever. We try
     ``os.waitpid(pid, WNOHANG)`` first (reap if we parented it); fall back
     to ``os.kill(pid, 0)`` for PIDs that were never our children.
+
+    Non-positive PIDs are rejected without touching waitpid/kill: pid 0
+    and negatives have special POSIX semantics (they address process
+    groups, not individual PIDs), so a corrupted DB entry must never
+    reach those calls.
     """
+    if pid <= 0:
+        return False
     try:
         waited, _ = os.waitpid(pid, os.WNOHANG)
         if waited == pid:
