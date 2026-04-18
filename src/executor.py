@@ -80,6 +80,9 @@ def execute_command(
     cwd: str | None = None,
     yolo: bool = False,
     extra_env: dict[str, str] | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+    max_budget_usd: str | None = None,
 ) -> str:
     """Execute a command via the claude CLI and return the output.
 
@@ -94,7 +97,13 @@ def execute_command(
     argv = [claude_bin]
     if yolo:
         argv.append("--dangerously-skip-permissions")
+    if model:
+        argv += ["--model", model]
+    if effort:
+        argv += ["--effort", effort]
     argv += ["--print", command]
+    if max_budget_usd:
+        argv += ["--max-budget-usd", max_budget_usd]
     env = {**os.environ, **extra_env} if extra_env else None
     logger.info("Executing command via claude CLI (timeout=%ds, yolo=%s)", timeout, yolo)
     try:

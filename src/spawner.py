@@ -65,6 +65,9 @@ def spawn_agent(
     allowed_base: str | None = None,
     yolo: bool = False,
     extra_env: dict[str, str] | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+    max_budget_usd: str | None = None,
 ) -> tuple[str, int]:
     """Spawn a Claude CLI agent in the given project directory.
 
@@ -80,8 +83,19 @@ def spawn_agent(
     cmd = [claude_bin]
     if yolo:
         cmd.append("--dangerously-skip-permissions")
+    if model:
+        cmd += ["--model", model]
+    if effort:
+        cmd += ["--effort", effort]
     if instruction:
         cmd += ["--print", instruction]
+        if max_budget_usd:
+            cmd += ["--max-budget-usd", max_budget_usd]
+    elif max_budget_usd:
+        logger.info(
+            "max_budget_usd set but no instruction supplied — skipping --max-budget-usd"
+            " (only applies when --print is used)",
+        )
 
     env = {**os.environ, **extra_env} if extra_env else None
     proc = subprocess.Popen(
