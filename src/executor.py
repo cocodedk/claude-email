@@ -30,10 +30,13 @@ def _extract_text_from_html(html: str) -> str:
     return extractor.get_text()
 
 
-def extract_command(message: email.message.Message) -> str:
+def extract_command(message: email.message.Message, strip_secret: str = "") -> str:
     """Extract the command text from an email message body.
 
     Prefers plain-text parts. Falls back to HTML. Strips quoted replies.
+    When strip_secret is non-empty, every occurrence of ``AUTH:<secret>``
+    is removed from the returned text so the secret never flows into the
+    claude CLI prompt, chat_db, logs, or outbound relay emails.
     """
     body = ""
 
@@ -69,6 +72,8 @@ def extract_command(message: email.message.Message) -> str:
 
     # Strip quoted replies (lines starting with "On ... wrote:")
     body = _QUOTE_PATTERN.sub("", body)
+    if strip_secret:
+        body = body.replace(f"AUTH:{strip_secret}", "")
     return body.strip()
 
 

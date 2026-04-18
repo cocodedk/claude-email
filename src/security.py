@@ -2,8 +2,41 @@
 import email.message
 import email.utils
 import logging
+import re as _re
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_body_text(message: email.message.Message) -> str:
+    """Return the message body as plain text, concatenating all text parts.
+
+    Used to scan for the AUTH:<secret> token in the body — covers quoted
+    replies (where the secret lives in the quoted block) and manual
+    inclusions. HTML parts are included with tags crudely stripped.
+    """
+    parts = []
+    if message.is_multipart():
+        for part in message.walk():
+            ct = part.get_content_type()
+            if ct not in ("text/plain", "text/html"):
+                continue
+            payload = part.get_payload(decode=True)
+            if not payload:
+                continue
+            charset = part.get_content_charset() or "utf-8"
+            text = payload.decode(charset, errors="replace")
+            if ct == "text/html":
+                text = _re.sub(r"<[^>]+>", " ", text)
+            parts.append(text)
+    else:
+        payload = message.get_payload(decode=True)
+        if payload:
+            charset = message.get_content_charset() or "utf-8"
+            text = payload.decode(charset, errors="replace")
+            if message.get_content_type() == "text/html":
+                text = _re.sub(r"<[^>]+>", " ", text)
+            parts.append(text)
+    return "\n".join(parts)
 
 
 def _extract_address(header_value: str) -> str:
@@ -115,26 +148,40 @@ def is_authorized(
     shared_secret: str = "",
     gpg_fingerprint: str = "",
     gpg_home: str | None = None,
+    chat_db=None,
 ) -> bool:
     """Return True only if the message passes envelope checks AND auth check.
 
-    Auth modes (mutually exclusive, GPG takes priority):
-    - GPG mode: if gpg_fingerprint is set, verify GPG signature
-    - Secret mode: Subject must start with AUTH:<shared_secret>
+    Auth modes (applied in order, first match wins):
+    1. Envelope check is mandatory (From + Return-Path == authorized_sender)
+    2. Known chat reply: In-Reply-To matches a Message-ID we previously issued
+       (chat_db.find_message_by_email_id). Message-IDs we generate are per-
+       message secrets, so a match proves possession of a genuine outbound
+       email and is enough with the envelope check.
+    3. GPG mode: if gpg_fingerprint is set, verify GPG signature.
+    4. Secret mode: Subject starts with AUTH:<shared_secret> (after stripping
+       "Re:" prefixes), OR the body contains AUTH:<shared_secret> anywhere
+       (covers quoted-reply propagation and manual body inclusion).
     """
     if not _check_envelope(message, authorized_sender):
         return False
+
+    if chat_db is not None:
+        in_reply_to = message.get("In-Reply-To", "").strip()
+        if in_reply_to and chat_db.find_message_by_email_id(in_reply_to) is not None:
+            return True
 
     if gpg_fingerprint:
         return verify_gpg_signature(message, gpg_fingerprint, gpg_home)
 
     subject = message.get("Subject", "")
-    # Strip any number of "Re: " prefixes added by email clients on reply chains
-    import re as _re
     subject = _re.sub(r'^(Re:\s*)+', '', subject, flags=_re.IGNORECASE).strip()
     expected_prefix = f"AUTH:{shared_secret}"
-    if not subject.startswith(expected_prefix):
-        logger.warning("Rejected: Subject does not start with AUTH:<secret>")
-        return False
+    if subject.startswith(expected_prefix):
+        return True
 
-    return True
+    if shared_secret and expected_prefix in _extract_body_text(message):
+        return True
+
+    logger.warning("Rejected: no AUTH:<secret> in subject or body, no chat-thread match")
+    return False

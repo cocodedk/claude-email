@@ -96,6 +96,169 @@ class TestIsAuthorized:
         assert is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
 
 
+class _FakeChatDB:
+    """Minimal stand-in for ChatDB.find_message_by_email_id."""
+
+    def __init__(self, known_ids):
+        self._known = set(known_ids)
+
+    def find_message_by_email_id(self, email_message_id):
+        if email_message_id in self._known:
+            return {"id": 1, "from_name": "agent-x", "email_message_id": email_message_id}
+        return None
+
+
+class TestReplyAuthorization:
+    """Chat replies that come back in-thread should be accepted without AUTH prefix.
+
+    Mail clients don't reproduce the AUTH:<secret> subject prefix on reply, so
+    requiring it on every inbound email breaks the chat-relay flow. These tests
+    cover the two compensating paths added to is_authorized:
+      1. In-Reply-To header matches a Message-ID we issued (known chat thread).
+      2. The AUTH:<secret> token appears in the body (quoted reply propagation
+         or a user who manually types it in the reply body).
+    """
+
+    def test_in_reply_to_matching_known_chat_id_accepts_without_auth(self):
+        msg = _make_msg(
+            "Babak <bb@cocode.dk>",
+            return_path="<bb@cocode.dk>",
+            subject="Re: [master-fixer] message",
+        )
+        msg["In-Reply-To"] = "<known-chat-msg@cocode.dk>"
+        db = _FakeChatDB(known_ids={"<known-chat-msg@cocode.dk>"})
+        assert is_authorized(
+            msg,
+            authorized_sender="bb@cocode.dk",
+            shared_secret=VALID_SECRET,
+            chat_db=db,
+        )
+
+    def test_in_reply_to_unknown_id_still_requires_auth(self):
+        msg = _make_msg(
+            "Babak <bb@cocode.dk>",
+            return_path="<bb@cocode.dk>",
+            subject="Re: random subject nothing to see here",
+        )
+        msg["In-Reply-To"] = "<never-seen-before@example.com>"
+        db = _FakeChatDB(known_ids=set())
+        assert not is_authorized(
+            msg,
+            authorized_sender="bb@cocode.dk",
+            shared_secret=VALID_SECRET,
+            chat_db=db,
+        )
+
+    def test_in_reply_to_bypass_still_requires_envelope(self):
+        """An attacker with a known Message-ID must still pass From + Return-Path."""
+        msg = _make_msg(
+            "Evil <evil@attacker.com>",
+            return_path="<evil@attacker.com>",
+            subject="Re: [master-fixer] message",
+        )
+        msg["In-Reply-To"] = "<known-chat-msg@cocode.dk>"
+        db = _FakeChatDB(known_ids={"<known-chat-msg@cocode.dk>"})
+        assert not is_authorized(
+            msg,
+            authorized_sender="bb@cocode.dk",
+            shared_secret=VALID_SECRET,
+            chat_db=db,
+        )
+
+    def test_body_containing_auth_secret_accepted_plain_text(self):
+        msg = email.message.EmailMessage()
+        msg["From"] = "Babak <bb@cocode.dk>"
+        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["Subject"] = "Re: [master-fixer] message"
+        msg.set_content(
+            "my reply text\n\n> From: ...\n> Subject: AUTH:"
+            + VALID_SECRET
+            + " original command\n",
+        )
+        assert is_authorized(
+            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+        )
+
+    def test_body_without_auth_and_no_chat_db_rejected(self):
+        msg = email.message.EmailMessage()
+        msg["From"] = "Babak <bb@cocode.dk>"
+        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["Subject"] = "Re: [master-fixer] message"
+        msg.set_content("just a reply, no secret, no nothing")
+        assert not is_authorized(
+            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+        )
+
+    def test_body_auth_in_html_part_accepted(self):
+        """Mail clients often send HTML-only replies — secret in HTML should count."""
+        msg = email.message.EmailMessage()
+        msg["From"] = "Babak <bb@cocode.dk>"
+        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["Subject"] = "Re: [master-fixer] message"
+        msg.set_content("plain fallback")
+        msg.add_alternative(
+            f"<html><body><p>hello</p><blockquote>Subject: AUTH:{VALID_SECRET} orig</blockquote></body></html>",
+            subtype="html",
+        )
+        assert is_authorized(
+            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+        )
+
+    def test_chat_db_none_keeps_standard_behavior(self):
+        """Passing chat_db=None should behave exactly like not passing it."""
+        msg = _make_msg(
+            "Babak <bb@cocode.dk>",
+            return_path="<bb@cocode.dk>",
+            subject=f"AUTH:{VALID_SECRET} do thing",
+        )
+        assert is_authorized(
+            msg,
+            authorized_sender="bb@cocode.dk",
+            shared_secret=VALID_SECRET,
+            chat_db=None,
+        )
+
+    def test_multipart_empty_payload_skipped(self):
+        """Cover the `if not payload: continue` branch in _extract_body_text.
+
+        Build a multipart/mixed with a text/plain part whose decoded payload
+        is empty bytes (falsy) — the extractor must skip it without crashing
+        and still evaluate the remaining parts.
+        """
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        msg = MIMEMultipart("mixed")
+        msg["From"] = "Babak <bb@cocode.dk>"
+        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["Subject"] = "Re: [master-fixer] message"
+        # An empty text part whose get_payload(decode=True) returns b""
+        empty_part = MIMEText("", "plain")
+        msg.attach(empty_part)
+        # A real part that carries the secret
+        good_part = MIMEText(
+            f"quoted block: AUTH:{VALID_SECRET} original command", "plain",
+        )
+        msg.attach(good_part)
+        assert is_authorized(
+            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+        )
+
+    def test_single_part_html_body_secret_accepted(self):
+        """Cover the non-multipart HTML body branch in _extract_body_text."""
+        from email.message import EmailMessage
+        msg = EmailMessage()
+        msg["From"] = "Babak <bb@cocode.dk>"
+        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["Subject"] = "Re: [master-fixer] message"
+        msg.set_content(
+            f"<p>hello AUTH:{VALID_SECRET} world</p>", subtype="html",
+        )
+        assert not msg.is_multipart()  # sanity: exercises the non-multipart branch
+        assert is_authorized(
+            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+        )
+
+
 VALID_FINGERPRINT = "AABBCCDDEEFF00112233445566778899AABBCCDD"
 
 

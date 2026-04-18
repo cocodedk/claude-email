@@ -55,7 +55,7 @@ def handle_chat_email(message, config: dict, chat_db: ChatDB) -> bool:
     route = classify_email(message, chat_db, auth_prefix=config["auth_prefix"])
 
     if route.kind == "chat_reply":
-        body = extract_command(message)
+        body = extract_command(message, strip_secret=config.get("shared_secret", ""))
         chat_db.insert_message(
             "user", route.agent_name, body, "reply",
             in_reply_to=route.original_message_id,

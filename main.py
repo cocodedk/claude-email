@@ -94,6 +94,7 @@ def process_email(message, config: dict, chat_db=None) -> None:
         shared_secret=config["shared_secret"],
         gpg_fingerprint=config["gpg_fingerprint"],
         gpg_home=config["gpg_home"],
+        chat_db=chat_db,
     ):
         logger.warning("Unauthorized email dropped")
         return
@@ -102,7 +103,7 @@ def process_email(message, config: dict, chat_db=None) -> None:
     if chat_db is not None and handle_chat_email(message, config, chat_db):
         return
 
-    command = extract_command(message)
+    command = extract_command(message, strip_secret=config["shared_secret"])
     if not command:
         logger.warning("Authorized email has empty command body — skipping")
         return
