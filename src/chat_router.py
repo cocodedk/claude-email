@@ -63,7 +63,7 @@ def classify_email(
     if command.startswith("@"):
         parts = command.split(None, 1)
         agent_name = parts[0][1:]  # strip the leading @
-        body = extract_command(message)
+        body = extract_command(message, strip_secret=auth_prefix.removeprefix("AUTH:"))
         return Route(
             kind="agent_command",
             agent_name=agent_name,

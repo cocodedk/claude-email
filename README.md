@@ -120,8 +120,11 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 | `POLL_INTERVAL` | Seconds between IMAP polls | `15` |
 | `CLAUDE_TIMEOUT` | Max seconds for CLI execution | `300` |
 | `CLAUDE_BIN` | Path to Claude CLI binary | `/home/user/.local/bin/claude` |
-| `CLAUDE_CWD` | Working directory for CLI commands | `/home/user/projects` |
+| `CLAUDE_CWD` | Working directory for CLI commands; also the allowed base for spawn paths — bare names resolve against it, absolute paths must resolve under it. | `/home/user/projects` |
 | `STATE_FILE` | Message-ID idempotency store | `processed_ids.json` |
+| `CLAUDE_MODEL` | *Optional.* Model alias (`sonnet`, `haiku`) or full name. Leave unset for auto-mode. | `claude-sonnet-4-6` |
+| `CLAUDE_EFFORT` | *Optional.* Thinking effort: `low`, `medium`, `high`, `xhigh`, `max`. | `low` |
+| `CLAUDE_MAX_BUDGET_USD` | *Optional.* Dollar cap for `--print` calls. Only bites under API-key auth; subscription calls ignore it. | `1.00` |
 
 ### Chat System
 
@@ -156,7 +159,7 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 |---|---|---|
 | `@agent-name <instruction>` | Send instruction to a specific agent | `AUTH:secret @agent-fits run the tests` |
 | `status` | List all registered agents and their state | `AUTH:secret status` |
-| `spawn <path> [instruction]` | Spawn a new agent in the given project | `AUTH:secret spawn /home/user/my-project` |
+| `spawn <name-or-path> [instruction]` | Spawn an agent. Bare names resolve against `CLAUDE_CWD`; absolute paths also accepted. | `AUTH:secret spawn babakcast` |
 | `restart chat` | Restart the claude-chat service | `AUTH:secret restart chat` |
 | `restart self` | Restart the claude-email service | `AUTH:secret restart self` |
 
@@ -365,7 +368,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 204 pytest tests (99% coverage)
+├── tests/                 # 244 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -394,7 +397,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (204 tests, 99% coverage)
+# Run all tests (244 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -412,7 +415,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **204 tests** with **99% code coverage** across all modules
+- **244 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit

@@ -28,7 +28,7 @@ class TestInjectMcpConfig:
         data = json.loads(mcp_file.read_text())
         assert data == {
             "mcpServers": {
-                "claude-chat": {"url": "http://localhost:8080/mcp"}
+                "claude-chat": {"type": "sse", "url": "http://localhost:8080/mcp"}
             }
         }
 
@@ -54,9 +54,10 @@ class TestInjectMcpConfig:
             "command": "npx",
             "args": ["@playwright/mcp@latest"],
         }
-        # New server added
+        # New server added with explicit SSE transport type
         assert data["mcpServers"]["claude-chat"] == {
-            "url": "http://localhost:9090/mcp"
+            "type": "sse",
+            "url": "http://localhost:9090/mcp",
         }
 
 
@@ -105,6 +106,136 @@ class TestValidateProjectPath:
         # tmp_path exists but is outside base
         with pytest.raises(ValueError, match="outside allowed base"):
             validate_project_path(str(base / ".."), allowed_base=str(base))
+
+    def test_bare_name_resolved_against_allowed_base(self, tmp_path):
+        from src.spawner import validate_project_path
+
+        base = tmp_path / "base"
+        base.mkdir()
+        proj = base / "babakcast"
+        proj.mkdir()
+
+        result = validate_project_path("babakcast", allowed_base=str(base))
+        assert result == str(proj.resolve())
+
+    def test_relative_subpath_resolved_against_allowed_base(self, tmp_path):
+        from src.spawner import validate_project_path
+
+        base = tmp_path / "base"
+        base.mkdir()
+        nested = base / "group" / "sub"
+        nested.mkdir(parents=True)
+
+        result = validate_project_path("group/sub", allowed_base=str(base))
+        assert result == str(nested.resolve())
+
+    def test_bare_name_without_allowed_base_falls_through(self, tmp_path, monkeypatch):
+        from src.spawner import validate_project_path
+
+        # With no allowed_base, "foo" resolves against cwd — unchanged legacy behavior
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "foo").mkdir()
+        result = validate_project_path("foo")
+        assert result == str((tmp_path / "foo").resolve())
+
+
+class TestApproveMcpServerForProject:
+    """Pre-approve a project-scope MCP server in the config dir's .claude.json.
+
+    Claude Code requires explicit per-project approval of .mcp.json servers;
+    without it the spawned agent launches without the chat tools. This helper
+    injects approval so email-spawned agents work out of the box.
+    """
+
+    def test_creates_claude_json_when_missing(self, tmp_path):
+        from src.spawner import approve_mcp_server_for_project
+        approve_mcp_server_for_project(str(tmp_path), "/p/my-proj", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p/my-proj"]["enabledMcpjsonServers"] == ["claude-chat"]
+
+    def test_creates_project_entry_when_other_projects_exist(self, tmp_path):
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps({
+            "projects": {"/other": {"enabledMcpjsonServers": ["some-server"]}},
+            "topLevel": "keep-me",
+        }))
+        approve_mcp_server_for_project(str(tmp_path), "/p/new", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p/new"]["enabledMcpjsonServers"] == ["claude-chat"]
+        assert data["projects"]["/other"]["enabledMcpjsonServers"] == ["some-server"]
+        assert data["topLevel"] == "keep-me"
+
+    def test_appends_to_existing_enabled_list(self, tmp_path):
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps({
+            "projects": {
+                "/p": {
+                    "enabledMcpjsonServers": ["pre-existing"],
+                    "someOtherField": 42,
+                }
+            }
+        }))
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["pre-existing", "claude-chat"]
+        assert data["projects"]["/p"]["someOtherField"] == 42
+
+    def test_is_idempotent_when_already_approved(self, tmp_path):
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps({
+            "projects": {"/p": {"enabledMcpjsonServers": ["claude-chat"]}}
+        }))
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
+
+    def test_creates_config_dir_when_missing(self, tmp_path):
+        from src.spawner import approve_mcp_server_for_project
+        target = tmp_path / "new_cfg_dir"
+        approve_mcp_server_for_project(str(target), "/p", "claude-chat")
+        assert (target / ".claude.json").exists()
+
+    def test_handles_corrupted_json_by_rewriting(self, tmp_path):
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text("{ not valid json")
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
+
+    def test_handles_wrong_shape_top_level(self, tmp_path):
+        """Valid JSON of the wrong shape (e.g. list) must not crash."""
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps([1, 2, 3]))
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
+
+    def test_handles_projects_as_list(self, tmp_path):
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps({"projects": []}))
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
+
+    def test_handles_non_list_enabled_servers(self, tmp_path):
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps({
+            "projects": {"/p": {"enabledMcpjsonServers": "not-a-list"}}
+        }))
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
+
+    def test_handles_project_entry_as_string(self, tmp_path):
+        """A non-dict project entry gets normalized, not crashed on."""
+        from src.spawner import approve_mcp_server_for_project
+        (tmp_path / ".claude.json").write_text(json.dumps({
+            "projects": {"/p": "unexpected-string-shape"}
+        }))
+        approve_mcp_server_for_project(str(tmp_path), "/p", "claude-chat")
+        data = json.loads((tmp_path / ".claude.json").read_text())
+        assert data["projects"]["/p"]["enabledMcpjsonServers"] == ["claude-chat"]
 
 
 class TestSpawnAgent:
@@ -261,3 +392,87 @@ class TestSpawnAgent:
         assert env["CLAUDE_CONFIG_DIR"] == "/home/u/.claude-personal"
         assert env["IS_SANDBOX"] == "1"
         assert "PATH" in env
+
+
+class TestSpawnAgentModelEffortBudget:
+    """Tests for CLAUDE_MODEL, CLAUDE_EFFORT, CLAUDE_MAX_BUDGET_USD knobs in spawn_agent."""
+
+    @pytest.fixture
+    def db(self, tmp_path):
+        return ChatDB(str(tmp_path / "test.db"))
+
+    def _popen_mock(self, mocker, pid=77):
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = pid
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+        return mock_popen
+
+    def test_model_flag_in_spawn_with_instruction(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+        mock_popen = self._popen_mock(mocker)
+        project_dir = tmp_path / "proj"
+        project_dir.mkdir()
+        spawn_agent(db, str(project_dir), "http://localhost:8080/mcp",
+                    instruction="go", model="claude-opus-4-5")
+        cmd = mock_popen.call_args.args[0]
+        assert "--model" in cmd
+        assert cmd[cmd.index("--model") + 1] == "claude-opus-4-5"
+
+    def test_model_flag_in_spawn_without_instruction(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+        mock_popen = self._popen_mock(mocker)
+        project_dir = tmp_path / "proj2"
+        project_dir.mkdir()
+        spawn_agent(db, str(project_dir), "http://localhost:8080/mcp",
+                    model="claude-opus-4-5")
+        cmd = mock_popen.call_args.args[0]
+        assert "--model" in cmd
+        assert cmd[cmd.index("--model") + 1] == "claude-opus-4-5"
+
+    def test_effort_flag_in_spawn_with_instruction(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+        mock_popen = self._popen_mock(mocker)
+        project_dir = tmp_path / "proj3"
+        project_dir.mkdir()
+        spawn_agent(db, str(project_dir), "http://localhost:8080/mcp",
+                    instruction="do it", effort="high")
+        cmd = mock_popen.call_args.args[0]
+        assert "--effort" in cmd
+        assert cmd[cmd.index("--effort") + 1] == "high"
+
+    def test_effort_flag_in_spawn_without_instruction(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+        mock_popen = self._popen_mock(mocker)
+        project_dir = tmp_path / "proj4"
+        project_dir.mkdir()
+        spawn_agent(db, str(project_dir), "http://localhost:8080/mcp", effort="low")
+        cmd = mock_popen.call_args.args[0]
+        assert "--effort" in cmd
+        assert cmd[cmd.index("--effort") + 1] == "low"
+
+    def test_max_budget_usd_in_spawn_with_instruction(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+        mock_popen = self._popen_mock(mocker)
+        project_dir = tmp_path / "proj5"
+        project_dir.mkdir()
+        spawn_agent(db, str(project_dir), "http://localhost:8080/mcp",
+                    instruction="run", max_budget_usd="1.00")
+        cmd = mock_popen.call_args.args[0]
+        assert "--max-budget-usd" in cmd
+        assert cmd[cmd.index("--max-budget-usd") + 1] == "1.00"
+
+    def test_max_budget_usd_skipped_without_instruction_and_logs(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+        mock_popen = self._popen_mock(mocker)
+        mock_logger = mocker.patch("src.spawner.logger")
+        project_dir = tmp_path / "proj6"
+        project_dir.mkdir()
+        spawn_agent(db, str(project_dir), "http://localhost:8080/mcp",
+                    max_budget_usd="1.00")
+        cmd = mock_popen.call_args.args[0]
+        assert "--max-budget-usd" not in cmd
+        # should log exactly one INFO message about skipping
+        info_calls = [c for c in mock_logger.info.call_args_list
+                      if "budget" in c.args[0].lower()]
+        assert len(info_calls) == 1

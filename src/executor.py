@@ -9,7 +9,17 @@ from html.parser import HTMLParser
 logger = logging.getLogger(__name__)
 
 MAX_OUTPUT_BYTES = 50_000
-_QUOTE_PATTERN = re.compile(r"\n\s*On .+? wrote:\n.*", re.DOTALL)
+# Strip quoted-reply trailers so multi-turn email threads don't balloon the
+# CLI prompt or chat_db bodies. Each pattern matches the separator that
+# introduces the quote and everything after it.
+_QUOTE_PATTERNS = (
+    # Gmail / most Unix clients: "On <date>, <sender> wrote:"
+    re.compile(r"\n\s*On .+? wrote:\n.*", re.DOTALL),
+    # Outlook desktop/web: "________________________________\nFrom: ..."
+    re.compile(r"\n\s*_{20,}\s*\n\s*From:.*", re.DOTALL),
+    # Various clients: "----- Original Message -----"
+    re.compile(r"\n\s*-{3,}\s*Original Message\s*-{3,}.*", re.DOTALL | re.IGNORECASE),
+)
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -30,10 +40,13 @@ def _extract_text_from_html(html: str) -> str:
     return extractor.get_text()
 
 
-def extract_command(message: email.message.Message) -> str:
+def extract_command(message: email.message.Message, strip_secret: str = "") -> str:
     """Extract the command text from an email message body.
 
     Prefers plain-text parts. Falls back to HTML. Strips quoted replies.
+    When strip_secret is non-empty, every occurrence of ``AUTH:<secret>``
+    is removed from the returned text so the secret never flows into the
+    claude CLI prompt, chat_db, logs, or outbound relay emails.
     """
     body = ""
 
@@ -67,8 +80,11 @@ def extract_command(message: email.message.Message) -> str:
             else:
                 body = raw
 
-    # Strip quoted replies (lines starting with "On ... wrote:")
-    body = _QUOTE_PATTERN.sub("", body)
+    # Strip quoted-reply trailers so the prompt / chat_db body stays small.
+    for pattern in _QUOTE_PATTERNS:
+        body = pattern.sub("", body)
+    if strip_secret:
+        body = body.replace(f"AUTH:{strip_secret}", "")
     return body.strip()
 
 
@@ -80,6 +96,9 @@ def execute_command(
     cwd: str | None = None,
     yolo: bool = False,
     extra_env: dict[str, str] | None = None,
+    model: str | None = None,
+    effort: str | None = None,
+    max_budget_usd: str | None = None,
 ) -> str:
     """Execute a command via the claude CLI and return the output.
 
@@ -94,7 +113,13 @@ def execute_command(
     argv = [claude_bin]
     if yolo:
         argv.append("--dangerously-skip-permissions")
+    if model:
+        argv += ["--model", model]
+    if effort:
+        argv += ["--effort", effort]
     argv += ["--print", command]
+    if max_budget_usd:
+        argv += ["--max-budget-usd", max_budget_usd]
     env = {**os.environ, **extra_env} if extra_env else None
     logger.info("Executing command via claude CLI (timeout=%ds, yolo=%s)", timeout, yolo)
     try:

@@ -19,6 +19,7 @@ from src.chat_handlers import (
     relay_outbound_messages,
     send_threaded_reply,
 )
+from src.config_validators import validated_effort
 from src.executor import execute_command, extract_command
 from src.poller import EmailPoller
 from src.security import is_authorized
@@ -53,12 +54,8 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 def _config() -> dict:
     shared_secret = os.environ.get("SHARED_SECRET", "")
-    extra_env = {
-        k: v for k, v in (
-            ("CLAUDE_CONFIG_DIR", os.environ.get("CLAUDE_CONFIG_DIR", "")),
-            ("IS_SANDBOX", os.environ.get("IS_SANDBOX", "")),
-        ) if v
-    }
+    _ev = lambda k: os.environ.get(k, "")  # noqa: E731
+    extra_env = {k: v for k, v in (("CLAUDE_CONFIG_DIR", _ev("CLAUDE_CONFIG_DIR")), ("IS_SANDBOX", _ev("IS_SANDBOX"))) if v}
     return {
         "imap_host": os.environ["IMAP_HOST"],
         "imap_port": int(os.environ["IMAP_PORT"]),
@@ -75,6 +72,9 @@ def _config() -> dict:
         "claude_bin": os.environ["CLAUDE_BIN"],
         "claude_cwd": os.environ["CLAUDE_CWD"],
         "claude_yolo": os.environ.get("CLAUDE_YOLO", "") == "1",
+        "claude_model": os.environ.get("CLAUDE_MODEL") or None,
+        "claude_effort": validated_effort(os.environ.get("CLAUDE_EFFORT", "").strip() or None),
+        "claude_max_budget_usd": os.environ.get("CLAUDE_MAX_BUDGET_USD") or None,
         "claude_extra_env": extra_env,
         "state_file": os.environ["STATE_FILE"],
         "email_domain": os.environ["EMAIL_DOMAIN"],
@@ -94,6 +94,7 @@ def process_email(message, config: dict, chat_db=None) -> None:
         shared_secret=config["shared_secret"],
         gpg_fingerprint=config["gpg_fingerprint"],
         gpg_home=config["gpg_home"],
+        chat_db=chat_db,
     ):
         logger.warning("Unauthorized email dropped")
         return
@@ -102,7 +103,7 @@ def process_email(message, config: dict, chat_db=None) -> None:
     if chat_db is not None and handle_chat_email(message, config, chat_db):
         return
 
-    command = extract_command(message)
+    command = extract_command(message, strip_secret=config["shared_secret"])
     if not command:
         logger.warning("Authorized email has empty command body — skipping")
         return
@@ -118,10 +119,11 @@ def process_email(message, config: dict, chat_db=None) -> None:
 
     logger.info("Executing command from authorized sender")
     output = execute_command(
-        command, claude_bin=config["claude_bin"],
-        timeout=timeout, cwd=config.get("claude_cwd"),
-        yolo=config.get("claude_yolo", False),
+        command, claude_bin=config["claude_bin"], timeout=timeout,
+        cwd=config.get("claude_cwd"), yolo=config.get("claude_yolo", False),
         extra_env=config.get("claude_extra_env") or None,
+        model=config.get("claude_model"), effort=config.get("claude_effort"),
+        max_budget_usd=config.get("claude_max_budget_usd"),
     )
     send_threaded_reply(config, message, output)
 
