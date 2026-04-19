@@ -38,7 +38,7 @@ def _resolve_project(project: str, allowed_base: str) -> str:
 def enqueue_task_tool(
     queue: TaskQueue, manager: WorkerManager, *,
     project: str, body: str, priority: int = 0,
-    allowed_base: str,
+    allowed_base: str, plan_first: bool = False,
 ) -> dict:
     try:
         resolved = _resolve_project(project, allowed_base)
@@ -48,12 +48,16 @@ def enqueue_task_tool(
         worker_pid = manager.ensure_worker(resolved)
     except ValueError as exc:
         return {"error": str(exc)}
-    task_id = queue.enqueue(resolved, body, priority=_clamp_priority(priority))
+    task_id = queue.enqueue(
+        resolved, body, priority=_clamp_priority(priority),
+        plan_first=plan_first,
+    )
     return {
         "status": "enqueued",
         "task_id": task_id,
         "worker_pid": worker_pid,
         "planned_branch": task_branch_name(task_id, body),
+        "plan_first": plan_first,
     }
 
 

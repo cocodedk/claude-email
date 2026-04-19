@@ -42,11 +42,23 @@ class WorkerConfig:
     yolo: bool = True
 
 
-def _build_argv(cfg: WorkerConfig, body: str) -> list[str]:
+_PLAN_FIRST_PREFIX = (
+    "BEFORE doing any actual work for this task, propose a short plan "
+    "(3-6 sentences) to the user via "
+    "mcp__claude-chat__chat_ask(_caller=\"agent-<project>\", message=\"...\") "
+    "and WAIT for their reply. Only start coding AFTER the user approves "
+    "(or refines) the plan. If they say stop/cancel, just reply briefly "
+    "via chat_notify and exit without modifying anything.\n\n"
+    "Task to propose a plan for:\n"
+)
+
+
+def _build_argv(cfg: WorkerConfig, body: str, plan_first: bool = False) -> list[str]:
     argv = [cfg.claude_bin]
     if cfg.yolo:
         argv.append("--dangerously-skip-permissions")
-    argv += ["--continue", "--mcp-config", cfg.mcp_config, "--print", body]
+    final_body = (_PLAN_FIRST_PREFIX + body) if plan_first else body
+    argv += ["--continue", "--mcp-config", cfg.mcp_config, "--print", final_body]
     return argv
 
 
@@ -57,7 +69,7 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
     if not _prepare_branch(queue, tid, claimed["body"], cfg.project_path):
         _finish(queue, tid, cfg)
         return
-    argv = _build_argv(cfg, claimed["body"])
+    argv = _build_argv(cfg, claimed["body"], plan_first=bool(claimed.get("plan_first")))
     logger.info("worker task %d: launching claude --continue", tid)
     proc = subprocess.Popen(
         argv, cwd=cfg.project_path, shell=False,
