@@ -96,6 +96,8 @@ cp .env.example .env
 
 The installer creates a Python virtual environment, installs dependencies, and enables both systemd services. `claude-chat` starts first, then `claude-email`.
 
+After install (or after moving the repo), run `scripts/install-chat-mcp.py <projects-base-dir>` once to bootstrap `.mcp.json` and `.claude/settings.json` in every project directory that should participate on the chat bus. Both files are gitignored per-project and host-specific — the SessionStart hook's command path is resolved from this repo's location at install time.
+
 ## Configuration (.env)
 
 Every config value is read from `.env` — no hardcoded defaults in code.
@@ -368,7 +370,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 244 pytest tests (100% coverage)
+├── tests/                 # 293 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -397,7 +399,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (244 tests, 100% coverage)
+# Run all tests (293 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -415,7 +417,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **244 tests** with **100% code coverage** across all modules
+- **293 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
