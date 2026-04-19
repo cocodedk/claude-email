@@ -61,6 +61,27 @@ class TestInjectMcpConfig:
         }
 
 
+class TestInjectSessionStartHook:
+    def test_creates_settings_file(self, tmp_path):
+        from src.spawner import inject_session_start_hook
+
+        project_dir = str(tmp_path)
+        hook_path = "/opt/claude-email/scripts/chat-session-start-hook.sh"
+        inject_session_start_hook(project_dir, hook_path)
+
+        settings_file = tmp_path / ".claude" / "settings.json"
+        assert settings_file.exists()
+        data = json.loads(settings_file.read_text())
+        assert data == {
+            "hooks": {
+                "SessionStart": [{
+                    "matcher": "startup|resume",
+                    "hooks": [{"type": "command", "command": hook_path}],
+                }]
+            }
+        }
+
+
 class TestValidateProjectPath:
     def test_valid_path_returns_resolved(self, tmp_path):
         from src.spawner import validate_project_path

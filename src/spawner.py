@@ -81,6 +81,39 @@ def inject_mcp_config(project_dir: str, chat_url: str) -> None:
     logger.info("Wrote MCP config to %s", mcp_path)
 
 
+def inject_session_start_hook(project_dir: str, hook_script_path: str) -> None:
+    """Write .claude/settings.json so each session in project_dir invokes the
+    SessionStart hook at hook_script_path. Merges with any existing settings.
+
+    hook_script_path MUST be absolute — Claude Code resolves hook commands
+    from the session cwd, not the repo root.
+    """
+    settings_dir = os.path.join(project_dir, ".claude")
+    settings_path = os.path.join(settings_dir, "settings.json")
+    os.makedirs(settings_dir, exist_ok=True)
+
+    try:
+        with open(settings_path, "r") as f:
+            data = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+
+    hooks = data.setdefault("hooks", {})
+    if not isinstance(hooks, dict):
+        hooks = data["hooks"] = {}
+    hooks["SessionStart"] = [{
+        "matcher": "startup|resume",
+        "hooks": [{"type": "command", "command": hook_script_path}],
+    }]
+
+    with open(settings_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+    logger.info("Wrote SessionStart hook to %s", settings_path)
+
+
 def validate_project_path(project_dir: str, allowed_base: str | None = None) -> str:
     """Canonicalize and validate a project directory path.
 
