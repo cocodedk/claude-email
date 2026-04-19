@@ -52,5 +52,17 @@ def dispatch_by_sender(msg, config: dict, resources: dict, process_email) -> Non
         process_email(msg, config)
         return
     universe, cdb, tq, wm = resources[sender]
-    scoped = {**config, "_universe": universe, "claude_cwd": universe.allowed_base}
+    # Overlay this universe's auth onto the config so process_email /
+    # handle_chat_email / classify_email all use the sender-specific
+    # secret and prefix. Primary and test cannot cross-authenticate.
+    scoped = {
+        **config,
+        "_universe": universe,
+        "claude_cwd": universe.allowed_base,
+        "shared_secret": universe.shared_secret,
+        "gpg_fingerprint": universe.gpg_fingerprint,
+        "gpg_home": universe.gpg_home,
+        "auth_prefix": universe.auth_prefix,
+        "authorized_sender": universe.sender,
+    }
     process_email(msg, scoped, chat_db=cdb, task_queue=tq, worker_manager=wm)
