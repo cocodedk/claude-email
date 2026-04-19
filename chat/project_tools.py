@@ -13,6 +13,13 @@ from src.task_control import cancel_running_task, queue_status
 from src.task_queue import TaskQueue
 from src.worker_manager import WorkerManager
 
+_MIN_PRIORITY = 0
+_MAX_PRIORITY = 10
+
+
+def _clamp_priority(priority: int) -> int:
+    return max(_MIN_PRIORITY, min(_MAX_PRIORITY, priority))
+
 
 def _resolve_project(project: str, allowed_base: str) -> str:
     if not allowed_base:
@@ -40,7 +47,7 @@ def enqueue_task_tool(
         worker_pid = manager.ensure_worker(resolved)
     except ValueError as exc:
         return {"error": str(exc)}
-    task_id = queue.enqueue(resolved, body, priority=priority)
+    task_id = queue.enqueue(resolved, body, priority=_clamp_priority(priority))
     return {"status": "enqueued", "task_id": task_id, "worker_pid": worker_pid}
 
 
