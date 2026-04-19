@@ -62,7 +62,7 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
 ### Chat Relay
 - MCP SSE server acting as a message bus between user and agents
 - SQLite database with WAL mode for safe concurrent access
-- Six MCP tools for agent communication (register, ask, notify, check, list, deregister)
+- Seven core MCP tools for agent communication (register, ask, notify, **message_agent** for peer-to-peer, check, list, deregister) plus project-scoped tools (spawn, enqueue, cancel, queue_status, reset, commit, where_am_i, retry)
 - `chat_ask` blocks for up to one hour waiting for the user's reply
 - Agent-to-user messages relayed as emails with proper threading
 - User replies routed back to the correct agent via In-Reply-To matching
@@ -325,7 +325,8 @@ Agents connect to the chat server via MCP SSE and use these tools:
 |---|---|---|
 | `chat_register` | Register as a participant (name + project path) | No |
 | `chat_ask` | Send a question to the user and wait for reply | Yes |
-| `chat_notify` | Send a fire-and-forget status update | No |
+| `chat_notify` | Send a fire-and-forget status update to the user | No |
+| `chat_message_agent` | Send a one-way notification to another registered agent (peer-to-peer). Rejects unknown recipients and `user` (use `chat_notify` for that). | No |
 | `chat_check_messages` | Poll for pending inbound messages | No |
 | `chat_list_agents` | List all registered agents and their status | No |
 | `chat_deregister` | Leave the chat system | No |
@@ -394,7 +395,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 589 pytest tests (100% coverage)
+├── tests/                 # 598 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -423,7 +424,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (589 tests, 100% coverage)
+# Run all tests (598 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -441,7 +442,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **589 tests** with **100% code coverage** across all modules
+- **598 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
