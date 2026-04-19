@@ -128,6 +128,44 @@ def commit_project_tool(*, project: str, message: str, allowed_base: str) -> dic
     return {"status": "committed", "sha": detail, "project": resolved}
 
 
+_TERMINAL_STATES = {"done", "failed", "cancelled"}
+
+
+def retry_task_tool(
+    queue: TaskQueue, manager: WorkerManager, *,
+    task_id: int, new_body: str = "",
+) -> dict:
+    """Re-enqueue a previously terminated task.
+
+    Body defaults to the original task's body. When new_body is given, it
+    replaces — useful for 'retry but also do X' refinements. A retry chain
+    is recorded via tasks.retry_of so the audit log can show lineage.
+    """
+    original = queue.get(task_id)
+    if original is None:
+        return {"error": f"task #{task_id} not found"}
+    status = original.get("status")
+    if status not in _TERMINAL_STATES:
+        return {"error": f"task #{task_id} is {status}; can only retry terminal tasks"}
+    body = new_body.strip() or original["body"]
+    project_path = original["project_path"]
+    try:
+        worker_pid = manager.ensure_worker(project_path)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    new_id = queue.enqueue(
+        project_path, body,
+        priority=_clamp_priority(original.get("priority") or 0),
+        retry_of=task_id,
+    )
+    return {
+        "status": "retried",
+        "new_task_id": new_id,
+        "retry_of": task_id,
+        "worker_pid": worker_pid,
+    }
+
+
 def where_am_i_tool(queue: TaskQueue, manager: WorkerManager) -> dict:
     """Cross-project dashboard: one row per project with recent activity."""
     projects = []
