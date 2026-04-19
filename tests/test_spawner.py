@@ -126,6 +126,11 @@ class TestInjectSessionStartHook:
         cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         assert cmd == new_path
 
+    def test_rejects_relative_hook_path(self, tmp_path):
+        from src.spawner import inject_session_start_hook
+        with pytest.raises(ValueError, match="absolute"):
+            inject_session_start_hook(str(tmp_path), "scripts/chat-session-start-hook.sh")
+
 
 class TestValidateProjectPath:
     def test_valid_path_returns_resolved(self, tmp_path):
