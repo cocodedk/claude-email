@@ -23,6 +23,7 @@ from typing import Callable
 from src.git_ops import (
     checkout_new_branch, is_clean, is_git_repo, task_branch_name,
 )
+from src.task_log import log_task_finished
 from src.task_queue import TaskQueue
 
 logger = logging.getLogger(__name__)
@@ -52,7 +53,8 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
     """Run one claimed task to completion or failure."""
     tid = claimed["id"]
     if not _prepare_branch(queue, tid, claimed["body"], cfg.project_path):
-        return  # task already marked failed by _prepare_branch
+        log_task_finished(cfg.project_path, queue.get(tid) or {})
+        return
     argv = _build_argv(cfg, claimed["body"])
     logger.info("worker task %d: launching claude --continue", tid)
     proc = subprocess.Popen(
@@ -67,13 +69,15 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
         proc.wait()
         if _status(queue, tid) == "running":
             queue.mark_failed(tid, f"timeout after {cfg.task_timeout}s")
+        log_task_finished(cfg.project_path, queue.get(tid) or {})
         return
     if _status(queue, tid) != "running":
-        return  # cancelled externally — don't overwrite
+        return  # cancelled externally; cancel path logs
     if rc == 0:
         queue.mark_done(tid)
     else:
         queue.mark_failed(tid, f"claude exited rc={rc}")
+    log_task_finished(cfg.project_path, queue.get(tid) or {})
 
 
 def _status(queue: TaskQueue, task_id: int) -> str:
