@@ -71,96 +71,123 @@ class TestInjectMcpConfig:
 
 
 class TestInjectSessionStartHook:
-    def test_creates_settings_file(self, tmp_path):
+    HOOK = "/opt/claude-email/scripts/chat-session-start-hook.sh"
+    DRAIN = "/opt/claude-email/scripts/chat-drain-inbox.py"
+
+    def test_creates_settings_file_with_both_events(self, tmp_path):
         from src.spawner import inject_session_start_hook
-
-        project_dir = str(tmp_path)
-        hook_path = "/opt/claude-email/scripts/chat-session-start-hook.sh"
-        inject_session_start_hook(project_dir, hook_path)
-
-        settings_file = tmp_path / ".claude" / "settings.json"
-        assert settings_file.exists()
-        data = json.loads(settings_file.read_text())
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         assert data == {
             "hooks": {
                 "SessionStart": [{
                     "matcher": "startup|resume",
-                    "hooks": [{"type": "command", "command": hook_path}],
-                }]
+                    "hooks": [
+                        {"type": "command", "command": self.HOOK},
+                        {"type": "command", "command": self.DRAIN},
+                    ],
+                }],
+                "UserPromptSubmit": [{
+                    "matcher": "",
+                    "hooks": [{"type": "command", "command": self.DRAIN}],
+                }],
             }
         }
 
-    def test_merges_existing_settings(self, tmp_path):
+    def test_preserves_third_party_hooks(self, tmp_path):
         from src.spawner import inject_session_start_hook
         (tmp_path / ".claude").mkdir()
         existing = {
             "theme": "dark",
             "hooks": {
-                "UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "/bin/true"}]}],
+                "UserPromptSubmit": [{"matcher": "", "hooks": [
+                    {"type": "command", "command": "/bin/true"},
+                ]}],
             },
         }
         (tmp_path / ".claude" / "settings.json").write_text(json.dumps(existing))
-
-        hook_path = "/opt/claude-email/scripts/chat-session-start-hook.sh"
-        inject_session_start_hook(str(tmp_path), hook_path)
-
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         assert data["theme"] == "dark"
-        assert data["hooks"]["UserPromptSubmit"] == existing["hooks"]["UserPromptSubmit"]
-        assert data["hooks"]["SessionStart"] == [{
-            "matcher": "startup|resume",
-            "hooks": [{"type": "command", "command": hook_path}],
-        }]
+        # Third-party /bin/true hook preserved alongside our drain
+        cmds = [h["command"] for h in data["hooks"]["UserPromptSubmit"][0]["hooks"]]
+        assert self.DRAIN in cmds
+        assert "/bin/true" in cmds
 
     def test_is_idempotent(self, tmp_path):
         from src.spawner import inject_session_start_hook
-        hook_path = "/opt/claude-email/scripts/chat-session-start-hook.sh"
-        inject_session_start_hook(str(tmp_path), hook_path)
-        inject_session_start_hook(str(tmp_path), hook_path)
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-        assert len(data["hooks"]["SessionStart"]) == 1
+        ss_cmds = [h["command"] for h in data["hooks"]["SessionStart"][0]["hooks"]]
+        ups_cmds = [h["command"] for h in data["hooks"]["UserPromptSubmit"][0]["hooks"]]
+        assert ss_cmds == [self.HOOK, self.DRAIN]
+        assert ups_cmds == [self.DRAIN]
 
-    def test_replaces_stale_session_start_when_path_changes(self, tmp_path):
+    def test_replaces_stale_paths_when_install_moves(self, tmp_path):
+        """When the claude-email repo is moved, re-running the injector
+        must replace the old absolute paths — not pile up as duplicates."""
         from src.spawner import inject_session_start_hook
-        (tmp_path / ".claude").mkdir()
-        (tmp_path / ".claude" / "settings.json").write_text(json.dumps({
-            "hooks": {"SessionStart": [{
-                "matcher": "startup",
-                "hooks": [{"type": "command", "command": "/old/path/hook.sh"}],
-            }]}
-        }))
-        new_path = "/new/path/hook.sh"
-        inject_session_start_hook(str(tmp_path), new_path)
+        old_hook = "/old/install/scripts/chat-session-start-hook.sh"
+        old_drain = "/old/install/scripts/chat-drain-inbox.py"
+        inject_session_start_hook(str(tmp_path), old_hook, old_drain)
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-        cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-        assert cmd == new_path
+        ss = [h["command"] for h in data["hooks"]["SessionStart"][0]["hooks"]]
+        assert ss == [self.HOOK, self.DRAIN]
+        assert old_hook not in ss
+        assert old_drain not in ss
 
     def test_rejects_relative_hook_path(self, tmp_path):
         from src.spawner import inject_session_start_hook
-        with pytest.raises(ValueError, match="absolute"):
-            inject_session_start_hook(str(tmp_path), "scripts/chat-session-start-hook.sh")
+        with pytest.raises(ValueError, match="hook_script_path must be absolute"):
+            inject_session_start_hook(str(tmp_path), "hook.sh", self.DRAIN)
+
+    def test_rejects_relative_drain_path(self, tmp_path):
+        from src.spawner import inject_session_start_hook
+        with pytest.raises(ValueError, match="drain_script_path must be absolute"):
+            inject_session_start_hook(str(tmp_path), self.HOOK, "drain.py")
+
+    def test_default_drain_path(self, tmp_path):
+        """When drain_script_path is omitted, DRAIN_SCRIPT is used."""
+        from src.spawner import inject_session_start_hook
+        from src.agent_bootstrap import DRAIN_SCRIPT
+        inject_session_start_hook(str(tmp_path), self.HOOK)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        ups_cmds = [h["command"] for h in data["hooks"]["UserPromptSubmit"][0]["hooks"]]
+        assert ups_cmds == [DRAIN_SCRIPT]
 
     def test_normalizes_wrong_shape_top_level(self, tmp_path):
-        """Valid JSON of the wrong shape (list) must be overwritten, not crashed on."""
         from src.spawner import inject_session_start_hook
         (tmp_path / ".claude").mkdir()
         (tmp_path / ".claude" / "settings.json").write_text(json.dumps([1, 2, 3]))
-        hook_path = "/opt/hook.sh"
-        inject_session_start_hook(str(tmp_path), hook_path)
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         assert isinstance(data, dict)
-        assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == hook_path
+        assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == self.HOOK
+
+    def test_skips_non_dict_entries_in_existing_event(self, tmp_path):
+        """Malformed entries (e.g., a bare string where a dict was expected) are silently skipped."""
+        from src.spawner import inject_session_start_hook
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "settings.json").write_text(json.dumps({
+            "hooks": {
+                "UserPromptSubmit": ["bogus-string-entry"],
+            }
+        }))
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        ups_cmds = [h["command"] for h in data["hooks"]["UserPromptSubmit"][0]["hooks"]]
+        assert ups_cmds == [self.DRAIN]
 
     def test_normalizes_hooks_key_when_list(self, tmp_path):
-        """Pre-existing hooks: [...] (wrong shape) is replaced with a dict."""
         from src.spawner import inject_session_start_hook
         (tmp_path / ".claude").mkdir()
         (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": []}))
-        hook_path = "/opt/hook.sh"
-        inject_session_start_hook(str(tmp_path), hook_path)
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         assert isinstance(data["hooks"], dict)
-        assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == hook_path
+        assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == self.HOOK
 
 
 class TestValidateProjectPath:

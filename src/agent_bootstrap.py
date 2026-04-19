@@ -6,10 +6,11 @@ import os
 logger = logging.getLogger(__name__)
 
 CHAT_MCP_SERVER_NAME = "claude-chat"
-HOOK_SCRIPT = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "scripts", "chat-session-start-hook.sh",
+_SCRIPTS = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts",
 )
+HOOK_SCRIPT = os.path.join(_SCRIPTS, "chat-session-start-hook.sh")
+DRAIN_SCRIPT = os.path.join(_SCRIPTS, "chat-drain-inbox.py")
 
 
 def _load_json_dict(path: str) -> dict:
@@ -76,15 +77,73 @@ def inject_mcp_config(project_dir: str, chat_url: str) -> None:
     logger.info("Wrote MCP config to %s", mcp_path)
 
 
-def inject_session_start_hook(project_dir: str, hook_script_path: str) -> None:
-    """Write .claude/settings.json pointing its SessionStart hook at hook_script_path.
+def _merge_hook_event(
+    hooks: dict, event: str, matcher: str, our_commands: list[str],
+) -> None:
+    """Ensure `event` has a matcher-block whose hook list contains exactly
+    our_commands (in order) alongside any third-party commands already there.
 
-    hook_script_path MUST be absolute — Claude Code resolves hook commands
-    from the session cwd, not the repo root.
+    A command is considered "ours" if it lives under the claude-email
+    scripts/ dir — so stale paths from a prior install layout are dropped
+    on upgrade while genuine third-party hooks (arbitrary command paths)
+    survive.
+    """
+    entries = hooks.get(event)
+    if not isinstance(entries, list):
+        entries = []
+    kept: list[dict] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        for h in entry.get("hooks", []) if isinstance(entry.get("hooks"), list) else []:
+            if (
+                isinstance(h, dict)
+                and h.get("type") == "command"
+                and not _is_ours(h.get("command", ""))
+            ):
+                kept.append(h)
+    new_hooks = [{"type": "command", "command": c} for c in our_commands] + kept
+    hooks[event] = [{"matcher": matcher, "hooks": new_hooks}]
+
+
+def _is_ours(command: str) -> bool:
+    """A hook command is claude-email's if it points at a script whose
+    basename matches our known script names. Prefix-based discrimination
+    would mis-tag third-party paths that also live under similar roots,
+    so match by basename instead.
+    """
+    base = os.path.basename(command)
+    return base in {"chat-session-start-hook.sh", "chat-drain-inbox.py"}
+
+
+def inject_session_start_hook(
+    project_dir: str,
+    hook_script_path: str,
+    drain_script_path: str | None = None,
+) -> None:
+    """Write .claude/settings.json wiring the chat-bus hooks for this project.
+
+    SessionStart (startup|resume): runs hook_script_path (pre-register + bus
+    instruction) then drain_script_path (drains pre-existing queue into
+    additionalContext).
+
+    UserPromptSubmit: runs drain_script_path so every user turn auto-drains
+    messages that arrived mid-session — otherwise the agent sits on pending
+    mail until it chooses to call chat_check_messages itself, which models
+    rarely do without a prompt.
+
+    Both paths MUST be absolute. drain_script_path defaults to DRAIN_SCRIPT
+    (sibling of hook_script_path in the claude-email install).
     """
     if not os.path.isabs(hook_script_path):
         raise ValueError(
             f"hook_script_path must be absolute; got {hook_script_path!r}"
+        )
+    if drain_script_path is None:
+        drain_script_path = DRAIN_SCRIPT
+    if not os.path.isabs(drain_script_path):
+        raise ValueError(
+            f"drain_script_path must be absolute; got {drain_script_path!r}"
         )
     settings_dir = os.path.join(project_dir, ".claude")
     settings_path = os.path.join(settings_dir, "settings.json")
@@ -93,9 +152,13 @@ def inject_session_start_hook(project_dir: str, hook_script_path: str) -> None:
     hooks = data.setdefault("hooks", {})
     if not isinstance(hooks, dict):
         hooks = data["hooks"] = {}
-    hooks["SessionStart"] = [{
-        "matcher": "startup|resume",
-        "hooks": [{"type": "command", "command": hook_script_path}],
-    }]
+    _merge_hook_event(
+        hooks, "SessionStart", "startup|resume",
+        [hook_script_path, drain_script_path],
+    )
+    _merge_hook_event(
+        hooks, "UserPromptSubmit", "",
+        [drain_script_path],
+    )
     _write_json(settings_path, data)
-    logger.info("Wrote SessionStart hook to %s", settings_path)
+    logger.info("Wrote SessionStart + UserPromptSubmit hooks to %s", settings_path)
