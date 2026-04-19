@@ -80,8 +80,8 @@ class TestOrchestration:
         assert call_order[1] == "execute"
         assert call_order[2].startswith("reply:")
 
-    def test_llm_router_enabled_passes_system_prompt(self, mocker):
-        from main import process_email
+    def test_llm_router_enabled_passes_system_prompt_and_mcp_config(self, mocker):
+        from main import process_email, _ROUTER_MCP_CONFIG
         from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
         mock_execute = mocker.patch("main.execute_command", return_value="out")
         mocker.patch("main.send_threaded_reply")
@@ -96,6 +96,7 @@ class TestOrchestration:
         }
         process_email(msg, config)
         assert mock_execute.call_args.kwargs["system_prompt"] == EMAIL_ROUTER_SYSTEM_PROMPT
+        assert mock_execute.call_args.kwargs["mcp_config"] == _ROUTER_MCP_CONFIG
 
     def test_llm_router_disabled_omits_system_prompt(self, mocker):
         from main import process_email
@@ -111,6 +112,7 @@ class TestOrchestration:
         }
         process_email(msg, config)
         assert mock_execute.call_args.kwargs["system_prompt"] is None
+        assert mock_execute.call_args.kwargs["mcp_config"] is None
 
     def test_progress_ack_failure_does_not_abort_execution(self, mocker):
         """If the ack send fails, we should still run the command."""
