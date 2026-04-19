@@ -151,4 +151,35 @@ TOOLS = [
             "required": ["project"],
         },
     ),
+    Tool(
+        name="chat_reset_project",
+        description=(
+            "Step 1 of destructive project reset. Returns a confirm_token "
+            "valid for 5 minutes. Call chat_confirm_reset with the same "
+            "project and token to actually cancel the running task, drain "
+            "the queue, and run `git reset --hard HEAD && git clean -fd`."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project": {"type": "string", "description": "Folder name or absolute path"},
+            },
+            "required": ["project"],
+        },
+    ),
+    Tool(
+        name="chat_confirm_reset",
+        description=(
+            "Step 2 of destructive project reset. Consumes the confirm_token "
+            "from chat_reset_project and executes the reset."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project": {"type": "string", "description": "Folder name or absolute path"},
+                "token": {"type": "string", "description": "Token from chat_reset_project"},
+            },
+            "required": ["project", "token"],
+        },
+    ),
 ]
