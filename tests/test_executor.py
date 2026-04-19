@@ -195,6 +195,25 @@ class TestExecuteCommand:
         cmd = mock_run.call_args.args[0]
         assert "--append-system-prompt" not in cmd
 
+    def test_mcp_config_adds_flag(self, mocker):
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        execute_command("hi", mcp_config="/path/to/.mcp.json")
+        cmd = mock_run.call_args.args[0]
+        assert "--mcp-config" in cmd
+        assert cmd[cmd.index("--mcp-config") + 1] == "/path/to/.mcp.json"
+
+    def test_mcp_config_absent_when_none(self, mocker):
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        execute_command("hi")
+        cmd = mock_run.call_args.args[0]
+        assert "--mcp-config" not in cmd
+
     def test_extra_env_merged_into_subprocess_env(self, mocker):
         mock_run = mocker.patch("subprocess.run")
         mock_run.return_value = subprocess.CompletedProcess(

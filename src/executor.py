@@ -100,6 +100,7 @@ def execute_command(
     effort: str | None = None,
     max_budget_usd: str | None = None,
     system_prompt: str | None = None,
+    mcp_config: str | None = None,
 ) -> str:
     """Execute a command via the claude CLI and return the output.
 
@@ -120,6 +121,8 @@ def execute_command(
         argv += ["--effort", effort]
     if system_prompt:
         argv += ["--append-system-prompt", system_prompt]
+    if mcp_config:
+        argv += ["--mcp-config", mcp_config]
     argv += ["--print", command]
     if max_budget_usd:
         argv += ["--max-budget-usd", max_budget_usd]
