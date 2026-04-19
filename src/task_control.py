@@ -17,6 +17,7 @@ from typing import Callable
 
 from src.process_liveness import is_alive
 from src.task_log import log_task_finished
+from src.task_notifier import notify_task_done
 from src.task_queue import TaskQueue
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,9 @@ def cancel_running_task(
             except ProcessLookupError:
                 pass
     queue.cancel(running["id"])
-    log_task_finished(project_path, queue.get(running["id"]) or {})
+    row = queue.get(running["id"]) or {}
+    log_task_finished(project_path, row)
+    notify_task_done(queue.path, row)
     result = {"status": "cancelled", "task_id": running["id"]}
     if drain_queue:
         result["drained"] = queue.drain_pending(project_path)

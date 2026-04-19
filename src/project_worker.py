@@ -24,6 +24,7 @@ from src.git_ops import (
     checkout_new_branch, is_clean, is_git_repo, task_branch_name,
 )
 from src.task_log import log_task_finished
+from src.task_notifier import notify_task_done
 from src.task_queue import TaskQueue
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
     """Run one claimed task to completion or failure."""
     tid = claimed["id"]
     if not _prepare_branch(queue, tid, claimed["body"], cfg.project_path):
-        log_task_finished(cfg.project_path, queue.get(tid) or {})
+        _finish(queue, tid, cfg)
         return
     argv = _build_argv(cfg, claimed["body"])
     logger.info("worker task %d: launching claude --continue", tid)
@@ -69,7 +70,7 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
         proc.wait()
         if _status(queue, tid) == "running":
             queue.mark_failed(tid, f"timeout after {cfg.task_timeout}s")
-        log_task_finished(cfg.project_path, queue.get(tid) or {})
+        _finish(queue, tid, cfg)
         return
     if _status(queue, tid) != "running":
         return  # cancelled externally; cancel path logs
@@ -83,6 +84,12 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
 def _status(queue: TaskQueue, task_id: int) -> str:
     row = queue.get(task_id)
     return row["status"] if row else ""
+
+
+def _finish(queue: TaskQueue, tid: int, cfg: "WorkerConfig") -> None:
+    row = queue.get(tid) or {}
+    log_task_finished(cfg.project_path, row)
+    notify_task_done(cfg.db_path, row)
 
 
 def _prepare_branch(queue: TaskQueue, tid: int, body: str, project_path: str) -> bool:
