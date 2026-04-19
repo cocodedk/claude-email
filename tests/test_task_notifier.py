@@ -101,6 +101,50 @@ class TestNotifyTaskDone:
         body = _pending(db_path)[0]["body"]
         assert "AssertionError: boom" in body
 
+    def test_json_origin_emits_result_envelope(self, db_path):
+        import json
+        notify_task_done(db_path, {
+            "id": 11, "status": "done",
+            "project_path": "/home/u/test-01",
+            "branch_name": "claude/task-11-x",
+            "output_text": "wrote 3 files",
+            "origin_content_type": "application/json",
+        })
+        msgs = _pending(db_path)
+        assert msgs[0]["content_type"] == "application/json"
+        assert msgs[0]["task_id"] == 11
+        parsed = json.loads(msgs[0]["body"])
+        assert parsed["kind"] == "result"
+        assert parsed["task_id"] == 11
+        assert parsed["data"]["status"] == "done"
+        assert parsed["data"]["branch"] == "claude/task-11-x"
+        assert "wrote 3 files" in parsed["data"]["output_tail"]
+
+    def test_json_origin_failed_includes_error(self, db_path):
+        import json
+        notify_task_done(db_path, {
+            "id": 12, "status": "failed",
+            "project_path": "/home/u/p",
+            "branch_name": None,
+            "error_text": "rc=1",
+            "output_text": "trace",
+            "origin_content_type": "application/json",
+        })
+        parsed = json.loads(_pending(db_path)[0]["body"])
+        assert parsed["data"]["error"] == "rc=1"
+        assert parsed["data"]["status"] == "failed"
+
+    def test_plain_origin_still_human_readable(self, db_path):
+        notify_task_done(db_path, {
+            "id": 13, "status": "done",
+            "project_path": "/home/u/p",
+            "branch_name": "claude/task-13-x",
+            "origin_content_type": "",  # plain text
+        })
+        msgs = _pending(db_path)
+        assert msgs[0]["content_type"] is None  # stays text/plain default
+        assert "Task #13 done" in msgs[0]["body"]
+
     def test_long_output_trimmed_to_600(self, db_path):
         notify_task_done(db_path, {
             "id": 9, "status": "done",

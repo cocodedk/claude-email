@@ -90,12 +90,15 @@ class ChatDB:
     def insert_message(
         self, from_name: str, to_name: str, body: str,
         msg_type: str, in_reply_to: int | None = None,
+        content_type: str = "", task_id: int | None = None,
     ) -> dict:
         now = _now()
         cur = self._conn.execute(
-            """INSERT INTO messages (from_name, to_name, body, type, status, in_reply_to, created_at)
-               VALUES (?, ?, ?, ?, 'pending', ?, ?)""",
-            (from_name, to_name, body, msg_type, in_reply_to, now),
+            """INSERT INTO messages (from_name, to_name, body, type, status,
+                                     in_reply_to, created_at, content_type, task_id)
+               VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)""",
+            (from_name, to_name, body, msg_type, in_reply_to, now,
+             content_type or None, task_id),
         )
         self._conn.commit()
         self._log_event(from_name, "message", f"{msg_type} from {from_name} to {to_name}")

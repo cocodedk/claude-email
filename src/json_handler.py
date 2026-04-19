@@ -31,34 +31,38 @@ def handle_json_email(
     try:
         env = parse_envelope(message)
     except EnvelopeError as exc:
+        logger.warning("JSON envelope parse failed: %s", exc.code)
         _send_json_reply(config, message, build_envelope(
             "error", body=exc.message,
             error={"code": exc.code, "message": exc.message},
         ))
         return True
 
-    # Re-auth per-envelope: the auth token in meta.auth must match the
-    # scoped universe's shared_secret. Envelope-inside-body auth keeps
-    # plain-text auth_prefix paths undisturbed.
     universe = config.get("_universe")
     expected = (universe.shared_secret if universe else config.get("shared_secret", "")) or ""
     if expected and env.auth != expected:
+        logger.warning(
+            "JSON auth mismatch: meta.auth len=%d, expected len=%d",
+            len(env.auth), len(expected),
+        )
         _send_json_reply(config, message, build_envelope(
             "error", body="auth failed",
             error={"code": "unauthorized", "message": "meta.auth does not match"},
         ))
         return True
 
-    reply = _dispatch(env, config, chat_db, task_queue, worker_manager)
+    logger.info("JSON envelope accepted: kind=%s project=%s", env.kind, env.project)
+    inbound_msg_id = message.get("Message-ID", "")
+    reply = _dispatch(env, config, chat_db, task_queue, worker_manager, inbound_msg_id)
     _send_json_reply(config, message, reply)
     return True
 
 
-def _dispatch(env: Envelope, config, chat_db, task_queue, worker_manager) -> str:
+def _dispatch(env: Envelope, config, chat_db, task_queue, worker_manager, inbound_msg_id: str = "") -> str:
     universe = config.get("_universe")
     allowed_base = universe.allowed_base if universe else config.get("claude_cwd", "")
     if env.kind == "command":
-        return _handle_command(env, task_queue, worker_manager, allowed_base)
+        return _handle_command(env, task_queue, worker_manager, allowed_base, inbound_msg_id)
     # reply / status / cancel / retry / commit / reset / confirm_reset not wired yet
     return build_envelope(
         "error", body=f"kind {env.kind!r} not yet implemented in Phase 8a",
@@ -66,7 +70,7 @@ def _dispatch(env: Envelope, config, chat_db, task_queue, worker_manager) -> str
     )
 
 
-def _handle_command(env, task_queue, worker_manager, allowed_base) -> str:
+def _handle_command(env, task_queue, worker_manager, allowed_base, inbound_msg_id="") -> str:
     if not env.project or not env.body:
         return build_envelope(
             "error", body="command requires project + body",
@@ -82,6 +86,8 @@ def _handle_command(env, task_queue, worker_manager, allowed_base) -> str:
         project=env.project, body=env.body,
         priority=env.priority or 0, plan_first=env.plan_first,
         allowed_base=allowed_base,
+        origin_content_type="application/json",
+        origin_message_id=inbound_msg_id,
     )
     if "error" in result:
         code = "project_not_found" if "does not exist" in result["error"] else "invalid_state"

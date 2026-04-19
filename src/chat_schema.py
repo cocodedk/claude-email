@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS messages (
     status TEXT NOT NULL DEFAULT 'pending',
     email_message_id TEXT,
     in_reply_to INTEGER REFERENCES messages(id),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    content_type TEXT,
+    task_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -48,7 +50,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     error_text TEXT,
     output_text TEXT,
     retry_of INTEGER,
-    plan_first INTEGER NOT NULL DEFAULT 0
+    plan_first INTEGER NOT NULL DEFAULT 0,
+    origin_content_type TEXT,
+    origin_message_id TEXT
 );
 CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project_path, status);
 """
@@ -60,4 +64,8 @@ MIGRATIONS = [
     "ALTER TABLE tasks ADD COLUMN output_text TEXT",
     "ALTER TABLE tasks ADD COLUMN retry_of INTEGER",
     "ALTER TABLE tasks ADD COLUMN plan_first INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE tasks ADD COLUMN origin_content_type TEXT",
+    "ALTER TABLE tasks ADD COLUMN origin_message_id TEXT",
+    "ALTER TABLE messages ADD COLUMN content_type TEXT",
+    "ALTER TABLE messages ADD COLUMN task_id INTEGER",
 ]

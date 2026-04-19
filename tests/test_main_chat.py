@@ -73,6 +73,26 @@ class TestProcessEmailChatReply:
         assert pending[0]["from_name"] == "user"
 
 
+class TestProcessEmailPlainTextAuthRejection:
+    def test_envelope_passes_but_plain_text_auth_fails(self, mocker, chat_db):
+        """Sender is allowed (envelope OK) but no AUTH:<secret> in body/subject
+        and no GPG — is_authorized returns False → dropped with plain-text log."""
+        from main import process_email
+        mocker.patch("main.identify_sender", return_value="bb@cocode.dk")
+        mocker.patch("main.is_authorized", return_value=False)
+        mock_execute = mocker.patch("main.execute_command")
+        mock_logger = mocker.patch("main.logger")
+        msg = email.message.Message()
+        msg["Message-ID"] = "<x@x>"
+        msg.set_payload("no auth prefix")
+        config = _make_config()
+        process_email(msg, config, chat_db=chat_db)
+        mock_execute.assert_not_called()
+        # second-gate drop log fires
+        warn = [c.args[0] for c in mock_logger.warning.call_args_list]
+        assert any("plain-text auth" in m for m in warn)
+
+
 class TestProcessEmailJsonMode:
     def test_json_email_routes_through_json_handler(self, mocker, chat_db):
         import json
