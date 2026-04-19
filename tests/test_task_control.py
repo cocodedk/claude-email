@@ -201,6 +201,37 @@ class TestToolWrappers:
         )
         assert "error" in result
 
+    def test_commit_project_tool_happy_path(self, tmp_path, mocker):
+        from chat.tools import commit_project_tool
+        (tmp_path / "p").mkdir()
+        mocker.patch(
+            "chat.project_tools.commit_all", return_value=(True, "a1b2c3d"),
+        )
+        result = commit_project_tool(
+            project="p", message="WIP", allowed_base=str(tmp_path),
+        )
+        assert result["status"] == "committed"
+        assert result["sha"] == "a1b2c3d"
+
+    def test_commit_project_tool_rejects_bad_path(self, tmp_path):
+        from chat.tools import commit_project_tool
+        result = commit_project_tool(
+            project="never-made", message="x", allowed_base=str(tmp_path),
+        )
+        assert "error" in result
+
+    def test_commit_project_tool_surfaces_git_error(self, tmp_path, mocker):
+        from chat.tools import commit_project_tool
+        (tmp_path / "p").mkdir()
+        mocker.patch(
+            "chat.project_tools.commit_all",
+            return_value=(False, "nothing to commit"),
+        )
+        result = commit_project_tool(
+            project="p", message="x", allowed_base=str(tmp_path),
+        )
+        assert result["error"] == "nothing to commit"
+
     def test_where_am_i_tool_empty(self, tq):
         from chat.tools import where_am_i_tool
 

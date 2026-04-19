@@ -125,6 +125,7 @@ def spawn_agent_tool(
 # `from chat import tools` import surface.
 from chat.project_tools import (  # noqa: E402
     cancel_task_tool,
+    commit_project_tool,
     confirm_reset_tool,
     enqueue_task_tool,
     queue_status_tool,
