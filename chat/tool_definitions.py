@@ -118,4 +118,37 @@ TOOLS = [
             "required": ["project", "body"],
         },
     ),
+    Tool(
+        name="chat_cancel_task",
+        description=(
+            "Cancel the currently running task for a project. Sends SIGTERM "
+            "then SIGKILL after a 10-second grace. Optionally drains all "
+            "pending tasks too."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project": {"type": "string", "description": "Folder name or absolute path"},
+                "drain_queue": {
+                    "type": "boolean",
+                    "description": "Also cancel all pending tasks",
+                    "default": False,
+                },
+            },
+            "required": ["project"],
+        },
+    ),
+    Tool(
+        name="chat_queue_status",
+        description=(
+            "Return the running task and pending queue for a project."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project": {"type": "string", "description": "Folder name or absolute path"},
+            },
+            "required": ["project"],
+        },
+    ),
 ]

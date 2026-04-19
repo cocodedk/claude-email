@@ -319,6 +319,8 @@ Agents connect to the chat server via MCP SSE and use these tools:
 | `chat_deregister` | Leave the chat system | No |
 | `chat_spawn_agent` | Start a new Claude Code agent in a project folder (resolved against `CLAUDE_CWD`) | No |
 | `chat_enqueue_task` | Queue a task for a project. Spawns a per-project worker on demand (one per canonical path) that drains the queue in FIFO order; higher priority jumps the line. Each task runs as `claude --continue --print` so context persists. | No |
+| `chat_cancel_task` | Cancel the running task for a project (SIGTERM, 10s grace, SIGKILL). Optional `drain_queue=true` also drops pending tasks. | No |
+| `chat_queue_status` | Return the running task and pending queue for a project. | No |
 
 ## Data Model
 
@@ -375,7 +377,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 381 pytest tests (100% coverage)
+├── tests/                 # 401 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -404,7 +406,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (381 tests, 100% coverage)
+# Run all tests (401 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -422,7 +424,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **381 tests** with **100% code coverage** across all modules
+- **401 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
