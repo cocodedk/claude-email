@@ -17,6 +17,8 @@ from src.config import build_config
 from src.dispatch import build_universe_resources, dispatch_by_sender, universes_from_config
 from src.executor import execute_command, extract_command
 from src.ghost_reaper import sweep_ghosts
+from src.json_envelope import is_json_email
+from src.json_handler import handle_json_email
 from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
 from src.poller import EmailPoller
 from src.security import is_authorized
@@ -61,6 +63,9 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
         gpg_home=config["gpg_home"], chat_db=chat_db,
     ):
         logger.warning("Unauthorized email dropped")
+        return
+    if is_json_email(message) and chat_db is not None and task_queue is not None and worker_manager is not None:
+        handle_json_email(message, config, chat_db, task_queue, worker_manager)
         return
     if chat_db is not None and handle_chat_email(
         message, config, chat_db, task_queue=task_queue, worker_manager=worker_manager,
