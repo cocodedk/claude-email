@@ -113,3 +113,30 @@ class TestSendReply:
         # No email_domain passed — still generates a valid Message-ID
         assert result.startswith("<")
         assert result.endswith(">")
+
+
+class TestContentType:
+    def test_application_json_content_type_set(self, mocker):
+        import smtplib
+        from src.mailer import send_reply
+        mock_smtp_cls = mocker.patch("src.mailer.smtplib.SMTP_SSL")
+        mock_smtp = mock_smtp_cls.return_value.__enter__.return_value
+        send_reply(
+            smtp_host="h", smtp_port=465, username="u", password="p",
+            to="t@x", subject="s", body='{"v":1}',
+            content_type="application/json", email_domain="x",
+        )
+        sent = mock_smtp.send_message.call_args.args[0]
+        assert sent.get_content_type() == "application/json"
+
+    def test_default_is_text_plain(self, mocker):
+        import smtplib
+        from src.mailer import send_reply
+        mock_smtp_cls = mocker.patch("src.mailer.smtplib.SMTP_SSL")
+        mock_smtp = mock_smtp_cls.return_value.__enter__.return_value
+        send_reply(
+            smtp_host="h", smtp_port=465, username="u", password="p",
+            to="t@x", subject="s", body="hi", email_domain="x",
+        )
+        sent = mock_smtp.send_message.call_args.args[0]
+        assert sent.get_content_type() == "text/plain"

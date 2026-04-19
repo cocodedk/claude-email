@@ -73,6 +73,21 @@ class TestProcessEmailChatReply:
         assert pending[0]["from_name"] == "user"
 
 
+class TestProcessEmailJsonMode:
+    def test_json_email_routes_through_json_handler(self, mocker, chat_db):
+        import json
+        from main import process_email
+        mocker.patch("main.is_authorized", return_value=True)
+        handler = mocker.patch("main.handle_json_email")
+        mocker.patch("main.handle_chat_email")
+        msg = email.message.Message()
+        msg.add_header("Content-Type", "application/json")
+        msg.set_payload(json.dumps({"v": 1, "kind": "command", "body": "x"}))
+        config = _make_config()
+        process_email(msg, config, chat_db=chat_db, task_queue=object(), worker_manager=object())
+        handler.assert_called_once()
+
+
 class TestProcessEmailAgentCommand:
     def test_process_email_agent_command_dispatched(self, mocker, chat_db):
         """When subject starts with @agent-name, route as agent command."""
