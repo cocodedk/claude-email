@@ -72,6 +72,7 @@ class TestToolRegistration:
             "chat_list_agents",
             "chat_deregister",
             "chat_spawn_agent",
+            "chat_enqueue_task",
         }
         assert tool_names == expected
 
@@ -224,6 +225,35 @@ class TestToolDispatch:
         result = asyncio.run(_call())
         data = json.loads(result.root.content[0].text)
         assert data["status"] == "deregistered"
+
+    def test_call_chat_enqueue_task(self, app, tmp_path, mocker, monkeypatch):
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        monkeypatch.setenv("CLAUDE_CWD", str(tmp_path))
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=42)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.is_alive", return_value=True)
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_enqueue_task",
+                    arguments={"project": "p", "body": "hello", "priority": 0},
+                ),
+            ))
+
+        result = asyncio.run(_call())
+        data = json.loads(result.root.content[0].text)
+        assert data["status"] == "enqueued"
+        assert data["worker_pid"] == 42
+        assert "task_id" in data
 
     def test_call_chat_spawn_agent(self, app, tmp_path, mocker, monkeypatch):
         import asyncio

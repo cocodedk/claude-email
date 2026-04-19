@@ -1,0 +1,100 @@
+"""Tests for chat.tools.enqueue_task_tool — router-facing MCP tool."""
+import pytest
+from src.chat_db import ChatDB
+from src.task_queue import TaskQueue
+from src.worker_manager import WorkerManager
+from chat.tools import enqueue_task_tool
+
+
+@pytest.fixture
+def db_path(tmp_path):
+    path = str(tmp_path / "db")
+    ChatDB(path)
+    return path
+
+
+@pytest.fixture
+def tq(db_path):
+    return TaskQueue(db_path)
+
+
+@pytest.fixture
+def mgr(db_path, tmp_path, mocker):
+    mocker.patch("src.worker_manager.is_alive", return_value=True)
+    return WorkerManager(
+        db_path=db_path, project_root=str(tmp_path),
+        python_bin="/usr/bin/python3",
+    )
+
+
+class TestEnqueueTaskTool:
+    def test_happy_path_spawns_worker_and_returns_ids(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=777)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        result = enqueue_task_tool(
+            tq, mgr,
+            project="p", body="write tests",
+            allowed_base=str(tmp_path),
+        )
+        assert result["status"] == "enqueued"
+        assert result["worker_pid"] == 777
+        assert tq.get(result["task_id"])["body"] == "write tests"
+        assert tq.get(result["task_id"])["project_path"] == str((tmp_path / "p").resolve())
+
+    def test_accepts_absolute_path(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        result = enqueue_task_tool(
+            tq, mgr, project=str(tmp_path / "p"), body="x",
+            allowed_base=str(tmp_path),
+        )
+        assert result["status"] == "enqueued"
+
+    def test_path_outside_base_rejected(self, tq, mgr, tmp_path):
+        outside = tmp_path.parent / "outside"
+        outside.mkdir(exist_ok=True)
+        try:
+            result = enqueue_task_tool(
+                tq, mgr, project=str(outside), body="x",
+                allowed_base=str(tmp_path),
+            )
+            assert "error" in result
+        finally:
+            outside.rmdir()
+
+    def test_nonexistent_path_rejected(self, tq, mgr, tmp_path):
+        result = enqueue_task_tool(
+            tq, mgr, project="never-made", body="x",
+            allowed_base=str(tmp_path),
+        )
+        assert "error" in result
+
+    def test_missing_allowed_base_rejected(self, tq, mgr):
+        result = enqueue_task_tool(
+            tq, mgr, project="p", body="x", allowed_base="",
+        )
+        assert "error" in result
+
+    def test_worker_manager_error_bubbles(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        mocker.patch.object(mgr, "ensure_worker", side_effect=ValueError("boom"))
+        result = enqueue_task_tool(
+            tq, mgr, project="p", body="x",
+            allowed_base=str(tmp_path),
+        )
+        assert result == {"error": "boom"}
+
+    def test_priority_preserved(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        result = enqueue_task_tool(
+            tq, mgr, project="p", body="help", priority=10,
+            allowed_base=str(tmp_path),
+        )
+        assert tq.get(result["task_id"])["priority"] == 10

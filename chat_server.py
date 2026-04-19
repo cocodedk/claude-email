@@ -22,6 +22,10 @@ def main() -> None:
     db_path = os.environ["CHAT_DB_PATH"]
     host = os.environ["CHAT_HOST"]
     port = int(os.environ["CHAT_PORT"])
+    # Spawned project workers need the repo's .mcp.json so `claude --continue
+    # --print` in their project_path still has access to the chat bus.
+    from src.llm_router import ROUTER_MCP_CONFIG_PATH
+    os.environ.setdefault("ROUTER_MCP_CONFIG", ROUTER_MCP_CONFIG_PATH)
 
     logger.info("Starting claude-chat MCP server on %s:%d", host, port)
     logger.info("Database: %s", db_path)

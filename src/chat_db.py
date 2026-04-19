@@ -2,38 +2,8 @@
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+from src.chat_schema import SCHEMA as _SCHEMA
 from src.process_liveness import is_alive
-
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS agents (
-    name TEXT PRIMARY KEY,
-    project_path TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'running',
-    pid INTEGER,
-    registered_at TEXT NOT NULL,
-    last_seen_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    from_name TEXT NOT NULL,
-    to_name TEXT NOT NULL,
-    body TEXT NOT NULL,
-    type TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
-    email_message_id TEXT,
-    in_reply_to INTEGER REFERENCES messages(id),
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_type TEXT NOT NULL,
-    participant TEXT NOT NULL,
-    summary TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-"""
 
 
 def _now() -> str:
