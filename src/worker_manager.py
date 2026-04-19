@@ -65,12 +65,13 @@ class WorkerManager:
         argv = [self._python_bin, "-m", "src.project_worker", resolved]
         env = {**os.environ, **self._module_env}
         # cwd MUST be the claude-email repo so `python -m src.project_worker`
-        # resolves. The worker itself sets cwd=resolved when it launches the
-        # per-task `claude --continue --print`.
+        # resolves. Worker's stderr inherits parent's (→ journald) so crashes
+        # show up in `journalctl --user -u claude-chat*`; otherwise silent
+        # worker deaths leave tasks stuck in 'running' with no diagnostic.
         logger.info("Spawning worker for %s", resolved)
         proc = subprocess.Popen(
             argv, cwd=_REPO_ROOT, shell=False,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=None,  # stderr → parent (journald)
             env=env,
         )
         self._workers[resolved] = proc
