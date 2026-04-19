@@ -5,14 +5,16 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 from src.agent_bootstrap import (
-    _CHAT_MCP_SERVER_NAME,
-    _HOOK_SCRIPT,
+    CHAT_MCP_SERVER_NAME,
+    HOOK_SCRIPT,
     approve_mcp_server_for_project,
     inject_mcp_config,
     inject_session_start_hook,
 )
 
 __all__ = [
+    "CHAT_MCP_SERVER_NAME",
+    "HOOK_SCRIPT",
     "approve_mcp_server_for_project",
     "build_agent_name",
     "inject_mcp_config",
@@ -76,11 +78,11 @@ def spawn_agent(
     project_dir = validate_project_path(project_dir, allowed_base)
     name = build_agent_name(project_dir)
     inject_mcp_config(project_dir, chat_url)
-    inject_session_start_hook(project_dir, _HOOK_SCRIPT)
+    inject_session_start_hook(project_dir, HOOK_SCRIPT)
 
     merged_env = {**os.environ, **(extra_env or {})}
     agent_config_dir = merged_env.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~")
-    approve_mcp_server_for_project(agent_config_dir, project_dir, _CHAT_MCP_SERVER_NAME)
+    approve_mcp_server_for_project(agent_config_dir, project_dir, CHAT_MCP_SERVER_NAME)
 
     cmd = [claude_bin]
     if yolo:
