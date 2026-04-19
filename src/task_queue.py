@@ -103,3 +103,18 @@ class TaskQueue:
         cur = self._conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,))
         row = cur.fetchone()
         return dict(row) if row else None
+
+    def list_project_paths(self) -> list[str]:
+        """Return every project_path that has ever had a task."""
+        cur = self._conn.execute(
+            "SELECT DISTINCT project_path FROM tasks ORDER BY project_path",
+        )
+        return [r["project_path"] for r in cur.fetchall()]
+
+    def latest_task(self, project_path: str) -> dict | None:
+        cur = self._conn.execute(
+            "SELECT * FROM tasks WHERE project_path=? ORDER BY id DESC LIMIT 1",
+            (project_path,),
+        )
+        row = cur.fetchone()
+        return dict(row) if row else None
