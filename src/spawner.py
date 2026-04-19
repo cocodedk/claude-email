@@ -8,6 +8,10 @@ from pathlib import Path, PurePosixPath
 logger = logging.getLogger(__name__)
 
 _CHAT_MCP_SERVER_NAME = "claude-chat"
+_HOOK_SCRIPT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "scripts", "chat-session-start-hook.sh",
+)
 
 
 def build_agent_name(project_path: str) -> str:
@@ -157,6 +161,7 @@ def spawn_agent(
     project_dir = validate_project_path(project_dir, allowed_base)
     name = build_agent_name(project_dir)
     inject_mcp_config(project_dir, chat_url)
+    inject_session_start_hook(project_dir, _HOOK_SCRIPT)
 
     # Pre-approve claude-chat in the spawned agent's config dir so Claude Code
     # doesn't silently skip the injected .mcp.json on first launch.
