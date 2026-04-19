@@ -1,0 +1,228 @@
+"""Tests for scripts/chat-drain-inbox.py — hook that drains agent inbox.
+
+Mirrors the loader pattern of test_chat_register_self.py because the script
+lives under scripts/ and is invoked directly by Claude Code hooks.
+"""
+import importlib.util
+import io
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+from src.chat_db import ChatDB
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_SCRIPT_PATH = _REPO_ROOT / "scripts" / "chat-drain-inbox.py"
+
+
+@pytest.fixture
+def drain_mod(monkeypatch):
+    for key in ("CHAT_DB_PATH",):
+        monkeypatch.delenv(key, raising=False)
+    spec = importlib.util.spec_from_file_location("chat_drain_inbox", _SCRIPT_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestReadHookEvent:
+    def test_isatty_defaults_to_user_prompt(self, drain_mod, monkeypatch):
+        class FakeStdin:
+            def isatty(self):
+                return True
+        monkeypatch.setattr(sys, "stdin", FakeStdin())
+        assert drain_mod._read_hook_event() == "UserPromptSubmit"
+
+    def test_empty_stdin_defaults(self, drain_mod, monkeypatch):
+        buf = io.StringIO("")
+        monkeypatch.setattr(sys, "stdin", buf)
+        assert drain_mod._read_hook_event() == "UserPromptSubmit"
+
+    def test_valid_json_uses_event_name(self, drain_mod, monkeypatch):
+        buf = io.StringIO(json.dumps({"hook_event_name": "SessionStart"}))
+        monkeypatch.setattr(sys, "stdin", buf)
+        assert drain_mod._read_hook_event() == "SessionStart"
+
+    def test_malformed_json_defaults(self, drain_mod, monkeypatch):
+        buf = io.StringIO("{not json")
+        monkeypatch.setattr(sys, "stdin", buf)
+        assert drain_mod._read_hook_event() == "UserPromptSubmit"
+
+    def test_json_without_event_name_defaults(self, drain_mod, monkeypatch):
+        buf = io.StringIO("{}")
+        monkeypatch.setattr(sys, "stdin", buf)
+        assert drain_mod._read_hook_event() == "UserPromptSubmit"
+
+
+class TestResolvedDbPath:
+    def test_relative_resolves_against_repo_root(self, drain_mod, monkeypatch):
+        monkeypatch.setenv("CHAT_DB_PATH", "claude-chat.db")
+        assert drain_mod._resolved_db_path() == _REPO_ROOT / "claude-chat.db"
+
+    def test_absolute_returned_as_is(self, drain_mod, monkeypatch, tmp_path):
+        abs_db = tmp_path / "chat.db"
+        monkeypatch.setenv("CHAT_DB_PATH", str(abs_db))
+        assert drain_mod._resolved_db_path() == abs_db
+
+    def test_missing_env_raises(self, drain_mod, monkeypatch):
+        monkeypatch.delenv("CHAT_DB_PATH", raising=False)
+        with pytest.raises(RuntimeError, match="CHAT_DB_PATH"):
+            drain_mod._resolved_db_path()
+
+
+class TestFormatContext:
+    def test_single_message(self, drain_mod):
+        ctx = drain_mod._format_context("agent-foo", [
+            {"id": 1, "from_name": "user", "created_at": "2026-04-19T08:00:00+00:00", "body": "hello"},
+        ])
+        assert "INBOX" in ctx
+        assert "do NOT call" in ctx
+        assert "[msg #1]" in ctx
+        assert "from=user" in ctx
+        assert "hello" in ctx
+        assert 'agent-foo' in ctx
+
+    def test_multiple_messages(self, drain_mod):
+        msgs = [
+            {"id": 1, "from_name": "user", "created_at": "t1", "body": "a"},
+            {"id": 2, "from_name": "agent-bar", "created_at": "t2", "body": "b"},
+        ]
+        ctx = drain_mod._format_context("agent-foo", msgs)
+        assert "[msg #1]" in ctx and "[msg #2]" in ctx
+        assert "from=user" in ctx and "from=agent-bar" in ctx
+
+
+class TestMain:
+    @pytest.fixture(autouse=True)
+    def _isolate(self, monkeypatch):
+        # Standalone (no stdin) — defaults to UserPromptSubmit event
+        class FakeStdin:
+            def isatty(self):
+                return True
+            def read(self):
+                return ""
+        monkeypatch.setattr(sys, "stdin", FakeStdin())
+
+    def test_empty_inbox_no_stdout(self, drain_mod, tmp_path, monkeypatch, capsys):
+        db_file = tmp_path / "bus.db"
+        ChatDB(str(db_file))
+        project = tmp_path / "proj"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        rc = drain_mod.main()
+        assert rc == 0
+        out = capsys.readouterr()
+        assert out.out == ""
+        assert out.err == ""
+
+    def test_drains_pending_and_emits_json(self, drain_mod, tmp_path, monkeypatch, capsys):
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "alpha"
+        project.mkdir()
+        db.insert_message("user", "agent-alpha", "hi there", "command")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        rc = drain_mod.main()
+        assert rc == 0
+        out = capsys.readouterr().out
+        payload = json.loads(out)
+        assert payload["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+        ctx = payload["hookSpecificOutput"]["additionalContext"]
+        assert "hi there" in ctx
+        assert "agent-alpha" in ctx
+        # Message is now marked delivered in the DB
+        remaining = db.get_pending_messages_for("agent-alpha")
+        assert remaining == []
+
+    def test_uses_event_name_from_stdin(self, drain_mod, tmp_path, monkeypatch, capsys):
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "beta"
+        project.mkdir()
+        db.insert_message("user", "agent-beta", "ping", "command")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+
+        buf = io.StringIO(json.dumps({"hook_event_name": "SessionStart"}))
+        monkeypatch.setattr(sys, "stdin", buf)
+        rc = drain_mod.main()
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+
+    def test_missing_env_returns_zero_no_stdout(self, drain_mod, tmp_path, monkeypatch, capsys):
+        project = tmp_path / "x"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.delenv("CHAT_DB_PATH", raising=False)
+        rc = drain_mod.main()
+        assert rc == 0
+        out = capsys.readouterr()
+        assert out.out == ""
+        assert "CHAT_DB_PATH" in out.err
+
+    def test_missing_db_returns_zero_no_stdout(self, drain_mod, tmp_path, monkeypatch, capsys):
+        project = tmp_path / "y"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(tmp_path / "nope.db"))
+        rc = drain_mod.main()
+        assert rc == 0
+        assert capsys.readouterr().out == ""
+
+    def test_corrupt_db_returns_zero_no_stdout(self, drain_mod, tmp_path, monkeypatch, capsys):
+        bad = tmp_path / "corrupt.db"
+        bad.write_bytes(b"garbage")
+        project = tmp_path / "z"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(bad))
+        rc = drain_mod.main()
+        assert rc == 0
+        assert capsys.readouterr().out == ""
+
+    def test_caller_derived_from_cwd_basename(self, drain_mod, tmp_path, monkeypatch, capsys):
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "my-project"
+        project.mkdir()
+        db.insert_message("user", "agent-my-project", "ok", "reply")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        drain_mod.main()
+        payload = json.loads(capsys.readouterr().out)
+        assert 'agent-my-project' in payload["hookSpecificOutput"]["additionalContext"]
+
+    def test_import_does_not_crash_when_dotenv_missing(self, monkeypatch):
+        real_dotenv = sys.modules.pop("dotenv", None)
+        monkeypatch.setitem(sys.modules, "dotenv", None)
+        try:
+            spec = importlib.util.spec_from_file_location("chat_drain_inbox_nodotenv", _SCRIPT_PATH)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            assert hasattr(mod, "main")
+        finally:
+            if real_dotenv is not None:
+                sys.modules["dotenv"] = real_dotenv
+            else:
+                sys.modules.pop("dotenv", None)
+
+    def test_query_failure_returns_zero_no_stdout(self, drain_mod, tmp_path, monkeypatch, mocker, capsys):
+        db_file = tmp_path / "bus.db"
+        ChatDB(str(db_file))
+        project = tmp_path / "q"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        mocker.patch(
+            "src.chat_db.ChatDB.get_pending_messages_for",
+            side_effect=RuntimeError("boom"),
+        )
+        rc = drain_mod.main()
+        assert rc == 0
+        err = capsys.readouterr().err
+        assert "query failed" in err
