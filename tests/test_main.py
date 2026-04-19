@@ -81,22 +81,33 @@ class TestOrchestration:
         assert call_order[2].startswith("reply:")
 
     def test_llm_router_enabled_passes_system_prompt_and_mcp_config(self, mocker):
-        from main import process_email, _ROUTER_MCP_CONFIG
+        from main import process_email
         from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
+        from src.universes import Universe
         mock_execute = mocker.patch("main.execute_command", return_value="out")
         mocker.patch("main.send_threaded_reply")
 
         msg = _make_authorized_msg("testsecret")
+        universe = Universe(
+            sender="bb@cocode.dk",
+            allowed_base="/home/u/proj",
+            chat_db_path="claude-chat.db",
+            chat_url="http://localhost:8420/sse",
+            mcp_config="/repo/.mcp.json",
+            service_name_chat="claude-chat.service",
+        )
         config = {
             "authorized_sender": "bb@cocode.dk", "shared_secret": "testsecret",
             "gpg_fingerprint": "", "gpg_home": None,
             "smtp_host": "h", "smtp_port": 465, "username": "u", "password": "p",
             "claude_timeout": 10, "claude_bin": "claude",
             "llm_router": True,
+            "_universe": universe,
         }
         process_email(msg, config)
         assert mock_execute.call_args.kwargs["system_prompt"] == EMAIL_ROUTER_SYSTEM_PROMPT
-        assert mock_execute.call_args.kwargs["mcp_config"] == _ROUTER_MCP_CONFIG
+        assert mock_execute.call_args.kwargs["mcp_config"] == "/repo/.mcp.json"
+        assert mock_execute.call_args.kwargs["cwd"] == "/home/u/proj"
 
     def test_llm_router_disabled_omits_system_prompt(self, mocker):
         from main import process_email
@@ -313,7 +324,7 @@ class TestRunLoop:
         mock_poller.fetch_unseen.return_value = []
         mock_poller_cls.return_value = mock_poller
 
-        mocker.patch("main.ChatDB")
+        mocker.patch("src.dispatch.ChatDB")
         mocker.patch("main.relay_outbound_messages")
 
         config = {
@@ -353,7 +364,7 @@ class TestRunLoop:
         mock_poller.fetch_unseen.return_value = [("1", msg)]
         mock_poller_cls.return_value = mock_poller
 
-        mocker.patch("main.ChatDB")
+        mocker.patch("src.dispatch.ChatDB")
         mocker.patch("main.relay_outbound_messages")
         mock_process = mocker.patch("main.process_email")
 
@@ -391,7 +402,7 @@ class TestRunLoop:
         mock_poller.connect.side_effect = Exception("connection refused")
         mock_poller_cls.return_value = mock_poller
 
-        mocker.patch("main.ChatDB")
+        mocker.patch("src.dispatch.ChatDB")
         mocker.patch("main.relay_outbound_messages")
 
         config = {
@@ -429,7 +440,7 @@ class TestRunLoop:
         mock_poller.fetch_unseen.return_value = [("1", msg)]
         mock_poller_cls.return_value = mock_poller
 
-        mocker.patch("main.ChatDB")
+        mocker.patch("src.dispatch.ChatDB")
         mocker.patch("main.relay_outbound_messages")
         mocker.patch("main.process_email", side_effect=RuntimeError("boom"))
 
@@ -467,7 +478,7 @@ class TestRunLoop:
         mock_poller.fetch_unseen.return_value = []
         mock_poller_cls.return_value = mock_poller
 
-        mocker.patch("main.ChatDB")
+        mocker.patch("src.dispatch.ChatDB")
         mocker.patch("main.relay_outbound_messages", side_effect=RuntimeError("relay fail"))
 
         config = {
@@ -510,7 +521,7 @@ class TestRunLoop:
         mock_poller.fetch_unseen.return_value = [("1", msg1), ("2", msg2)]
         mock_poller_cls.return_value = mock_poller
 
-        mocker.patch("main.ChatDB")
+        mocker.patch("src.dispatch.ChatDB")
         mocker.patch("main.relay_outbound_messages")
         mocker.patch("main.process_email", side_effect=fake_process)
 
@@ -548,7 +559,7 @@ class TestRunLoop:
         mock_poller.fetch_unseen.return_value = []
         mock_poller_cls.return_value = mock_poller
 
-        mocker.patch("main.ChatDB")
+        mocker.patch("src.dispatch.ChatDB")
         mocker.patch("main.relay_outbound_messages")
 
         # poll_interval=3 means 3 sleep iterations; we set _shutdown=True before the loop
@@ -590,7 +601,7 @@ class TestRunLoop:
         mock_poller.fetch_unseen.return_value = []
         mock_poller_cls.return_value = mock_poller
 
-        mock_chat_db_cls = mocker.patch("main.ChatDB")
+        mock_chat_db_cls = mocker.patch("src.dispatch.ChatDB")
         mock_chat_db = MagicMock()
         mock_chat_db.reap_dead_agents.return_value = ["agent-alpha", "agent-beta"]
         mock_chat_db_cls.return_value = mock_chat_db
@@ -640,7 +651,7 @@ class TestRunLoop:
         mock_poller.fetch_unseen.return_value = []
         mock_poller_cls.return_value = mock_poller
 
-        mock_chat_db_cls = mocker.patch("main.ChatDB")
+        mock_chat_db_cls = mocker.patch("src.dispatch.ChatDB")
         mock_chat_db = MagicMock()
         mock_chat_db.reap_dead_agents.side_effect = RuntimeError("db locked")
         mock_chat_db_cls.return_value = mock_chat_db
@@ -687,7 +698,7 @@ class TestRunLoop:
         mock_poller.fetch_unseen.return_value = []
         mock_poller_cls.return_value = mock_poller
 
-        mock_chat_db_cls = mocker.patch("main.ChatDB")
+        mock_chat_db_cls = mocker.patch("src.dispatch.ChatDB")
         mock_chat_db = MagicMock()
         mock_chat_db.reap_dead_agents.return_value = []
         mock_chat_db_cls.return_value = mock_chat_db

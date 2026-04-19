@@ -461,3 +461,37 @@ class TestGpgNullFingerprint:
 
         msg = _make_gpg_msg()
         assert not verify_gpg_signature(msg, authorized_fingerprint=VALID_FINGERPRINT)
+
+
+class TestIdentifySender:
+    def test_empty_senders_returns_none(self):
+        import email.message
+        from src.security import identify_sender
+        msg = email.message.Message()
+        msg["From"] = "bb@x"
+        msg["Return-Path"] = "<bb@x>"
+        assert identify_sender(msg, []) is None
+
+    def test_whitespace_only_senders_returns_none(self):
+        import email.message
+        from src.security import identify_sender
+        msg = email.message.Message()
+        msg["From"] = "bb@x"
+        msg["Return-Path"] = "<bb@x>"
+        assert identify_sender(msg, ["", "   "]) is None
+
+    def test_multi_sender_match_returns_matching(self):
+        import email.message
+        from src.security import identify_sender
+        msg = email.message.Message()
+        msg["From"] = "Test <test@cocode.dk>"
+        msg["Return-Path"] = "<test@cocode.dk>"
+        assert identify_sender(msg, ["bb@x", "test@cocode.dk"]) == "test@cocode.dk"
+
+    def test_multi_sender_no_match_returns_none(self):
+        import email.message
+        from src.security import identify_sender
+        msg = email.message.Message()
+        msg["From"] = "<evil@x>"
+        msg["Return-Path"] = "<evil@x>"
+        assert identify_sender(msg, ["bb@x", "test@x"]) is None
