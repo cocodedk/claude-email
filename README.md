@@ -129,6 +129,7 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 | `CLAUDE_MODEL` | *Optional.* Model alias (`sonnet`, `haiku`) or full name. Leave unset for auto-mode. | `claude-sonnet-4-6` |
 | `CLAUDE_EFFORT` | *Optional.* Thinking effort: `low`, `medium`, `high`, `xhigh`, `max`. | `low` |
 | `CLAUDE_MAX_BUDGET_USD` | *Optional.* Dollar cap for `--print` calls. Only bites under API-key auth; subscription calls ignore it. | `1.00` |
+| `LLM_ROUTER` | *Optional, experimental.* When `1`, the CLI-fallback claude gets a system prompt describing `chat_spawn_agent`, so natural-language bodies like "implement tests in test-01" can spawn agents. Leave blank for deterministic keyword-only routing. | `1` |
 
 ### Chat System
 
@@ -373,7 +374,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 332 pytest tests (100% coverage)
+├── tests/                 # 338 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -402,7 +403,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (332 tests, 100% coverage)
+# Run all tests (338 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -420,7 +421,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **332 tests** with **100% code coverage** across all modules
+- **338 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
