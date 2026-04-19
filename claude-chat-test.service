@@ -1,0 +1,20 @@
+[Unit]
+Description=Claude Chat Relay — TEST instance (MCP Server, isolated)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__INSTALL_DIR__
+# .env first (shared credentials / IMAP/SMTP / POLL_INTERVAL), then
+# .env.test (test-only overrides for CHAT_*, CLAUDE_CWD, ROUTER_MCP_CONFIG).
+# Later file wins — keep the override block minimal in .env.test.
+EnvironmentFile=__INSTALL_DIR__/.env
+EnvironmentFile=__INSTALL_DIR__/.env.test
+ExecStart=__INSTALL_DIR__/.venv/bin/python3 __INSTALL_DIR__/chat_server.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
