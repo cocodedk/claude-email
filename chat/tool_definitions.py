@@ -91,4 +91,31 @@ TOOLS = [
             "required": ["project"],
         },
     ),
+    Tool(
+        name="chat_enqueue_task",
+        description=(
+            "Queue a task for a project. A per-project worker is spawned on "
+            "demand (one per canonical path) and drains the queue in FIFO "
+            "order, except higher-priority tasks jump the line."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "project": {
+                    "type": "string",
+                    "description": "Folder name or absolute path",
+                },
+                "body": {
+                    "type": "string",
+                    "description": "The task instruction handed to claude --continue --print",
+                },
+                "priority": {
+                    "type": "integer",
+                    "description": "Higher runs first; default 0",
+                    "default": 0,
+                },
+            },
+            "required": ["project", "body"],
+        },
+    ),
 ]

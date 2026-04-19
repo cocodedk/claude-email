@@ -4,8 +4,13 @@ Pure business-logic layer between MCP server and ChatDB.
 No MCP dependencies, no network — just logic + DB.
 """
 import asyncio
+import os
+from pathlib import Path
+
 from src.chat_db import ChatDB
 from src.spawner import spawn_agent
+from src.task_queue import TaskQueue
+from src.worker_manager import WorkerManager
 
 
 def register_agent(db: ChatDB, name: str, project_path: str) -> dict:
@@ -115,3 +120,34 @@ def spawn_agent_tool(
     except ValueError as exc:
         return {"error": str(exc)}
     return {"status": "spawned", "name": name, "pid": pid}
+
+
+def _resolve_project(project: str, allowed_base: str) -> str:
+    if not allowed_base:
+        raise ValueError("CLAUDE_CWD not configured on chat server")
+    candidate = project if os.path.isabs(project) else os.path.join(allowed_base, project)
+    resolved = str(Path(candidate).resolve())
+    if not os.path.isdir(resolved):
+        raise ValueError(f"Project path does not exist: {resolved}")
+    base = str(Path(allowed_base).resolve())
+    if not resolved.startswith(base + os.sep) and resolved != base:
+        raise ValueError(f"Project path {resolved} is outside allowed base {base}")
+    return resolved
+
+
+def enqueue_task_tool(
+    queue: TaskQueue, manager: WorkerManager, *,
+    project: str, body: str, priority: int = 0,
+    allowed_base: str,
+) -> dict:
+    """Queue a task for a project and make sure a worker is running for it."""
+    try:
+        resolved = _resolve_project(project, allowed_base)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    try:
+        worker_pid = manager.ensure_worker(resolved)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    task_id = queue.enqueue(resolved, body, priority=priority)
+    return {"status": "enqueued", "task_id": task_id, "worker_pid": worker_pid}
