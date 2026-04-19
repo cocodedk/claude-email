@@ -9,54 +9,69 @@ def _base_env(**extra):
         "CHAT_DB_PATH": "claude-chat.db",
         "CHAT_URL": "http://127.0.0.1:8420/sse",
         "SERVICE_NAME_CHAT": "claude-chat.service",
+        "SHARED_SECRET": "prod-secret",
+        "GPG_FINGERPRINT": "",
     }
     env.update(extra)
     return env
 
 
 class TestBuildUniverses:
-    def test_primary_only_when_test_sender_absent(self):
-        result = build_universes(_base_env())
+    def test_primary_only_when_no_test_env(self):
+        result = build_universes(_base_env(), test_env=None)
         assert len(result) == 1
         assert result[0].sender == "bb@cocode.dk"
         assert result[0].is_test is False
 
-    def test_empty_test_sender_is_noop(self):
-        result = build_universes(_base_env(TEST_SENDER=""))
+    def test_empty_test_env_is_noop(self):
+        result = build_universes(_base_env(), test_env={})
         assert len(result) == 1
 
-    def test_whitespace_test_sender_is_noop(self):
-        result = build_universes(_base_env(TEST_SENDER="   "))
+    def test_test_env_without_sender_is_noop(self):
+        result = build_universes(_base_env(), test_env={"CHAT_PORT": "8421"})
         assert len(result) == 1
 
-    def test_adds_test_universe(self):
-        result = build_universes(_base_env(
-            TEST_SENDER="test@cocode.dk",
-            TEST_CLAUDE_CWD="/home/u/projects-test",
-            TEST_CHAT_DB_PATH="t.db",
-            TEST_CHAT_URL="http://127.0.0.1:8421/sse",
-            TEST_SERVICE_NAME_CHAT="claude-chat-test.service",
-        ))
+    def test_test_env_with_whitespace_sender_is_noop(self):
+        result = build_universes(_base_env(), test_env={"SENDER": "   "})
+        assert len(result) == 1
+
+    def test_test_env_adds_second_universe(self):
+        result = build_universes(_base_env(), test_env={
+            "SENDER": "test@cocode.dk",
+            "CLAUDE_CWD": "/home/u/projects-test",
+            "CHAT_DB_PATH": "claude-chat-test.db",
+            "CHAT_URL": "http://127.0.0.1:8421/sse",
+            "SERVICE_NAME_CHAT": "claude-chat-test.service",
+            "SHARED_SECRET": "test-secret",
+        })
         assert len(result) == 2
         test = result[1]
         assert test.sender == "test@cocode.dk"
         assert test.allowed_base == "/home/u/projects-test"
-        assert test.chat_db_path == "t.db"
-        assert test.chat_url == "http://127.0.0.1:8421/sse"
-        assert test.service_name_chat == "claude-chat-test.service"
+        assert test.shared_secret == "test-secret"
         assert test.is_test is True
 
-    def test_test_universe_defaults(self):
-        """When only TEST_SENDER is set, defaults fill the rest."""
-        result = build_universes(_base_env(TEST_SENDER="test@cocode.dk"))
-        assert len(result) == 2
-        test = result[1]
-        assert test.chat_db_path == "claude-chat-test.db"
-        assert test.chat_url == "http://127.0.0.1:8421/sse"
-        assert test.service_name_chat == "claude-chat-test.service"
-        # Falls back to prod CLAUDE_CWD (caller should override!) — a loud
-        # default, not a silent one; flagged in docs as must-override.
-        assert test.allowed_base == "/home/u/projects"
+    def test_primary_secret_isolated_from_test(self):
+        """A compromised .env.test with SHARED_SECRET must NOT change the
+        primary universe's secret. The two auth gates stay separate."""
+        result = build_universes(
+            _base_env(), test_env={"SENDER": "t@x", "SHARED_SECRET": "leaked"},
+        )
+        assert result[0].shared_secret == "prod-secret"  # unchanged
+        assert result[1].shared_secret == "leaked"
+
+    def test_test_universe_falls_back_to_prod_cwd_if_missing(self):
+        """Loud-but-working default: if .env.test forgets CLAUDE_CWD, inherit
+        the primary's so we don't crash, but operator must fix .env.test."""
+        result = build_universes(_base_env(), test_env={"SENDER": "t@x"})
+        assert result[1].allowed_base == "/home/u/projects"
+
+    def test_auth_prefix_property(self):
+        u = Universe(
+            sender="x", allowed_base="/", chat_db_path="x", chat_url="",
+            mcp_config="", service_name_chat="", shared_secret="s3cret",
+        )
+        assert u.auth_prefix == "AUTH:s3cret"
 
     def test_primary_uses_prod_mcp_config(self):
         result = build_universes(_base_env())
@@ -64,5 +79,5 @@ class TestBuildUniverses:
         assert not result[0].mcp_config.endswith(".mcp-test.json")
 
     def test_test_universe_uses_test_mcp_config(self):
-        result = build_universes(_base_env(TEST_SENDER="t@c.dk"))
+        result = build_universes(_base_env(), test_env={"SENDER": "t@x"})
         assert result[1].mcp_config.endswith(".mcp-test.json")
