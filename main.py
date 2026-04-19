@@ -21,7 +21,7 @@ from src.chat_handlers import (
 )
 from src.config_validators import validated_effort
 from src.executor import execute_command, extract_command
-from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
+from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT, ROUTER_MCP_CONFIG_PATH as _ROUTER_MCP_CONFIG
 from src.poller import EmailPoller
 from src.security import is_authorized
 
@@ -117,13 +117,14 @@ def process_email(message, config: dict, chat_db=None) -> None:
         logger.exception("Failed to send progress ack — continuing with execution")
 
     logger.info("Executing command from authorized sender")
+    on = config.get("llm_router")
     output = execute_command(
         command, claude_bin=config["claude_bin"], timeout=timeout,
         cwd=config.get("claude_cwd"), yolo=config.get("claude_yolo", False),
         extra_env=config.get("claude_extra_env") or None,
         model=config.get("claude_model"), effort=config.get("claude_effort"),
         max_budget_usd=config.get("claude_max_budget_usd"),
-        system_prompt=EMAIL_ROUTER_SYSTEM_PROMPT if config.get("llm_router") else None,
+        system_prompt=EMAIL_ROUTER_SYSTEM_PROMPT if on else None, mcp_config=_ROUTER_MCP_CONFIG if on else None,
     )
     send_threaded_reply(config, message, output)
 
