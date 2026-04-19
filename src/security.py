@@ -50,29 +50,42 @@ def _extract_return_path(header_value: str) -> str:
     return header_value.strip().strip("<>").lower()
 
 
-def _check_envelope(message: email.message.Message, authorized_sender: str) -> bool:
-    """Check From and Return-Path headers. Common to both auth modes."""
-    authorized = authorized_sender.lower()
+def identify_sender(message: email.message.Message, allowed_senders) -> str | None:
+    """Return the allowed sender whose envelope matches this message, or None.
+
+    Accepts a str (backcompat single sender) or any iterable of addresses.
+    Checks both From and Return-Path; both must equal one of the allowed
+    addresses. Case-insensitive. Returns the canonical lowercased address.
+    """
+    if isinstance(allowed_senders, str):
+        allowed_senders = [allowed_senders]
+    allowed = {s.strip().lower() for s in allowed_senders if s}
+    if not allowed:
+        return None
 
     from_header = message.get("From", "")
     if not from_header:
         logger.warning("Rejected: missing From header")
-        return False
+        return None
     from_addr = _extract_address(from_header)
-    if from_addr != authorized:
-        logger.warning("Rejected: From address %r does not match authorized sender", from_addr)
-        return False
+    if from_addr not in allowed:
+        logger.warning("Rejected: From address %r not in allowed senders", from_addr)
+        return None
 
     return_path = message.get("Return-Path", "")
     if not return_path:
         logger.warning("Rejected: missing Return-Path header")
-        return False
+        return None
     rp_addr = _extract_return_path(return_path)
-    if rp_addr != authorized:
-        logger.warning("Rejected: Return-Path %r does not match authorized sender", rp_addr)
-        return False
+    if rp_addr != from_addr:
+        logger.warning(
+            "Rejected: Return-Path %r does not match From %r", rp_addr, from_addr,
+        )
+        return None
 
-    return True
+    return from_addr
+
+
 
 
 def verify_gpg_signature(
@@ -144,7 +157,7 @@ def verify_gpg_signature(
 
 def is_authorized(
     message: email.message.Message,
-    authorized_sender: str,
+    authorized_sender,
     shared_secret: str = "",
     gpg_fingerprint: str = "",
     gpg_home: str | None = None,
@@ -163,7 +176,7 @@ def is_authorized(
        "Re:" prefixes), OR the body contains AUTH:<shared_secret> anywhere
        (covers quoted-reply propagation and manual body inclusion).
     """
-    if not _check_envelope(message, authorized_sender):
+    if identify_sender(message, authorized_sender) is None:
         return False
 
     if chat_db is not None:

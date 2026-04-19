@@ -75,6 +75,11 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
 - Agent status tracking (running, idle, disconnected, deregistered)
 - Agent PIDs recorded in the database
 
+### Test-Sender Isolation (optional)
+- Set `TEST_SENDER` in `.env` and copy `.env.test.example` → `.env.test`, then rerun `install.sh`. A second systemd unit `claude-chat-test.service` comes up on port 8421 with its own DB and `CLAUDE_CWD`.
+- Emails from `TEST_SENDER` route to the test universe's workers; workers spawned there cannot reach prod projects because they resolve against a different allowed-base. Audit logs, tasks, and agents are physically disjoint.
+- Same auth gate (`AUTH:<secret>` or GPG) applies to both senders — test access is not a lower privilege tier; it's a scope tier.
+
 ### Task Queue & Branch Safety
 - Every task runs on its own branch: `claude/task-<id>-<slug>`. Mainline is never touched by an agent.
 - Before starting a task, the worker verifies the project is a clean git checkout. A dirty repo fails the task with the porcelain status so your uncommitted work is never overwritten. Commit or stash first, then re-queue.
@@ -388,7 +393,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 505 pytest tests (100% coverage)
+├── tests/                 # 522 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -417,7 +422,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (505 tests, 100% coverage)
+# Run all tests (522 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -435,7 +440,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **505 tests** with **100% code coverage** across all modules
+- **522 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
