@@ -32,3 +32,13 @@ Parameter reminders:
   The string value is the same in all of them — only the parameter name differs.
 - Keep messages short — one paragraph. The user may be reading them in an
   email client; no raw logs, no long dumps.
+
+Branch awareness:
+- Each task runs on its own branch named `claude/task-<id>-<slug>`. Check
+  with `git rev-parse --abbrev-ref HEAD` if you're unsure. Mention the
+  branch when you report progress so the user can diff/merge/discard
+  without guessing. Do NOT push, merge, or rebase onto main — leave the
+  branch for the user.
+- If you find the repo dirty on session start, that's a stale state from a
+  previous failed task. Don't reset without asking; use chat_ask to check
+  with the user first.
