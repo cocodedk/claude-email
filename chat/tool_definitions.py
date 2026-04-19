@@ -182,4 +182,14 @@ TOOLS = [
             "required": ["project", "token"],
         },
     ),
+    Tool(
+        name="chat_where_am_i",
+        description=(
+            "Cross-project dashboard. Returns one entry per project with a "
+            "running-task snapshot, pending count, worker liveness, and last "
+            "activity timestamp. Use when the user asks 'what's going on' or "
+            "'what are you doing' without naming a project."
+        ),
+        inputSchema={"type": "object", "properties": {}},
+    ),
 ]

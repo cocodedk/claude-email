@@ -323,6 +323,7 @@ Agents connect to the chat server via MCP SSE and use these tools:
 | `chat_queue_status` | Return the running task and pending queue for a project. | No |
 | `chat_reset_project` | Step 1 of destructive reset — returns a `confirm_token` valid for 5 minutes. | No |
 | `chat_confirm_reset` | Step 2 — consumes the token and runs `git reset --hard HEAD && git clean -fd`, cancels running task, drains queue. | No |
+| `chat_where_am_i` | Cross-project dashboard: one row per project with running task, pending count, worker pid, last activity timestamp. | No |
 
 ## Data Model
 
@@ -379,7 +380,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 453 pytest tests (100% coverage)
+├── tests/                 # 460 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -408,7 +409,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (453 tests, 100% coverage)
+# Run all tests (460 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -426,7 +427,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **453 tests** with **100% code coverage** across all modules
+- **460 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
