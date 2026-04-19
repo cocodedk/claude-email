@@ -10,5 +10,4 @@ if [ ! -r "$INSTRUCTION_FILE" ]; then
     echo "chat-session-start-hook: missing $INSTRUCTION_FILE" >&2
     exit 0
 fi
-jq -nc --rawfile ctx "$INSTRUCTION_FILE" \
-    '{hookSpecificOutput: {hookEventName: "SessionStart", additionalContext: $ctx}}'
+exec python3 -c 'import json,sys; sys.stdout.write(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":open(sys.argv[1]).read()}}))' "$INSTRUCTION_FILE"
