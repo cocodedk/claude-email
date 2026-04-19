@@ -2,7 +2,7 @@
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from src.chat_schema import SCHEMA as _SCHEMA
+from src.chat_schema import MIGRATIONS as _MIGRATIONS, SCHEMA as _SCHEMA
 from src.process_liveness import is_alive
 
 
@@ -20,6 +20,12 @@ class ChatDB:
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.executescript(_SCHEMA)
+        for stmt in _MIGRATIONS:
+            try:
+                self._conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # column/index already present
+        self._conn.commit()
 
     # ── Agents ──────────────────────────────────────────────
 
