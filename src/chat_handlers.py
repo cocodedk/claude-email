@@ -8,7 +8,10 @@ from src.chat_db import ChatDB
 from src.chat_router import Route, classify_email
 from src.executor import extract_command
 from src.mailer import send_reply
+from src.reply_router import apply_reply
 from src.spawner import spawn_agent
+from src.task_queue import TaskQueue
+from src.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
 
@@ -26,28 +29,23 @@ _last_cleanup_ts = 0.0
 
 
 def send_threaded_reply(config: dict, original_message, body: str) -> str:
-    """Send an email reply to the authorized sender, threading on the original.
-
-    Returns the Message-ID of the sent email.
-    """
+    """Send an email reply to the authorized sender, threading on the original."""
     subject = original_message.get("Subject", "command")
     msg_id = original_message.get("Message-ID", "")
-
     return send_reply(
-        smtp_host=config["smtp_host"],
-        smtp_port=config["smtp_port"],
-        username=config["username"],
-        password=config["password"],
-        to=config["authorized_sender"],
-        subject=subject,
-        body=body,
-        in_reply_to=msg_id,
-        references=msg_id,
+        smtp_host=config["smtp_host"], smtp_port=config["smtp_port"],
+        username=config["username"], password=config["password"],
+        to=config["authorized_sender"], subject=subject, body=body,
+        in_reply_to=msg_id, references=msg_id,
         email_domain=config.get("email_domain", ""),
     )
 
 
-def handle_chat_email(message, config: dict, chat_db: ChatDB) -> bool:
+def handle_chat_email(
+    message, config: dict, chat_db: ChatDB,
+    task_queue: TaskQueue | None = None,
+    worker_manager: WorkerManager | None = None,
+) -> bool:
     """Route an email through the chat system. Returns True if handled.
 
     Returns False for CLI-fallback so the caller can run the normal path.
@@ -55,12 +53,7 @@ def handle_chat_email(message, config: dict, chat_db: ChatDB) -> bool:
     route = classify_email(message, chat_db, auth_prefix=config["auth_prefix"])
 
     if route.kind == "chat_reply":
-        body = extract_command(message, strip_secret=config.get("shared_secret", ""))
-        chat_db.insert_message(
-            "user", route.agent_name, body, "reply",
-            in_reply_to=route.original_message_id,
-        )
-        logger.info("Chat reply routed to %s", route.agent_name)
+        _handle_reply(route, message, config, chat_db, task_queue, worker_manager)
         return True
 
     if route.kind == "agent_command":
@@ -74,6 +67,21 @@ def handle_chat_email(message, config: dict, chat_db: ChatDB) -> bool:
         return True
 
     return False
+
+
+def _handle_reply(
+    route, message, config: dict, chat_db: ChatDB,
+    task_queue: TaskQueue | None, worker_manager: WorkerManager | None,
+) -> None:
+    body = extract_command(message, strip_secret=config.get("shared_secret", ""))
+    ack = apply_reply(
+        chat_db, task_queue, worker_manager,
+        agent_name=route.agent_name,
+        original_message_id=route.original_message_id,
+        body=body, allowed_base=config.get("claude_cwd") or "",
+    )
+    logger.info("Reply routed: %s", ack)
+    send_threaded_reply(config, message, ack)
 
 
 def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:

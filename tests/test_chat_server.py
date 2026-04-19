@@ -323,6 +323,7 @@ class TestToolDispatch:
         proc = mocker.MagicMock(pid=42)
         proc.poll.return_value = None
         mocker.patch("src.worker_manager.is_alive", return_value=True)
+        mocker.patch("src.worker_manager._find_external_worker_pid", return_value=None)
         mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
 
         async def _call():
