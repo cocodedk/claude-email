@@ -77,7 +77,7 @@ class TestProcessEmailJsonMode:
     def test_json_email_routes_through_json_handler(self, mocker, chat_db):
         import json
         from main import process_email
-        mocker.patch("main.is_authorized", return_value=True)
+        mocker.patch("main.identify_sender", return_value="user@example.com")
         handler = mocker.patch("main.handle_json_email")
         mocker.patch("main.handle_chat_email")
         msg = email.message.Message()
