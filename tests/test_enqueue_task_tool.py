@@ -21,6 +21,9 @@ def tq(db_path):
 @pytest.fixture
 def mgr(db_path, tmp_path, mocker):
     mocker.patch("src.worker_manager.is_alive", return_value=True)
+    mocker.patch(
+        "src.worker_manager._find_external_worker_pid", return_value=None,
+    )
     return WorkerManager(
         db_path=db_path, project_root=str(tmp_path),
         python_bin="/usr/bin/python3",

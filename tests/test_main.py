@@ -499,7 +499,7 @@ class TestRunLoop:
 
         process_calls = []
 
-        def fake_process(msg, config, chat_db=None):
+        def fake_process(msg, config, chat_db=None, **_kwargs):
             # After processing the first message, signal shutdown
             process_calls.append(msg.get("Message-ID"))
             main._shutdown = True

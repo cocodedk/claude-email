@@ -38,6 +38,10 @@ class WorkerManager:
     def ensure_worker(self, project_path: str) -> int:
         """Spawn a worker for project_path if none alive. Returns its pid.
 
+        Also detects workers spawned by a different process (e.g. claude-email
+        started one, chat-chat asks about it) via pgrep — so both services
+        can cooperate without a shared in-memory map.
+
         Raises ValueError if project_path doesn't resolve to an existing dir.
         """
         resolved = self._resolve(project_path)
@@ -46,6 +50,9 @@ class WorkerManager:
             return existing.pid
         if existing is not None:
             self._workers.pop(resolved, None)
+        external = _find_external_worker_pid(resolved)
+        if external is not None:
+            return external
         return self._spawn(resolved)
 
     def _resolve(self, project_path: str) -> str:
@@ -87,3 +94,26 @@ class WorkerManager:
 
     def active_workers(self) -> dict[str, int]:
         return {path: proc.pid for path, proc in self._workers.items()}
+
+
+def _find_external_worker_pid(resolved: str) -> int | None:
+    """Return the PID of a running project_worker for resolved path, if any.
+
+    Uses pgrep so a worker spawned by a sibling process (e.g. the claude-email
+    service) is still discoverable from the chat-chat process and vice versa.
+    """
+    try:
+        proc = subprocess.run(
+            ["pgrep", "-f", f"src.project_worker {resolved}"],
+            capture_output=True, text=True, check=False,
+        )
+    except FileNotFoundError:
+        return None
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return None
+    first = proc.stdout.strip().splitlines()[0]
+    try:
+        pid = int(first.split()[0])
+    except (ValueError, IndexError):
+        return None
+    return pid if is_alive(pid) else None
