@@ -55,3 +55,26 @@ def slugify(body: str, max_len: int = 40) -> str:
 
 def task_branch_name(task_id: int, body: str) -> str:
     return f"claude/task-{task_id}-{slugify(body)}"
+
+
+def commit_all(path: str, message: str) -> tuple[bool, str]:
+    """Stage every change and commit with `message`.
+
+    Returns (True, short_sha) on success; (False, error_text) otherwise.
+    Used by chat_commit_project as an escape hatch when a dirty repo has
+    blocked task execution — the user emails "commit these changes" and
+    this clears the way without spinning up claude.
+    """
+    if not is_git_repo(path):
+        return False, "not a git repository"
+    rc, _, err = _git(["add", "-A"], path)
+    if rc != 0:
+        return False, err or f"git add rc={rc}"
+    rc, _, err = _git(["diff", "--cached", "--quiet"], path)
+    if rc == 0:
+        return False, "nothing to commit — repo already clean"
+    rc, _, err = _git(["commit", "-m", message, "--no-gpg-sign"], path)
+    if rc != 0:
+        return False, err or f"git commit rc={rc}"
+    rc, sha, _ = _git(["rev-parse", "--short", "HEAD"], path)
+    return (rc == 0, sha if rc == 0 else "committed (sha lookup failed)")
