@@ -102,6 +102,13 @@ class TaskQueue:
         row = cur.fetchone()
         return dict(row) if row else None
 
+    def list_running(self) -> list[dict]:
+        """Every running task across all projects. Used by the ghost reaper."""
+        cur = self._conn.execute(
+            "SELECT * FROM tasks WHERE status='running' ORDER BY id",
+        )
+        return [dict(r) for r in cur.fetchall()]
+
     def drain_pending(self, project_path: str) -> int:
         """Cancel all pending (not running) tasks for a project. Returns count."""
         cur = self._conn.execute(
