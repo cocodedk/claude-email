@@ -51,7 +51,9 @@ class TestSendThreadedReply:
         assert kwargs["subject"] == "Re: my command"
         assert kwargs["in_reply_to"] == "<original@mail>"
         assert kwargs["references"] == "<original@mail>"
-        assert kwargs["body"] == "Hello from agent"
+        assert kwargs["body"].startswith("Hello from agent")
+        # footer adds the next-action hints; body should end with the marker
+        assert "Reply to this email" in kwargs["body"]
         assert result == "<reply@mail>"
 
     def test_missing_subject_defaults_to_command(self, mocker):

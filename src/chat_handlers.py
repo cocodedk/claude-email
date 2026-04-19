@@ -6,6 +6,7 @@ import time
 
 from src.chat_db import ChatDB
 from src.chat_router import Route, classify_email
+from src.email_format import prepend_tag, tag_for_message_type, with_footer
 from src.executor import extract_command
 from src.mailer import send_reply
 from src.reply_router import apply_reply
@@ -28,14 +29,23 @@ _CLEANUP_RETENTION_DAYS = 30
 _last_cleanup_ts = 0.0
 
 
-def send_threaded_reply(config: dict, original_message, body: str) -> str:
-    """Send an email reply to the authorized sender, threading on the original."""
-    subject = original_message.get("Subject", "command")
+def send_threaded_reply(
+    config: dict, original_message, body: str,
+    tag: str | None = None, footer: bool = True,
+) -> str:
+    """Send an email reply to the authorized sender, threading on the original.
+
+    tag prepends `[tag]` to the subject; footer appends the universal
+    "what you can do" hint. Both default on for system-originated messages
+    (ACKs) so the inbox stays self-documenting.
+    """
+    subject = prepend_tag(original_message.get("Subject", "command"), tag)
     msg_id = original_message.get("Message-ID", "")
     return send_reply(
         smtp_host=config["smtp_host"], smtp_port=config["smtp_port"],
         username=config["username"], password=config["password"],
-        to=config["authorized_sender"], subject=subject, body=body,
+        to=config["authorized_sender"], subject=subject,
+        body=with_footer(body, footer),
         in_reply_to=msg_id, references=msg_id,
         email_domain=config.get("email_domain", ""),
     )
@@ -58,7 +68,10 @@ def handle_chat_email(
 
     if route.kind == "agent_command":
         chat_db.insert_message("user", route.agent_name, route.body, "command")
-        send_threaded_reply(config, message, f"Command dispatched to {route.agent_name}")
+        send_threaded_reply(
+            config, message, f"Command dispatched to {route.agent_name}",
+            tag="Dispatched",
+        )
         logger.info("Agent command dispatched to %s", route.agent_name)
         return True
 
@@ -74,14 +87,14 @@ def _handle_reply(
     task_queue: TaskQueue | None, worker_manager: WorkerManager | None,
 ) -> None:
     body = extract_command(message, strip_secret=config.get("shared_secret", ""))
-    ack = apply_reply(
+    ack, tag = apply_reply(
         chat_db, task_queue, worker_manager,
         agent_name=route.agent_name,
         original_message_id=route.original_message_id,
         body=body, allowed_base=config.get("claude_cwd") or "",
     )
     logger.info("Reply routed: %s", ack)
-    send_threaded_reply(config, message, ack)
+    send_threaded_reply(config, message, ack, tag=tag)
 
 
 def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
@@ -93,50 +106,41 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
         else:
             lines = [f"{a['name']}  {a['status']}  {a['project_path']}" for a in agents]
             body = "\n".join(lines)
-        send_threaded_reply(config, message, body)
+        send_threaded_reply(config, message, body, tag="Status")
 
     elif route.meta_command == "spawn":
         parts = route.meta_args.split(None, 1)
         project_dir = parts[0] if parts else ""
         instruction = parts[1] if len(parts) > 1 else ""
         if not project_dir:
-            send_threaded_reply(config, message, "Usage: spawn <name-or-path> [instruction]")
+            send_threaded_reply(config, message, "Usage: spawn <name-or-path> [instruction]", tag="Error")
             return
         try:
             name, pid = spawn_agent(
-                chat_db, project_dir, config["chat_url"],
-                instruction=instruction,
+                chat_db, project_dir, config["chat_url"], instruction=instruction,
                 claude_bin=config["claude_bin"],
                 allowed_base=config.get("claude_cwd"),
                 yolo=config.get("claude_yolo", False),
                 extra_env=config.get("claude_extra_env") or None,
-                model=config.get("claude_model"),
-                effort=config.get("claude_effort"),
+                model=config.get("claude_model"), effort=config.get("claude_effort"),
                 max_budget_usd=config.get("claude_max_budget_usd"),
             )
         except ValueError as exc:
-            send_threaded_reply(config, message, f"Spawn rejected: {exc}")
+            send_threaded_reply(config, message, f"Spawn rejected: {exc}", tag="Error")
             return
-        send_threaded_reply(config, message, f"Spawned {name} (PID {pid})")
+        send_threaded_reply(config, message, f"Spawned {name} (PID {pid})", tag="Spawned")
 
     elif route.meta_command == "restart":
         target = route.meta_args.strip().lower()
         if target == "chat":
             svc = config["service_name_chat"]
-            subprocess.run(
-                ["systemctl", "--user", "restart", svc],
-                shell=False, check=False,
-            )
-            send_threaded_reply(config, message, f"Restarted {svc}")
+            subprocess.run(["systemctl", "--user", "restart", svc], shell=False, check=False)
+            send_threaded_reply(config, message, f"Restarted {svc}", tag="Restarted")
         elif target == "self":
             svc = config["service_name_email"]
-            # No reply — service will restart before it can send
-            subprocess.run(
-                ["systemctl", "--user", "restart", svc],
-                shell=False, check=False,
-            )
+            subprocess.run(["systemctl", "--user", "restart", svc], shell=False, check=False)
         else:
-            send_threaded_reply(config, message, f"Unknown restart target: {target}")
+            send_threaded_reply(config, message, f"Unknown restart target: {target}", tag="Error")
 
 
 def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
@@ -148,7 +152,8 @@ def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
     """
     pending = chat_db.get_pending_messages_for("user")
     for msg in pending:
-        subject = f"[{msg['from_name']}] message"
+        tag = tag_for_message_type(msg.get("type") or "")
+        subject = prepend_tag(f"[{msg['from_name']}] message", tag)
         prev_email_id = chat_db.get_last_email_message_id_for_agent(msg["from_name"]) or ""
         try:
             email_msg_id = send_reply(

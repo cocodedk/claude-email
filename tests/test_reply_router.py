@@ -95,7 +95,7 @@ class TestApplyReply:
         original = _seed_message(db, "agent-p", "user", "done", "notify")
         tq = _FakeTaskQueue()
         wm = _FakeWorkerManager(pid=555)
-        ack = apply_reply(
+        ack, _tag = apply_reply(
             db, tq, wm,
             agent_name="agent-p", original_message_id=original["id"],
             body="also add docs", allowed_base=str(tmp_path),
@@ -107,7 +107,7 @@ class TestApplyReply:
     def test_ask_reply_goes_to_bus(self, db, tmp_path):
         _seed_agent(db, "agent-x", str(tmp_path))
         original = _seed_message(db, "agent-x", "user", "continue?", "ask")
-        ack = apply_reply(
+        ack, _tag = apply_reply(
             db, _FakeTaskQueue(), _FakeWorkerManager(),
             agent_name="agent-x", original_message_id=original["id"],
             body="yes", allowed_base=str(tmp_path),
@@ -116,7 +116,7 @@ class TestApplyReply:
 
     def test_bus_only_fallback(self, db, tmp_path):
         original = _seed_message(db, "orphan", "user", "hi", "notify")
-        ack = apply_reply(
+        ack, _tag = apply_reply(
             db, _FakeTaskQueue(), _FakeWorkerManager(),
             agent_name="orphan", original_message_id=original["id"],
             body="hello", allowed_base=str(tmp_path),
@@ -132,7 +132,7 @@ class TestApplyReply:
             def ensure_worker(self, path):
                 raise ValueError("no path")
 
-        ack = apply_reply(
+        ack, _tag = apply_reply(
             db, _FakeTaskQueue(), _Failing(),
             agent_name="agent-p", original_message_id=original["id"],
             body="hi", allowed_base=str(tmp_path),
@@ -153,7 +153,7 @@ class TestApplyReply:
     def test_none_task_queue_still_records(self, db, tmp_path):
         _seed_agent(db, "agent-x", str(tmp_path))
         original = _seed_message(db, "agent-x", "user", "hi", "notify")
-        ack = apply_reply(
+        ack, _tag = apply_reply(
             db, None, None,
             agent_name="agent-x", original_message_id=original["id"],
             body="x", allowed_base=str(tmp_path),
