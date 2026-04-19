@@ -53,7 +53,7 @@ class TestProcessEmailChatReply:
         chat_db.set_email_message_id(original["id"], "<agent-msg-001@mail>")
 
         mocker.patch("main.is_authorized", return_value=True)
-        mocker.patch("main.send_threaded_reply")
+        mocker.patch("src.chat_handlers.send_threaded_reply")
         mock_execute = mocker.patch("main.execute_command")
 
         msg = _make_msg(

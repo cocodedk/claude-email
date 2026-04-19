@@ -129,6 +129,12 @@ class ChatDB:
         ).fetchone()
         return dict(row) if row else None
 
+    def get_message(self, msg_id: int) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM messages WHERE id=?", (msg_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
     def get_last_email_message_id_for_agent(self, agent_name: str) -> str | None:
         row = self._conn.execute(
             "SELECT email_message_id FROM messages "
