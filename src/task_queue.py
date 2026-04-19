@@ -80,6 +80,12 @@ class TaskQueue:
         )
         self._conn.commit()
 
+    def set_output(self, task_id: int, output_text: str) -> None:
+        self._conn.execute(
+            "UPDATE tasks SET output_text=? WHERE id=?", (output_text, task_id),
+        )
+        self._conn.commit()
+
     def list_pending(self, project_path: str) -> list[dict]:
         cur = self._conn.execute(
             "SELECT * FROM tasks WHERE project_path=? AND status='pending' "

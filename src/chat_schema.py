@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at TEXT NOT NULL,
     started_at TEXT,
     completed_at TEXT,
-    error_text TEXT
+    error_text TEXT,
+    output_text TEXT
 );
 CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project_path, status);
 """
@@ -54,4 +55,5 @@ CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project_path, statu
 # Idempotent migrations for existing DBs that predate new columns.
 MIGRATIONS = [
     "ALTER TABLE tasks ADD COLUMN branch_name TEXT",
+    "ALTER TABLE tasks ADD COLUMN output_text TEXT",
 ]

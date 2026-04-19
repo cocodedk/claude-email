@@ -78,3 +78,35 @@ class TestNotifyTaskDone:
         notify_task_done(db_path, {"id": 1, "status": "done"})
         msgs = _pending(db_path)
         assert msgs[0]["from_name"] == "agent-unknown"
+
+    def test_done_with_output_includes_tail(self, db_path):
+        notify_task_done(db_path, {
+            "id": 7, "status": "done",
+            "project_path": "/home/u/test-01",
+            "branch_name": "claude/task-7-x",
+            "output_text": "wrote 3 files\nall tests pass",
+        })
+        body = _pending(db_path)[0]["body"]
+        assert "wrote 3 files" in body
+        assert "tail of output" in body
+
+    def test_failed_with_output_appends_tail(self, db_path):
+        notify_task_done(db_path, {
+            "id": 8, "status": "failed",
+            "project_path": "/home/u/api",
+            "branch_name": None,
+            "error_text": "claude exited rc=1",
+            "output_text": "Traceback line\nAssertionError: boom",
+        })
+        body = _pending(db_path)[0]["body"]
+        assert "AssertionError: boom" in body
+
+    def test_long_output_trimmed_to_600(self, db_path):
+        notify_task_done(db_path, {
+            "id": 9, "status": "done",
+            "project_path": "/home/u/p",
+            "branch_name": None,
+            "output_text": "x" * 2000,
+        })
+        body = _pending(db_path)[0]["body"]
+        assert len(body) < 1200  # tail is capped well below original

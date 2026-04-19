@@ -33,54 +33,81 @@ def cfg(tmp_path):
     )
 
 
+def _mock_proc(mocker, pid, returncode=0, stdout="", timeout_first=False):
+    proc = mocker.MagicMock(pid=pid)
+    proc.returncode = returncode
+    if timeout_first:
+        import subprocess as sp
+        proc.communicate.side_effect = [
+            sp.TimeoutExpired(cmd="claude", timeout=30),
+            (stdout, None),
+        ]
+    else:
+        proc.communicate.return_value = (stdout, None)
+    return proc
+
+
 class TestRunTask:
     def test_happy_path_marks_done(self, tq, cfg, mocker):
         tid = tq.enqueue(cfg.project_path, "do X")
         claimed = tq.claim_next(cfg.project_path)
-        proc = mocker.MagicMock(pid=555)
-        proc.wait.return_value = 0
+        proc = _mock_proc(mocker, pid=555, returncode=0, stdout="all good")
         popen = mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
         run_task(tq, claimed, cfg)
-        assert tq.get(tid)["status"] == "done"
-        assert tq.get(tid)["pid"] == 555
+        row = tq.get(tid)
+        assert row["status"] == "done"
+        assert row["pid"] == 555
+        assert row["output_text"] == "all good"
         argv = popen.call_args.args[0]
         assert "--continue" in argv
         assert "--print" in argv
         assert "do X" in argv
 
-    def test_nonzero_exit_marks_failed(self, tq, cfg, mocker):
+    def test_nonzero_exit_marks_failed_with_output_tail(self, tq, cfg, mocker):
         tid = tq.enqueue(cfg.project_path, "broken")
         claimed = tq.claim_next(cfg.project_path)
-        proc = mocker.MagicMock(pid=9)
-        proc.wait.return_value = 1
+        proc = _mock_proc(mocker, pid=9, returncode=1, stdout="Traceback line\nboom")
         mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
         run_task(tq, claimed, cfg)
         row = tq.get(tid)
         assert row["status"] == "failed"
         assert row["error_text"]
+        assert "boom" in row["output_text"]
 
     def test_does_not_overwrite_cancelled_status(self, tq, cfg, mocker):
         tid = tq.enqueue(cfg.project_path, "cancelled-midflight")
         claimed = tq.claim_next(cfg.project_path)
-        proc = mocker.MagicMock(pid=42)
-        proc.wait.return_value = 137  # SIGKILL-ish rc
+        proc = _mock_proc(mocker, pid=42, returncode=137, stdout="killed mid-flight")
         mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
         tq.cancel(tid)
         run_task(tq, claimed, cfg)
-        assert tq.get(tid)["status"] == "cancelled"
+        row = tq.get(tid)
+        assert row["status"] == "cancelled"
+        # Output still captured even when status was cancelled externally
+        assert "killed" in (row["output_text"] or "")
 
     def test_task_timeout_kills_and_fails(self, tq, cfg, mocker):
-        import subprocess as sp
         tid = tq.enqueue(cfg.project_path, "slow")
         claimed = tq.claim_next(cfg.project_path)
-        proc = mocker.MagicMock(pid=10)
-        proc.wait.side_effect = [sp.TimeoutExpired(cmd="claude", timeout=30), 124]
+        proc = _mock_proc(mocker, pid=10, stdout="some partial output", timeout_first=True)
         mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
         run_task(tq, claimed, cfg)
         row = tq.get(tid)
         assert row["status"] == "failed"
         assert "timeout" in row["error_text"].lower()
+        assert "partial" in (row["output_text"] or "")
         proc.kill.assert_called_once()
+
+    def test_long_output_truncated(self, tq, cfg, mocker):
+        tid = tq.enqueue(cfg.project_path, "noisy")
+        claimed = tq.claim_next(cfg.project_path)
+        big = "x" * 10_000
+        proc = _mock_proc(mocker, pid=1, returncode=0, stdout=big)
+        mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
+        run_task(tq, claimed, cfg)
+        out = tq.get(tid)["output_text"]
+        assert out.startswith("…(truncated)")
+        assert len(out.encode()) < 5_000
 
 
 class TestBranchPreparation:
@@ -88,8 +115,7 @@ class TestBranchPreparation:
         """is_git_repo=False → no branch, claude still runs."""
         tid = tq.enqueue(cfg.project_path, "task")
         claimed = tq.claim_next(cfg.project_path)
-        proc = mocker.MagicMock(pid=9)
-        proc.wait.return_value = 0
+        proc = _mock_proc(mocker, pid=9, returncode=0)
         popen = mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
         run_task(tq, claimed, cfg)
         assert tq.get(tid)["status"] == "done"
@@ -118,8 +144,7 @@ class TestBranchPreparation:
             "src.project_worker.checkout_new_branch",
             return_value=(True, ""),
         )
-        proc = mocker.MagicMock(pid=9)
-        proc.wait.return_value = 0
+        proc = _mock_proc(mocker, pid=9, returncode=0)
         mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
         tid = tq.enqueue(cfg.project_path, "refactor config")
         claimed = tq.claim_next(cfg.project_path)
