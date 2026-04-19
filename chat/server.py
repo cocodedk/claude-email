@@ -15,6 +15,7 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 from src.chat_db import ChatDB
+from src.reset_control import TokenStore
 from src.task_queue import TaskQueue
 from src.worker_manager import WorkerManager
 from chat import tools
@@ -33,6 +34,7 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
         db_path=db_path,
         project_root=os.environ.get("CLAUDE_CWD") or os.getcwd(),
     )
+    tokens = TokenStore()
     server = Server("claude-chat", version="1.0")
     sse = SseServerTransport("/messages/")
 
@@ -44,7 +46,7 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
     # ── call_tool handler ───────────────────────────────────
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
-        result = await _dispatch(db, queue, manager, name, arguments)
+        result = await _dispatch(db, queue, manager, tokens, name, arguments)
         return [TextContent(type="text", text=json.dumps(result))]
 
     # ── SSE endpoint ────────────────────────────────────────
@@ -88,7 +90,7 @@ def _sanitize_str(value: str, max_len: int, field: str) -> str:
 
 
 async def _dispatch(
-    db: ChatDB, queue: TaskQueue, manager: WorkerManager,
+    db: ChatDB, queue: TaskQueue, manager: WorkerManager, tokens: TokenStore,
     name: str, arguments: dict,
 ) -> dict:
     """Route a tool call to the appropriate chat.tools function."""
@@ -152,6 +154,19 @@ async def _dispatch(
         return tools.queue_status_tool(
             queue,
             project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
+            allowed_base=os.environ.get("CLAUDE_CWD", ""),
+        )
+    if name == "chat_reset_project":
+        return tools.reset_project_tool(
+            tokens,
+            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
+            allowed_base=os.environ.get("CLAUDE_CWD", ""),
+        )
+    if name == "chat_confirm_reset":
+        return tools.confirm_reset_tool(
+            queue, tokens,
+            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
+            token=_sanitize_str(arguments["token"], _MAX_NAME_LEN, "token"),
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
     raise ValueError(f"Unknown tool: {name}")

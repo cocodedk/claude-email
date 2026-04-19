@@ -165,3 +165,56 @@ class TestToolWrappers:
             tq, project="p", allowed_base=str(tmp_path),
         )
         assert result == {"running": None, "pending": []}
+
+    def test_reset_project_tool_rejects_bad_path(self, tq, tmp_path):
+        from chat.tools import reset_project_tool
+        from src.reset_control import TokenStore
+        result = reset_project_tool(
+            TokenStore(), project="never", allowed_base=str(tmp_path),
+        )
+        assert "error" in result
+
+    def test_reset_project_tool_issues_token(self, tq, tmp_path):
+        from chat.tools import reset_project_tool
+        from src.reset_control import TokenStore
+        (tmp_path / "p").mkdir()
+        result = reset_project_tool(
+            TokenStore(), project="p", allowed_base=str(tmp_path),
+        )
+        assert result["status"] == "confirm_required"
+        assert "confirm_token" in result
+
+    def test_confirm_reset_tool_rejects_bad_path(self, tq, tmp_path):
+        from chat.tools import confirm_reset_tool
+        from src.reset_control import TokenStore
+        result = confirm_reset_tool(
+            tq, TokenStore(), project="never", token="x", allowed_base=str(tmp_path),
+        )
+        assert "error" in result
+
+    def test_confirm_reset_tool_rejects_invalid_token(self, tq, tmp_path):
+        from chat.tools import confirm_reset_tool
+        from src.reset_control import TokenStore
+        (tmp_path / "p").mkdir()
+        result = confirm_reset_tool(
+            tq, TokenStore(), project="p", token="bogus", allowed_base=str(tmp_path),
+        )
+        assert "error" in result
+
+    def test_confirm_reset_tool_happy_path(self, tq, tmp_path, mocker):
+        from chat.tools import reset_project_tool, confirm_reset_tool
+        from src.reset_control import TokenStore
+        (tmp_path / "p").mkdir()
+        tokens = TokenStore()
+        issued = reset_project_tool(
+            tokens, project="p", allowed_base=str(tmp_path),
+        )
+        mocker.patch(
+            "src.reset_control.subprocess.run",
+            return_value=mocker.MagicMock(returncode=0, stdout="", stderr=""),
+        )
+        result = confirm_reset_tool(
+            tq, tokens, project="p", token=issued["confirm_token"],
+            allowed_base=str(tmp_path),
+        )
+        assert result["status"] == "reset"

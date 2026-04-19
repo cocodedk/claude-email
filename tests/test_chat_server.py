@@ -75,6 +75,8 @@ class TestToolRegistration:
             "chat_enqueue_task",
             "chat_cancel_task",
             "chat_queue_status",
+            "chat_reset_project",
+            "chat_confirm_reset",
         }
         assert tool_names == expected
 
@@ -227,6 +229,37 @@ class TestToolDispatch:
         result = asyncio.run(_call())
         data = json.loads(result.root.content[0].text)
         assert data["status"] == "deregistered"
+
+    def test_call_chat_reset_project_and_confirm(self, app, tmp_path, mocker, monkeypatch):
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        monkeypatch.setenv("CLAUDE_CWD", str(tmp_path))
+        (tmp_path / "p").mkdir()
+        mocker.patch(
+            "src.reset_control.subprocess.run",
+            return_value=mocker.MagicMock(returncode=0, stdout="", stderr=""),
+        )
+
+        async def _call(name, args):
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name=name, arguments=args),
+            ))
+
+        issued = asyncio.run(_call("chat_reset_project", {"project": "p"}))
+        issued_data = json.loads(issued.root.content[0].text)
+        assert issued_data["status"] == "confirm_required"
+        token = issued_data["confirm_token"]
+
+        confirmed = asyncio.run(_call(
+            "chat_confirm_reset", {"project": "p", "token": token},
+        ))
+        confirmed_data = json.loads(confirmed.root.content[0].text)
+        assert confirmed_data["status"] == "reset"
 
     def test_call_chat_cancel_task(self, app, tmp_path, mocker, monkeypatch):
         import asyncio
