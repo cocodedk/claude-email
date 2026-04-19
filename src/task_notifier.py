@@ -4,13 +4,17 @@ Deterministic counterpart to chat_notify: the worker calls notify_task_done
 after every terminal state, so the user always gets an email even if the
 spawned claude forgot to call chat_notify itself.
 
-Insert goes straight into the messages table; claude-email's outbound
-relay picks it up in the next poll and threads it into a reply.
+When the task's origin_content_type is application/json, the notification
+body is a JSON result envelope (kind=result, data.status/branch/output_tail)
+and the message's content_type column is set so relay_outbound_messages
+sends with matching Content-Type. Plain-text origins keep the human-
+readable body.
 """
 import logging
 from pathlib import Path
 
 from src.chat_db import ChatDB
+from src.json_envelope import CONTENT_TYPE as _JSON_CT, build_envelope
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +28,40 @@ def notify_task_done(db_path: str, task_row: dict) -> None:
         return
     try:
         db = ChatDB(db_path)
+        origin = task_row.get("origin_content_type") or ""
+        if origin == _JSON_CT:
+            body = _json_body(task_row)
+            content_type = _JSON_CT
+        else:
+            body = _body(task_row)
+            content_type = ""  # plain text — relay default
         db.insert_message(
             _from_name(task_row),
             "user",
-            _body(task_row),
+            body,
             "notify",
+            content_type=content_type,
+            task_id=task_row.get("id"),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("notify_task_done failed: %s", exc)
+
+
+def _json_body(task_row: dict) -> str:
+    status = task_row.get("status")
+    data = {
+        "status": status,
+        "branch": task_row.get("branch_name"),
+        "output_tail": task_row.get("output_text") or "",
+    }
+    if task_row.get("error_text"):
+        data["error"] = task_row["error_text"]
+    return build_envelope(
+        "result",
+        body=f"Task #{task_row.get('id')} {status}",
+        task_id=task_row.get("id"),
+        data=data,
+    )
 
 
 def _from_name(task_row: dict) -> str:
