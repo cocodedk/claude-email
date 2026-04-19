@@ -171,4 +171,10 @@ async def _dispatch(
         )
     if name == "chat_where_am_i":
         return tools.where_am_i_tool(queue, manager)
+    if name == "chat_commit_project":
+        return tools.commit_project_tool(
+            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
+            message=_sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
+            allowed_base=os.environ.get("CLAUDE_CWD", ""),
+        )
     raise ValueError(f"Unknown tool: {name}")

@@ -78,6 +78,7 @@ class TestToolRegistration:
             "chat_reset_project",
             "chat_confirm_reset",
             "chat_where_am_i",
+            "chat_commit_project",
         }
         assert tool_names == expected
 
@@ -290,6 +291,33 @@ class TestToolDispatch:
         result = asyncio.run(_call())
         data = json.loads(result.root.content[0].text)
         assert data["status"] in {"idle", "cancelled"}
+
+    def test_call_chat_commit_project(self, app, tmp_path, mocker, monkeypatch):
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        monkeypatch.setenv("CLAUDE_CWD", str(tmp_path))
+        (tmp_path / "p").mkdir()
+        mocker.patch(
+            "chat.project_tools.commit_all", return_value=(True, "abc1234"),
+        )
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_commit_project",
+                    arguments={"project": "p", "message": "WIP"},
+                ),
+            ))
+
+        result = asyncio.run(_call())
+        data = json.loads(result.root.content[0].text)
+        assert data["status"] == "committed"
+        assert data["sha"] == "abc1234"
 
     def test_call_chat_where_am_i(self, app):
         import asyncio

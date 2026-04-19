@@ -8,7 +8,7 @@ outside CLAUDE_CWD.
 import os
 from pathlib import Path
 
-from src.git_ops import task_branch_name
+from src.git_ops import commit_all, task_branch_name
 from src.reset_control import TokenStore, perform_reset
 from src.task_control import cancel_running_task, queue_status
 from src.task_queue import TaskQueue
@@ -111,6 +111,21 @@ def confirm_reset_tool(
     if not tokens.consume(resolved, token):
         return {"error": "invalid or expired confirm token"}
     return perform_reset(queue, resolved)
+
+
+def commit_project_tool(*, project: str, message: str, allowed_base: str) -> dict:
+    """Commit any pending changes in a project. Escape hatch for dirty
+    repos that would otherwise fail the branch-per-task guard. No claude
+    subprocess, no branch — just `git add -A && git commit -m <message>`.
+    """
+    try:
+        resolved = _resolve_project(project, allowed_base)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    ok, detail = commit_all(resolved, message)
+    if not ok:
+        return {"error": detail}
+    return {"status": "committed", "sha": detail, "project": resolved}
 
 
 def where_am_i_tool(queue: TaskQueue, manager: WorkerManager) -> dict:
