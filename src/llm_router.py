@@ -1,10 +1,16 @@
-"""System prompt for the CLI-fallback claude instance (Phase 2 email router).
+"""System prompt + MCP config path for the Phase 2 email router.
 
-When LLM_ROUTER=1 in .env, main.process_email passes this prompt to
-execute_command so the CLI-fallback claude knows it is the email dispatcher
-and has context on the claude-chat MCP tools it can use to act on the user's
-request — notably chat_spawn_agent.
+When LLM_ROUTER=1 in .env, main.process_email passes the prompt to
+execute_command so the CLI-fallback claude knows it is the email dispatcher,
+and points `--mcp-config` at ROUTER_MCP_CONFIG_PATH so the same claude has
+the claude-chat MCP tools — chat_spawn_agent in particular — regardless of
+the cwd the CLI fallback runs in.
 """
+import os as _os
+
+ROUTER_MCP_CONFIG_PATH = _os.path.join(
+    _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), ".mcp.json",
+)
 
 EMAIL_ROUTER_SYSTEM_PROMPT = (
     "You are the email router for the claude-email service. A user just "
