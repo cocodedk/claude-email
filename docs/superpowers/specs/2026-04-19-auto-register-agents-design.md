@@ -15,7 +15,7 @@ This is the wrong default for this ecosystem. The user communicates with agents 
 1. Developer opens a session in `Dune-Browser-Game`, must explicitly say "please register" before any bus interaction works.
 2. Spawned agents started by the email poller via `spawn_agent` inherit the same defect — registration relies on the caller remembering to prefix the `--print` instruction with "register first".
 
-**Requirement**: agents MUST auto-register on session start, and they MUST know how to use the bus to communicate with the user (who reads messages as email, not stdout).
+**Requirement**: agents MUST auto-register on session start, and they MUST know how to use the bus — in particular, that messages arriving on the bus are answered on the bus, not on stdout. (The user's email↔bus relay is one consumer of this; other agents sending `chat_ask` are another.)
 
 ## 2. Decision
 
@@ -34,46 +34,53 @@ The hook executes a shell command that prints a JSON payload to stdout with `hoo
 
 ## 3. Instruction Text
 
-The exact `additionalContext` string the hook emits (literal — no substitutions beyond the agent name derivation):
+The exact `additionalContext` string the hook emits. A single identity variable `caller` is defined once and reused verbatim — this avoids placeholder-substitution mistakes (codex flagged the earlier `agent-<name>` / `agent-<basename>` split invited `agent-agent-foo` errors).
 
 ```
-You are a chat-connected agent on the claude-chat bus. The user reads your
-messages via email — NOT stdout. Do not ask the user questions in stdout;
-they are not watching.
+You are a chat-connected agent on the claude-chat bus. Messages arriving
+on the bus must be answered through bus tools, never through stdout.
 
-Derive your agent name: name = "agent-" + basename(cwd).
+Identity: your caller name is literally
+  caller = "agent-" + basename(cwd)
+Compute it once. Use the exact same string for every _caller= argument below.
+Do not invent a new name later in the session.
 
-First action, before any other tool call:
-  mcp__claude-chat__chat_register(name="<agent-name>", project_path="<absolute cwd>")
+1. Register (first chat-bus tool call of the session; idempotent — safe to
+   repeat if you are unsure whether the spawner pre-registered you):
+     mcp__claude-chat__chat_register(name=caller, project_path="<absolute cwd>")
 
-To ask the user (blocks until they reply):
-  mcp__claude-chat__chat_ask(_caller="<agent-name>", message="...")
+2. Ask the user (blocks until the user replies or up to 1 hour, after which
+   the tool returns {"error": ...}):
+     mcp__claude-chat__chat_ask(_caller=caller, message="...")
 
-To send a one-way progress update (no reply expected):
-  mcp__claude-chat__chat_notify(_caller="<agent-name>", message="...")
+3. One-way progress update (no reply expected):
+     mcp__claude-chat__chat_notify(_caller=caller, message="...")
 
-To drain the inbox (do this when blocked, idle, or about to exit):
-  mcp__claude-chat__chat_check_messages(_caller="<agent-name>")
+4. Inbox drain — consume-with-ack: messages returned are marked delivered
+   and will NOT be seen again. Only call when you will stay alive long
+   enough to act on what you receive. Never poll in a loop; never call as
+   a "final drain" on the way out.
+     mcp__claude-chat__chat_check_messages(_caller=caller)
 
-Before exit:
-  mcp__claude-chat__chat_deregister(_caller="<agent-name>")
+5. Deregister on clean exit (best-effort; the server also reaps dead
+   agents automatically, so this is a courtesy, not a guarantee):
+     mcp__claude-chat__chat_deregister(_caller=caller)
 
-Notes:
-- chat_register takes name= and project_path=. Every other tool takes _caller=
-  with that same name string. Do not mix them up.
-- Keep messages short — one paragraph each. No raw logs or long dumps; the
-  user reads them in an email client.
-- If you are running in --print mode (one-shot), you may still call
-  chat_check_messages once before exit to drain any pending reply from a
-  concurrent chat_ask; otherwise the main polling loop does not apply.
+Parameter reminders:
+- chat_register uses name= and project_path=. Every other tool uses _caller=.
+  The string value is the same in all of them — only the parameter name differs.
+- Keep messages short — one paragraph. The user may be reading them in an
+  email client; no raw logs, no long dumps.
 ```
 
-### 3.1 Wording rationale (addresses advisor + implementation risk)
+### 3.1 Wording rationale
 
-- `_caller` vs `name`/`project_path` distinction is called out explicitly — mid-capability models conflate these.
-- `--print` behavior is addressed inline rather than branching to a separate instruction variant.
-- Message-length guidance prevents agents from dumping raw tool output to the user's inbox.
-- Stdout-is-not-watched is stated twice (header + step 2) because it is the top failure mode.
+- **One symbolic `caller` variable, used literally** — codex flagged the earlier design's metavariable inconsistency as a likely model-error source.
+- **`chat_register` called universally, with "idempotent" note** — removes the need for the instruction to know whether the session was spawned or manually opened. The server handles duplicates via `ON CONFLICT(name) DO UPDATE`.
+- **`chat_ask` timeout stated literally** — matches `_ASK_TIMEOUT = 3600` in `chat/tools.py:22`. The earlier "blocks until reply" wording was a lie by omission.
+- **`chat_check_messages` reframed as consume-with-ack** — `chat/tools.py:46-52` marks returned messages delivered immediately. The earlier "may drain on exit" advice would black-hole messages.
+- **`chat_deregister` marked best-effort** — matches reality: `src/chat_db.py:93 reap_dead_agents` cleans up crashed sessions.
+- **Stdout-vs-bus framing** — replaces the earlier "user reads via email" claim, which was false for manually opened interactive sessions. The invariant that's actually true: messages received on the bus should be answered on the bus.
 
 ## 4. Files & Components
 
@@ -164,12 +171,23 @@ Runs the shell script as a subprocess, asserts valid JSON on stdout, asserts `ad
 
 ### Risks
 
-- **Hook file not executable** → hook silently fails, agent starts without instruction. Mitigation: `chmod +x` in install, and a spawner assertion.
+- **Identity collision** between two sessions in the same repo. `db.register_agent` (`src/chat_db.py:56`) is `ON CONFLICT(name) DO UPDATE` — the second session's `project_path` and `last_seen_at` overwrite the first's, so two `agent-<basename>` sessions stomp on each other on the bus. Acceptable for this iteration; the identity redesign in section 8 addresses it properly.
+- **Hook file not executable** → hook silently fails, agent starts without instruction. Mitigation: `chmod +x` on the script at install, and a spawner assertion that checks the mode before writing the settings file.
 - **Path drift** if the claude-email repo is moved after projects are bootstrapped. The hook command is an absolute path; moving the repo breaks existing projects' hooks. Mitigation: document the dependency in `README.md`; re-running `inject_chat_bootstrap` per project fixes it.
 - **Instruction drift** — if we edit the `.txt` but forget to re-deploy. Acceptable: the script reads the file at session start, so updating the `.txt` propagates immediately to all projects whose hook points at this install.
+- **Prompt compliance ≠ determinism**. The hook gives us reliable *delivery* of guidance; the model still has to follow it. Per codex, this is "better compliance, not deterministic behavior" — acceptable for now because the server-side fallback (spawner pre-registers; stale agents get reaped) catches the common failure modes.
 
 ### Non-goals
 
 - No enforcement of `chat_deregister` on exit. The server already marks stale agents `disconnected` after a timeout; forgetting is harmless.
-- No multi-agent-per-directory support. Name collision (`agent-<basename>`) is accepted — `spawn_agent` already enforces this convention.
 - No automatic cleanup of the written `.claude/settings.json` in target projects. The hook is inert outside the claude-chat ecosystem (it only injects context; no side effects if the MCP server is down).
+
+## 8. Future Work (not this iteration)
+
+Codex recommended moving caller identity below the prompt layer to make registration truly deterministic. That's the correct long-term direction, deferred because it carries schema and tool-API changes. Candidate options, in increasing order of invasiveness:
+
+1. **Separate `agent_id` from `display_name`.** Spawner generates a UUID-based `agent_id`, stores it in an env var (`CLAUDE_CHAT_AGENT_ID`) or a per-session file, and the hook injects it as the `caller` value. `display_name` stays human-readable; collisions on display are permitted.
+2. **Bootstrap tool `chat_whoami()`** — no args, returns the caller handle based on something the server can derive (SSE session id correlated with a token the spawner writes). Model calls it once and reuses the result. No model-side name derivation.
+3. **Lazy server-side registration on first tool use.** First tool call with an unknown `_caller` auto-creates the agent row from a session token. Requires protocol extension.
+
+All three eliminate the "hope the model computes the right name" failure mode. Pick one in a follow-up spec.
