@@ -98,6 +98,32 @@ class TestRunTask:
         assert "partial" in (row["output_text"] or "")
         proc.kill.assert_called_once()
 
+    def test_plan_first_wraps_body_in_prompt(self, tq, cfg, mocker):
+        """When plan_first=1 on the task row, the claude command line
+        carries the plan-first prefix so the worker claude knows to
+        propose-then-confirm before touching code."""
+        tid = tq.enqueue(cfg.project_path, "refactor everything", plan_first=True)
+        claimed = tq.claim_next(cfg.project_path)
+        proc = _mock_proc(mocker, pid=1, returncode=0)
+        popen = mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
+        run_task(tq, claimed, cfg)
+        argv = popen.call_args.args[0]
+        # Body is the last argv element (after --print)
+        body_arg = argv[argv.index("--print") + 1]
+        assert "BEFORE doing any actual work" in body_arg
+        assert "refactor everything" in body_arg
+
+    def test_plan_first_absent_runs_body_as_is(self, tq, cfg, mocker):
+        tid = tq.enqueue(cfg.project_path, "add a test", plan_first=False)
+        claimed = tq.claim_next(cfg.project_path)
+        proc = _mock_proc(mocker, pid=1, returncode=0)
+        popen = mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
+        run_task(tq, claimed, cfg)
+        argv = popen.call_args.args[0]
+        body_arg = argv[argv.index("--print") + 1]
+        assert "BEFORE doing any actual work" not in body_arg
+        assert body_arg == "add a test"
+
     def test_long_output_truncated(self, tq, cfg, mocker):
         tid = tq.enqueue(cfg.project_path, "noisy")
         claimed = tq.claim_next(cfg.project_path)
