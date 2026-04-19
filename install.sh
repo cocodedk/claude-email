@@ -84,11 +84,32 @@ mkdir -p "$USER_SYSTEMD_DIR"
 for svc in claude-chat.service claude-email.service; do
     sed "s|__INSTALL_DIR__|$SCRIPT_DIR|g" "$SCRIPT_DIR/$svc" > "$USER_SYSTEMD_DIR/$svc"
 done
+
+# Optional: test-sender chat-chat instance. Installed only when the user
+# has copied .env.test.example → .env.test and filled it in. The test unit
+# is physically isolated from prod (different port, DB, CLAUDE_CWD).
+TEST_ENABLED=0
+if [[ -f "$SCRIPT_DIR/.env.test" ]]; then
+    echo "==> .env.test detected — installing claude-chat-test (isolated test instance)"
+    sed "s|__INSTALL_DIR__|$SCRIPT_DIR|g" \
+        "$SCRIPT_DIR/claude-chat-test.service" \
+        > "$USER_SYSTEMD_DIR/claude-chat-test.service"
+    # The ROUTER_MCP_CONFIG line inside .env.test may carry __INSTALL_DIR__;
+    # rewrite in-place so the file is idempotent across reinstalls.
+    sed -i "s|__INSTALL_DIR__|$SCRIPT_DIR|g" "$SCRIPT_DIR/.env.test"
+    TEST_ENABLED=1
+fi
 systemctl --user daemon-reload
 
 systemctl --user enable claude-chat
 systemctl --user restart claude-chat
 echo "    claude-chat enabled and started"
+
+if [[ "$TEST_ENABLED" == "1" ]]; then
+    systemctl --user enable claude-chat-test
+    systemctl --user restart claude-chat-test
+    echo "    claude-chat-test enabled and started (port 8421)"
+fi
 
 systemctl --user enable claude-email
 systemctl --user restart claude-email

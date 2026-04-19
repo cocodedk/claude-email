@@ -1,5 +1,6 @@
 # Secrets
 .env
+.env.test
 
 # Python
 __pycache__/
@@ -19,6 +20,9 @@ processed_ids.json
 claude-chat.db
 claude-chat.db-shm
 claude-chat.db-wal
+claude-chat-test.db
+claude-chat-test.db-shm
+claude-chat-test.db-wal
 claude-email.log*
 
 # Per-host Claude Code settings — settings.json embeds an absolute path to
