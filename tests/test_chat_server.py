@@ -68,6 +68,7 @@ class TestToolRegistration:
             "chat_register",
             "chat_ask",
             "chat_notify",
+            "chat_message_agent",
             "chat_check_messages",
             "chat_list_agents",
             "chat_deregister",
@@ -110,7 +111,7 @@ class TestToolRegistration:
             return result.root.tools
 
         tools = asyncio.run(_list())
-        caller_tools = {"chat_ask", "chat_notify", "chat_check_messages", "chat_deregister"}
+        caller_tools = {"chat_ask", "chat_notify", "chat_message_agent", "chat_check_messages", "chat_deregister"}
         for t in tools:
             if t.name in caller_tools:
                 assert "_caller" in t.inputSchema.get("required", []), (
@@ -204,6 +205,70 @@ class TestToolDispatch:
         result = asyncio.run(_call())
         data = json.loads(result.root.content[0].text)
         assert data["status"] == "sent"
+
+    def test_call_chat_message_agent(self, app):
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            for n in ("sender", "peer"):
+                await handler(CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="chat_register",
+                        arguments={"name": n, "project_path": f"/p/{n}"},
+                    ),
+                ))
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_message_agent",
+                    arguments={
+                        "_caller": "sender",
+                        "to_agent": "peer",
+                        "message": "heads up",
+                    },
+                ),
+            ))
+
+        result = asyncio.run(_call())
+        data = json.loads(result.root.content[0].text)
+        assert data == {"status": "sent", "to": "peer"}
+
+    def test_call_chat_message_agent_unknown_recipient(self, app):
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_register",
+                    arguments={"name": "sender", "project_path": "/p"},
+                ),
+            ))
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_message_agent",
+                    arguments={
+                        "_caller": "sender",
+                        "to_agent": "agent-typo",
+                        "message": "hi",
+                    },
+                ),
+            ))
+
+        result = asyncio.run(_call())
+        data = json.loads(result.root.content[0].text)
+        assert "error" in data
+        assert "agent-typo" in data["error"]
 
     def test_call_chat_deregister(self, app):
         import asyncio
