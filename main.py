@@ -10,7 +10,7 @@ import signal
 import sys
 import time
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 from src.chat_handlers import handle_chat_email, maybe_cleanup_db, relay_outbound_messages, send_threaded_reply
 from src.config_validators import validated_effort
@@ -53,7 +53,8 @@ def _config() -> dict:
     shared_secret = os.environ.get("SHARED_SECRET", "")
     _ev = lambda k: os.environ.get(k, "")  # noqa: E731
     extra_env = {k: v for k, v in (("CLAUDE_CONFIG_DIR", _ev("CLAUDE_CONFIG_DIR")), ("IS_SANDBOX", _ev("IS_SANDBOX"))) if v}
-    universes = build_universes(os.environ)
+    tep = os.path.join(os.path.dirname(__file__), ".env.test")
+    universes = build_universes(os.environ, test_env=(dotenv_values(tep) if os.path.exists(tep) else {}))
     return {
         "universes": universes,
         "authorized_senders": [u.sender for u in universes],
@@ -82,12 +83,7 @@ def _config() -> dict:
 
 
 def process_email(message, config: dict, chat_db=None, task_queue=None, worker_manager=None) -> None:
-    """Validate, execute, and reply for a single email message.
-
-    config may carry either 'authorized_sender' (single, legacy) or
-    'authorized_senders' (list, multi-universe). Both are accepted by
-    is_authorized.
-    """
+    """Validate, execute, and reply for a single email message."""
     allowed = config.get("authorized_senders") or config.get("authorized_sender")
     if not is_authorized(
         message, authorized_sender=allowed,
