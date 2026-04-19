@@ -73,6 +73,8 @@ class TestToolRegistration:
             "chat_deregister",
             "chat_spawn_agent",
             "chat_enqueue_task",
+            "chat_cancel_task",
+            "chat_queue_status",
         }
         assert tool_names == expected
 
@@ -225,6 +227,58 @@ class TestToolDispatch:
         result = asyncio.run(_call())
         data = json.loads(result.root.content[0].text)
         assert data["status"] == "deregistered"
+
+    def test_call_chat_cancel_task(self, app, tmp_path, mocker, monkeypatch):
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+        from src.chat_db import ChatDB
+        from src.task_queue import TaskQueue
+
+        monkeypatch.setenv("CLAUDE_CWD", str(tmp_path))
+        (tmp_path / "p").mkdir()
+        mocker.patch("src.task_control.os.kill")
+        mocker.patch("src.task_control._wait_for_exit", return_value=True)
+        # Seed: enqueue + claim via the shared DB
+        ChatDB(app.state.mcp_server.name and "irrelevant") if False else None
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_cancel_task",
+                    arguments={"project": "p"},
+                ),
+            ))
+
+        result = asyncio.run(_call())
+        data = json.loads(result.root.content[0].text)
+        assert data["status"] in {"idle", "cancelled"}
+
+    def test_call_chat_queue_status(self, app, tmp_path, monkeypatch):
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        monkeypatch.setenv("CLAUDE_CWD", str(tmp_path))
+        (tmp_path / "p").mkdir()
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_queue_status",
+                    arguments={"project": "p"},
+                ),
+            ))
+
+        result = asyncio.run(_call())
+        data = json.loads(result.root.content[0].text)
+        assert data == {"running": None, "pending": []}
 
     def test_call_chat_enqueue_task(self, app, tmp_path, mocker, monkeypatch):
         import asyncio

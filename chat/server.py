@@ -141,4 +141,17 @@ async def _dispatch(
             priority=int(arguments.get("priority", 0)),
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
+    if name == "chat_cancel_task":
+        return tools.cancel_task_tool(
+            queue,
+            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
+            drain_queue=bool(arguments.get("drain_queue", False)),
+            allowed_base=os.environ.get("CLAUDE_CWD", ""),
+        )
+    if name == "chat_queue_status":
+        return tools.queue_status_tool(
+            queue,
+            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
+            allowed_base=os.environ.get("CLAUDE_CWD", ""),
+        )
     raise ValueError(f"Unknown tool: {name}")

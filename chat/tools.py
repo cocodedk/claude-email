@@ -9,6 +9,7 @@ from pathlib import Path
 
 from src.chat_db import ChatDB
 from src.spawner import spawn_agent
+from src.task_control import cancel_running_task, queue_status
 from src.task_queue import TaskQueue
 from src.worker_manager import WorkerManager
 
@@ -151,3 +152,24 @@ def enqueue_task_tool(
         return {"error": str(exc)}
     task_id = queue.enqueue(resolved, body, priority=priority)
     return {"status": "enqueued", "task_id": task_id, "worker_pid": worker_pid}
+
+
+def cancel_task_tool(
+    queue: TaskQueue, *, project: str, allowed_base: str,
+    drain_queue: bool = False,
+) -> dict:
+    try:
+        resolved = _resolve_project(project, allowed_base)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return cancel_running_task(queue, resolved, drain_queue=drain_queue)
+
+
+def queue_status_tool(
+    queue: TaskQueue, *, project: str, allowed_base: str,
+) -> dict:
+    try:
+        resolved = _resolve_project(project, allowed_base)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return queue_status(queue, resolved)

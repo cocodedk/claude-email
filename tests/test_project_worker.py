@@ -51,6 +51,16 @@ class TestRunTask:
         assert row["status"] == "failed"
         assert row["error_text"]
 
+    def test_does_not_overwrite_cancelled_status(self, tq, cfg, mocker):
+        tid = tq.enqueue(cfg.project_path, "cancelled-midflight")
+        claimed = tq.claim_next(cfg.project_path)
+        proc = mocker.MagicMock(pid=42)
+        proc.wait.return_value = 137  # SIGKILL-ish rc
+        mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
+        tq.cancel(tid)
+        run_task(tq, claimed, cfg)
+        assert tq.get(tid)["status"] == "cancelled"
+
     def test_task_timeout_kills_and_fails(self, tq, cfg, mocker):
         import subprocess as sp
         tid = tq.enqueue(cfg.project_path, "slow")
