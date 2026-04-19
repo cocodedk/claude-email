@@ -71,6 +71,7 @@ class TestToolRegistration:
             "chat_check_messages",
             "chat_list_agents",
             "chat_deregister",
+            "chat_spawn_agent",
         }
         assert tool_names == expected
 
@@ -223,6 +224,37 @@ class TestToolDispatch:
         result = asyncio.run(_call())
         data = json.loads(result.root.content[0].text)
         assert data["status"] == "deregistered"
+
+    def test_call_chat_spawn_agent(self, app, tmp_path, mocker, monkeypatch):
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        monkeypatch.setenv("CLAUDE_CWD", str(tmp_path))
+        monkeypatch.setenv("CHAT_URL", "http://localhost/mcp")
+        monkeypatch.setenv("CLAUDE_BIN", "claude")
+        (tmp_path / "newproj").mkdir()
+        mocker.patch("src.spawner.inject_mcp_config")
+        mocker.patch("src.spawner.inject_session_start_hook")
+        mocker.patch("src.spawner.approve_mcp_server_for_project")
+        proc = mocker.MagicMock()
+        proc.pid = 777
+        mocker.patch("src.spawner.subprocess.Popen", return_value=proc)
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_spawn_agent",
+                    arguments={"project": "newproj", "instruction": "make tests"},
+                ),
+            ))
+
+        result = asyncio.run(_call())
+        data = json.loads(result.root.content[0].text)
+        assert data == {"status": "spawned", "name": "agent-newproj", "pid": 777}
 
     def test_empty_name_rejected(self, app):
         import asyncio
