@@ -21,6 +21,11 @@ claude-chat.db-shm
 claude-chat.db-wal
 claude-email.log*
 
+# Per-host Claude Code settings — settings.json embeds an absolute path to
+# scripts/chat-session-start-hook.sh and so depends on where this repo is
+# checked out. Generate per-host via scripts/install-chat-mcp.py after clone.
+.claude/settings.json
+
 # IDE / tools
 .codex/
 .idea/
