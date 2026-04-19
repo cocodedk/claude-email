@@ -21,7 +21,7 @@ from src.json_envelope import is_json_email
 from src.json_handler import handle_json_email
 from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
 from src.poller import EmailPoller
-from src.security import is_authorized
+from src.security import identify_sender, is_authorized
 
 load_dotenv()
 
@@ -57,15 +57,21 @@ _config = build_config  # alias: tests patch `main._config`
 def process_email(message, config: dict, chat_db=None, task_queue=None, worker_manager=None) -> None:
     """Validate, execute, and reply for a single email message."""
     allowed = config.get("authorized_senders") or config.get("authorized_sender")
+    # Envelope check (From + Return-Path) is mandatory for BOTH protocols.
+    # Plain-text emails additionally need AUTH:<secret> or GPG; JSON emails
+    # carry auth in meta.auth, checked inside handle_json_email.
+    if not allowed or identify_sender(message, allowed) is None:
+        logger.warning("Unauthorized email dropped (envelope)")
+        return
+    if is_json_email(message) and chat_db is not None and task_queue is not None and worker_manager is not None:
+        handle_json_email(message, config, chat_db, task_queue, worker_manager)
+        return
     if not is_authorized(
         message, authorized_sender=allowed,
         shared_secret=config["shared_secret"], gpg_fingerprint=config["gpg_fingerprint"],
         gpg_home=config["gpg_home"], chat_db=chat_db,
     ):
-        logger.warning("Unauthorized email dropped")
-        return
-    if is_json_email(message) and chat_db is not None and task_queue is not None and worker_manager is not None:
-        handle_json_email(message, config, chat_db, task_queue, worker_manager)
+        logger.warning("Unauthorized email dropped (plain-text auth)")
         return
     if chat_db is not None and handle_chat_email(
         message, config, chat_db, task_queue=task_queue, worker_manager=worker_manager,
