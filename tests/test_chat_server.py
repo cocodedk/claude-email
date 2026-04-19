@@ -79,6 +79,7 @@ class TestToolRegistration:
             "chat_confirm_reset",
             "chat_where_am_i",
             "chat_commit_project",
+            "chat_retry_task",
         }
         assert tool_names == expected
 
@@ -291,6 +292,47 @@ class TestToolDispatch:
         result = asyncio.run(_call())
         data = json.loads(result.root.content[0].text)
         assert data["status"] in {"idle", "cancelled"}
+
+    def test_call_chat_retry_task(self, app, tmp_path, mocker, monkeypatch):
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        monkeypatch.setenv("CLAUDE_CWD", str(tmp_path))
+        (tmp_path / "p").mkdir()
+        mocker.patch("src.worker_manager.is_alive", return_value=True)
+        mocker.patch("src.worker_manager._find_external_worker_pid", return_value=None)
+        proc = mocker.MagicMock(pid=77)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+
+        from src.task_queue import TaskQueue
+        tq = TaskQueue(app.state.mcp_server.name + "-irrelevant") if False else None
+        # Use the server's DB path via queue creation below.
+        # Seed a terminal task by re-using the server's ChatDB DB path env
+        import os as _os
+        db_path = _os.environ.get("CHAT_DB_PATH") or ""
+        # The app fixture creates a temp DB; introspect by inserting via
+        # a direct task_queue on the same path.
+        # For a round-trip test it's enough to call the tool with a fake
+        # task id and expect an error, then verify dispatch works.
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="chat_retry_task",
+                    arguments={"task_id": 9999, "new_body": "x"},
+                ),
+            ))
+
+        result = asyncio.run(_call())
+        data = json.loads(result.root.content[0].text)
+        # Unknown task — dispatched, tool returned structured error
+        assert "error" in data
+        assert "not found" in data["error"]
 
     def test_call_chat_commit_project(self, app, tmp_path, mocker, monkeypatch):
         import asyncio

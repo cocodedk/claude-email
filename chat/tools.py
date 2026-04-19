@@ -130,5 +130,6 @@ from chat.project_tools import (  # noqa: E402
     enqueue_task_tool,
     queue_status_tool,
     reset_project_tool,
+    retry_task_tool,
     where_am_i_tool,
 )

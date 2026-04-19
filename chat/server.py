@@ -169,6 +169,12 @@ async def _dispatch(
             token=_sanitize_str(arguments["token"], _MAX_NAME_LEN, "token"),
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
+    if name == "chat_retry_task":
+        return tools.retry_task_tool(
+            queue, manager,
+            task_id=int(arguments["task_id"]),
+            new_body=str(arguments.get("new_body", "")),
+        )
     if name == "chat_where_am_i":
         return tools.where_am_i_tool(queue, manager)
     if name == "chat_commit_project":
