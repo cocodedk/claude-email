@@ -63,13 +63,13 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
 - MCP SSE server acting as a message bus between user and agents
 - SQLite database with WAL mode for safe concurrent access
 - Six MCP tools for agent communication (register, ask, notify, check, list, deregister)
-- `chat_ask` blocks until the user replies — no timeout
+- `chat_ask` blocks for up to one hour waiting for the user's reply
 - Agent-to-user messages relayed as emails with proper threading
 - User replies routed back to the correct agent via In-Reply-To matching
 
 ### Agent Management
 - Spawn Claude Code agents in any project directory via email
-- Automatic MCP config injection (`.mcp.json`) so agents discover the chat server
+- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.json` carries a `SessionStart` hook so every session auto-registers on the bus — see `scripts/chat-session-start-hook.sh` and the instruction text at `scripts/chat-agent-instruction.txt`
 - Agent status tracking (running, idle, disconnected, deregistered)
 - Agent PIDs recorded in the database
 
