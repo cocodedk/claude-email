@@ -440,6 +440,24 @@ class TestSpawnAgent:
         cmd = mock_popen.call_args.args[0]
         assert cmd == ["claude", "--dangerously-skip-permissions"]
 
+    def test_spawn_agent_writes_session_start_hook(self, db, tmp_path, mocker):
+        from src.spawner import spawn_agent
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 101
+        mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+
+        project_dir = tmp_path / "my-project"
+        project_dir.mkdir()
+
+        spawn_agent(db, str(project_dir), "http://localhost:8080/mcp")
+
+        assert (project_dir / ".mcp.json").exists()
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        cmd = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        assert os.path.isabs(cmd)
+        assert cmd.endswith("/scripts/chat-session-start-hook.sh")
+
     def test_spawn_agent_extra_env(self, db, tmp_path, mocker):
         from src.spawner import spawn_agent
 
