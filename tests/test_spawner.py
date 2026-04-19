@@ -131,6 +131,28 @@ class TestInjectSessionStartHook:
         with pytest.raises(ValueError, match="absolute"):
             inject_session_start_hook(str(tmp_path), "scripts/chat-session-start-hook.sh")
 
+    def test_normalizes_wrong_shape_top_level(self, tmp_path):
+        """Valid JSON of the wrong shape (list) must be overwritten, not crashed on."""
+        from src.spawner import inject_session_start_hook
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "settings.json").write_text(json.dumps([1, 2, 3]))
+        hook_path = "/opt/hook.sh"
+        inject_session_start_hook(str(tmp_path), hook_path)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert isinstance(data, dict)
+        assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == hook_path
+
+    def test_normalizes_hooks_key_when_list(self, tmp_path):
+        """Pre-existing hooks: [...] (wrong shape) is replaced with a dict."""
+        from src.spawner import inject_session_start_hook
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": []}))
+        hook_path = "/opt/hook.sh"
+        inject_session_start_hook(str(tmp_path), hook_path)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert isinstance(data["hooks"], dict)
+        assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == hook_path
+
 
 class TestValidateProjectPath:
     def test_valid_path_returns_resolved(self, tmp_path):
