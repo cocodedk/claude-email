@@ -75,6 +75,13 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
 - Agent status tracking (running, idle, disconnected, deregistered)
 - Agent PIDs recorded in the database
 
+### Task Queue & Branch Safety
+- Every task runs on its own branch: `claude/task-<id>-<slug>`. Mainline is never touched by an agent.
+- Before starting a task, the worker verifies the project is a clean git checkout. A dirty repo fails the task with the porcelain status so your uncommitted work is never overwritten. Commit or stash first, then re-queue.
+- Non-git project folders still run — the branch dance is skipped with a warning.
+- After each task terminates, a record is appended to `<project>/.claude/tasks.jsonl` (machine-readable) and `<project>/.claude/CHANGELOG-claude.md` (human-readable). Both files include the branch name, request body, start/end timestamps, and status.
+- Suggested `.gitignore` in each project: `.claude/tasks.jsonl` and `CHANGELOG-claude.md` (the `.claude/` dir is usually already ignored for the MCP config).
+
 ### Service Management
 - Two user-level systemd services (no sudo required)
 - Restart either service via email command

@@ -101,6 +101,8 @@ class TestApplyReply:
             body="also add docs", allowed_base=str(tmp_path),
         )
         assert "#42" in ack and "555" in ack
+        # Branch name is surfaced so the user knows where to look
+        assert "claude/task-42-also-add-docs" in ack
         assert tq.enqueued == [(proj, "also add docs", 0)]
         assert wm.calls == [proj]
 
