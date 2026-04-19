@@ -5,6 +5,7 @@ No MCP dependencies, no network — just logic + DB.
 """
 import asyncio
 from src.chat_db import ChatDB
+from src.spawner import spawn_agent
 
 
 def register_agent(db: ChatDB, name: str, project_path: str) -> dict:
@@ -83,3 +84,34 @@ def deregister_agent(db: ChatDB, caller: str) -> dict:
     """Mark caller agent as deregistered."""
     db.update_agent_status(caller, "deregistered")
     return {"status": "deregistered"}
+
+
+def spawn_agent_tool(
+    db: ChatDB, *, project: str, instruction: str = "",
+    chat_url: str, claude_bin: str, allowed_base: str,
+    yolo: bool = False, model: str | None = None,
+    effort: str | None = None, max_budget_usd: str | None = None,
+) -> dict:
+    """Spawn a Claude Code agent in a project directory.
+
+    project may be a bare folder name (resolved against allowed_base) or an
+    absolute path. Invalid paths — nonexistent or outside allowed_base — are
+    returned as {"error": ...} rather than raised, so the MCP caller sees a
+    structured failure.
+    """
+    if not allowed_base:
+        return {"error": "CLAUDE_CWD not configured on chat server"}
+    try:
+        name, pid = spawn_agent(
+            db, project, chat_url,
+            instruction=instruction,
+            claude_bin=claude_bin,
+            allowed_base=allowed_base,
+            yolo=yolo,
+            model=model,
+            effort=effort,
+            max_budget_usd=max_budget_usd,
+        )
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return {"status": "spawned", "name": name, "pid": pid}
