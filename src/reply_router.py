@@ -59,8 +59,8 @@ def apply_reply(
     chat_db, task_queue, worker_manager, *,
     agent_name: str, original_message_id: int,
     body: str, allowed_base: str,
-) -> str:
-    """Record the reply and act on it. Returns a short ack for the user."""
+) -> tuple[str, str]:
+    """Record the reply and act on it. Returns (ack_body, subject_tag)."""
     decision = classify_reply(chat_db, agent_name, original_message_id, allowed_base)
     chat_db.insert_message(
         "user", agent_name, body, "reply", in_reply_to=original_message_id,
@@ -71,8 +71,17 @@ def apply_reply(
             task_id = task_queue.enqueue(decision.project_path, body)
         except ValueError as exc:
             logger.warning("Reply enqueue failed: %s", exc)
-            return f"Delivered to {agent_name} on the chat bus (couldn't queue: {exc})."
-        return f"Queued as task #{task_id} for {agent_name} (worker pid {worker_pid})."
+            return (
+                f"Delivered to {agent_name} on the chat bus (couldn't queue: {exc}).",
+                "Delivered",
+            )
+        return (
+            f"Queued as task #{task_id} for {agent_name} (worker pid {worker_pid}).",
+            f"Queued #{task_id}",
+        )
     if decision.route == "ask":
-        return f"Answer delivered to {agent_name} (was waiting on a question)."
-    return f"Delivered to {agent_name} on the chat bus."
+        return (
+            f"Answer delivered to {agent_name} (was waiting on a question).",
+            "Answer",
+        )
+    return (f"Delivered to {agent_name} on the chat bus.", "Delivered")
