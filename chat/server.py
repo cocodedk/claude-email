@@ -169,4 +169,6 @@ async def _dispatch(
             token=_sanitize_str(arguments["token"], _MAX_NAME_LEN, "token"),
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
+    if name == "chat_where_am_i":
+        return tools.where_am_i_tool(queue, manager)
     raise ValueError(f"Unknown tool: {name}")

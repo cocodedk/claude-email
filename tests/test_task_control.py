@@ -201,6 +201,41 @@ class TestToolWrappers:
         )
         assert "error" in result
 
+    def test_where_am_i_tool_empty(self, tq):
+        from chat.tools import where_am_i_tool
+
+        class _Mgr:
+            def pid_of(self, _):
+                return None
+        result = where_am_i_tool(tq, _Mgr())
+        assert result == {"projects": []}
+
+    def test_where_am_i_tool_with_activity(self, tq, tmp_path):
+        from chat.tools import where_am_i_tool
+
+        class _Mgr:
+            def pid_of(self, path):
+                return 4242 if path.endswith("alpha") else None
+
+        (tmp_path / "alpha").mkdir()
+        (tmp_path / "beta").mkdir()
+        alpha = str((tmp_path / "alpha").resolve())
+        beta = str((tmp_path / "beta").resolve())
+        tq.enqueue(alpha, "build")
+        tq.claim_next(alpha)
+        tq.enqueue(alpha, "pending too")
+        tq.enqueue(beta, "done task")
+        tq.claim_next(beta)
+        tq.mark_done(tq.get_running(beta)["id"])
+
+        result = where_am_i_tool(tq, _Mgr())
+        by_name = {p["project_name"]: p for p in result["projects"]}
+        assert by_name["alpha"]["running_task"] is not None
+        assert by_name["alpha"]["pending_count"] == 1
+        assert by_name["alpha"]["worker_pid"] == 4242
+        assert by_name["beta"]["pending_count"] == 0
+        assert by_name["beta"]["last_task_status"] == "done"
+
     def test_confirm_reset_tool_happy_path(self, tq, tmp_path, mocker):
         from chat.tools import reset_project_tool, confirm_reset_tool
         from src.reset_control import TokenStore
