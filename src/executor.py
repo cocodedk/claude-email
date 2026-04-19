@@ -99,6 +99,7 @@ def execute_command(
     model: str | None = None,
     effort: str | None = None,
     max_budget_usd: str | None = None,
+    system_prompt: str | None = None,
 ) -> str:
     """Execute a command via the claude CLI and return the output.
 
@@ -117,6 +118,8 @@ def execute_command(
         argv += ["--model", model]
     if effort:
         argv += ["--effort", effort]
+    if system_prompt:
+        argv += ["--append-system-prompt", system_prompt]
     argv += ["--print", command]
     if max_budget_usd:
         argv += ["--max-budget-usd", max_budget_usd]

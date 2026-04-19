@@ -80,6 +80,38 @@ class TestOrchestration:
         assert call_order[1] == "execute"
         assert call_order[2].startswith("reply:")
 
+    def test_llm_router_enabled_passes_system_prompt(self, mocker):
+        from main import process_email
+        from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
+        mock_execute = mocker.patch("main.execute_command", return_value="out")
+        mocker.patch("main.send_threaded_reply")
+
+        msg = _make_authorized_msg("testsecret")
+        config = {
+            "authorized_sender": "bb@cocode.dk", "shared_secret": "testsecret",
+            "gpg_fingerprint": "", "gpg_home": None,
+            "smtp_host": "h", "smtp_port": 465, "username": "u", "password": "p",
+            "claude_timeout": 10, "claude_bin": "claude",
+            "llm_router": True,
+        }
+        process_email(msg, config)
+        assert mock_execute.call_args.kwargs["system_prompt"] == EMAIL_ROUTER_SYSTEM_PROMPT
+
+    def test_llm_router_disabled_omits_system_prompt(self, mocker):
+        from main import process_email
+        mock_execute = mocker.patch("main.execute_command", return_value="out")
+        mocker.patch("main.send_threaded_reply")
+
+        msg = _make_authorized_msg("testsecret")
+        config = {
+            "authorized_sender": "bb@cocode.dk", "shared_secret": "testsecret",
+            "gpg_fingerprint": "", "gpg_home": None,
+            "smtp_host": "h", "smtp_port": 465, "username": "u", "password": "p",
+            "claude_timeout": 10, "claude_bin": "claude",
+        }
+        process_email(msg, config)
+        assert mock_execute.call_args.kwargs["system_prompt"] is None
+
     def test_progress_ack_failure_does_not_abort_execution(self, mocker):
         """If the ack send fails, we should still run the command."""
         import smtplib
@@ -234,6 +266,18 @@ class TestConfig:
         from main import _config
         cfg = _config()
         assert cfg["claude_effort"] is None
+
+    def test_config_llm_router_default_false(self, monkeypatch):
+        self._base_env(monkeypatch)
+        monkeypatch.delenv("LLM_ROUTER", raising=False)
+        from main import _config
+        assert _config()["llm_router"] is False
+
+    def test_config_llm_router_enabled(self, monkeypatch):
+        self._base_env(monkeypatch)
+        monkeypatch.setenv("LLM_ROUTER", "1")
+        from main import _config
+        assert _config()["llm_router"] is True
 
 
 class TestSignalHandler:
