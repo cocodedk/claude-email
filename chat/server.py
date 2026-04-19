@@ -5,6 +5,7 @@ tool handlers that delegate to chat.tools functions.
 """
 import json
 import logging
+import os
 
 from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
@@ -15,97 +16,9 @@ from starlette.routing import Mount, Route
 
 from src.chat_db import ChatDB
 from chat import tools
+from chat.tool_definitions import TOOLS
 
 logger = logging.getLogger(__name__)
-
-# ── Tool definitions ────────────────────────────────────────────
-
-TOOLS = [
-    Tool(
-        name="chat_register",
-        description="Register an agent with the chat relay.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "Agent name"},
-                "project_path": {
-                    "type": "string",
-                    "description": "Absolute path to the agent project",
-                },
-            },
-            "required": ["name", "project_path"],
-        },
-    ),
-    Tool(
-        name="chat_ask",
-        description="Send a question to the user and wait for a reply.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "message": {"type": "string", "description": "Question text"},
-                "_caller": {
-                    "type": "string",
-                    "description": "Registered agent name",
-                },
-            },
-            "required": ["message", "_caller"],
-        },
-    ),
-    Tool(
-        name="chat_notify",
-        description="Send a one-way notification to the user.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "message": {
-                    "type": "string",
-                    "description": "Notification text",
-                },
-                "_caller": {
-                    "type": "string",
-                    "description": "Registered agent name",
-                },
-            },
-            "required": ["message", "_caller"],
-        },
-    ),
-    Tool(
-        name="chat_check_messages",
-        description="Return pending messages for the caller agent.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "_caller": {
-                    "type": "string",
-                    "description": "Registered agent name",
-                },
-            },
-            "required": ["_caller"],
-        },
-    ),
-    Tool(
-        name="chat_list_agents",
-        description="List all registered agents.",
-        inputSchema={
-            "type": "object",
-            "properties": {},
-        },
-    ),
-    Tool(
-        name="chat_deregister",
-        description="Deregister the caller agent.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "_caller": {
-                    "type": "string",
-                    "description": "Registered agent name",
-                },
-            },
-            "required": ["_caller"],
-        },
-    ),
-]
 
 
 # ── App factory ─────────────────────────────────────────────────
@@ -196,5 +109,18 @@ async def _dispatch(db: ChatDB, name: str, arguments: dict) -> dict:
     if name == "chat_deregister":
         return tools.deregister_agent(
             db, _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
+        )
+    if name == "chat_spawn_agent":
+        return tools.spawn_agent_tool(
+            db,
+            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
+            instruction=arguments.get("instruction", ""),
+            chat_url=os.environ.get("CHAT_URL", ""),
+            claude_bin=os.environ.get("CLAUDE_BIN", "claude"),
+            allowed_base=os.environ.get("CLAUDE_CWD", ""),
+            yolo=os.environ.get("CLAUDE_YOLO", "") == "1",
+            model=os.environ.get("CLAUDE_MODEL") or None,
+            effort=os.environ.get("CLAUDE_EFFORT") or None,
+            max_budget_usd=os.environ.get("CLAUDE_MAX_BUDGET_USD") or None,
         )
     raise ValueError(f"Unknown tool: {name}")
