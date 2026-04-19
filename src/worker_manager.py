@@ -20,6 +20,8 @@ from src.process_liveness import is_alive
 
 logger = logging.getLogger(__name__)
 
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+
 
 class WorkerManager:
     def __init__(
@@ -55,9 +57,12 @@ class WorkerManager:
     def _spawn(self, resolved: str) -> int:
         argv = [self._python_bin, "-m", "src.project_worker", resolved]
         env = {**os.environ, **self._module_env}
+        # cwd MUST be the claude-email repo so `python -m src.project_worker`
+        # resolves. The worker itself sets cwd=resolved when it launches the
+        # per-task `claude --continue --print`.
         logger.info("Spawning worker for %s", resolved)
         proc = subprocess.Popen(
-            argv, cwd=self._project_root, shell=False,
+            argv, cwd=_REPO_ROOT, shell=False,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             env=env,
         )
