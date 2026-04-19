@@ -9,6 +9,7 @@ from src.chat_router import Route, classify_email
 from src.email_format import prepend_tag, tag_for_message_type, with_footer
 from src.executor import extract_command
 from src.mailer import send_reply
+from src.relay_routing import recipient_for_message, thread_id_for_message
 from src.reply_router import apply_reply
 from src.spawner import spawn_agent
 from src.task_queue import TaskQueue
@@ -152,21 +153,21 @@ def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
     """
     pending = chat_db.get_pending_messages_for("user")
     for msg in pending:
-        tag = tag_for_message_type(msg.get("type") or "")
-        subject = prepend_tag(f"[{msg['from_name']}] message", tag)
-        prev_email_id = chat_db.get_last_email_message_id_for_agent(msg["from_name"]) or ""
+        content_type = msg.get("content_type") or "text/plain"
+        subj_base = f"[{msg['from_name']}] message"
+        subject = subj_base if content_type == "application/json" else prepend_tag(
+            subj_base, tag_for_message_type(msg.get("type") or ""),
+        )
+        thread_id = thread_id_for_message(chat_db, msg)
         try:
             email_msg_id = send_reply(
-                smtp_host=config["smtp_host"],
-                smtp_port=config["smtp_port"],
-                username=config["username"],
-                password=config["password"],
-                to=config["authorized_sender"],
-                subject=subject,
-                body=msg["body"],
-                in_reply_to=prev_email_id,
-                references=prev_email_id,
+                smtp_host=config["smtp_host"], smtp_port=config["smtp_port"],
+                username=config["username"], password=config["password"],
+                to=recipient_for_message(chat_db, msg, config),
+                subject=subject, body=msg["body"],
+                in_reply_to=thread_id, references=thread_id,
                 email_domain=config.get("email_domain", ""),
+                content_type=content_type,
             )
         except _PERMANENT_SMTP_ERRORS as exc:
             logger.error("Permanent SMTP error relaying message %d: %s — marking failed", msg["id"], exc)
