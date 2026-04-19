@@ -13,17 +13,14 @@ import time
 from dotenv import load_dotenv
 
 from src.chat_db import ChatDB
-from src.chat_handlers import (
-    handle_chat_email,
-    maybe_cleanup_db,
-    relay_outbound_messages,
-    send_threaded_reply,
-)
+from src.chat_handlers import handle_chat_email, maybe_cleanup_db, relay_outbound_messages, send_threaded_reply
 from src.config_validators import validated_effort
 from src.executor import execute_command, extract_command
 from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT, ROUTER_MCP_CONFIG_PATH as _ROUTER_MCP_CONFIG
 from src.poller import EmailPoller
 from src.security import is_authorized
+from src.task_queue import TaskQueue
+from src.worker_manager import WorkerManager
 
 load_dotenv()
 
@@ -88,21 +85,18 @@ def _config() -> dict:
     }
 
 
-def process_email(message, config: dict, chat_db=None) -> None:
+def process_email(message, config: dict, chat_db=None, task_queue=None, worker_manager=None) -> None:
     """Validate, execute, and reply for a single email message."""
     if not is_authorized(
-        message,
-        authorized_sender=config["authorized_sender"],
-        shared_secret=config["shared_secret"],
-        gpg_fingerprint=config["gpg_fingerprint"],
-        gpg_home=config["gpg_home"],
-        chat_db=chat_db,
+        message, authorized_sender=config["authorized_sender"],
+        shared_secret=config["shared_secret"], gpg_fingerprint=config["gpg_fingerprint"],
+        gpg_home=config["gpg_home"], chat_db=chat_db,
     ):
         logger.warning("Unauthorized email dropped")
         return
-
-    # Chat routing: when chat_db is provided, try chat system first
-    if chat_db is not None and handle_chat_email(message, config, chat_db):
+    if chat_db is not None and handle_chat_email(
+        message, config, chat_db, task_queue=task_queue, worker_manager=worker_manager,
+    ):
         return
 
     command = extract_command(message, strip_secret=config["shared_secret"])
@@ -133,6 +127,8 @@ def run_loop(config: dict) -> None:
     """Main polling loop. Runs until SIGTERM/SIGINT received."""
     global _shutdown
     chat_db = ChatDB(config["chat_db_path"])
+    task_queue = TaskQueue(config["chat_db_path"])
+    worker_manager = WorkerManager(db_path=config["chat_db_path"], project_root=config.get("claude_cwd") or os.getcwd())
     poller = EmailPoller(
         host=config["imap_host"],
         port=config["imap_port"],
@@ -157,7 +153,7 @@ def run_loop(config: dict) -> None:
                 msg_id = msg.get("Message-ID", "").strip()
                 from_hdr = msg.get("From", "")
                 try:
-                    process_email(msg, config, chat_db=chat_db)
+                    process_email(msg, config, chat_db=chat_db, task_queue=task_queue, worker_manager=worker_manager)
                 except Exception:
                     logger.exception("Error processing message %s from %s", msg_id, from_hdr)
                 finally:

@@ -6,6 +6,12 @@ from src.worker_manager import WorkerManager
 @pytest.fixture
 def mgr(tmp_path, mocker):
     mocker.patch("src.worker_manager.is_alive", return_value=True)
+    # Default: pgrep finds no existing external worker. Tests that
+    # specifically exercise pgrep-discovery override this.
+    mocker.patch(
+        "src.worker_manager._find_external_worker_pid",
+        return_value=None,
+    )
     return WorkerManager(
         db_path=str(tmp_path / "db.sqlite"),
         project_root=str(tmp_path),
@@ -70,6 +76,62 @@ class TestEnsureWorker:
     def test_nonexistent_project_raises(self, mgr):
         with pytest.raises(ValueError):
             mgr.ensure_worker("/does/not/exist")
+
+
+class TestExternalWorker:
+    def test_external_worker_detected_and_reused(self, tmp_path, mocker):
+        mocker.patch("src.worker_manager.is_alive", return_value=True)
+        mocker.patch(
+            "src.worker_manager._find_external_worker_pid", return_value=54321,
+        )
+        mgr = WorkerManager(
+            db_path=str(tmp_path / "db"), project_root=str(tmp_path),
+            python_bin="/usr/bin/python3",
+        )
+        (tmp_path / "p").mkdir()
+        popen = mocker.patch("src.worker_manager.subprocess.Popen")
+        pid = mgr.ensure_worker(str(tmp_path / "p"))
+        assert pid == 54321
+        popen.assert_not_called()
+
+    def test_find_external_worker_pgrep_returns_pid(self, mocker):
+        from src.worker_manager import _find_external_worker_pid
+        mocker.patch("src.worker_manager.is_alive", return_value=True)
+        mocker.patch(
+            "src.worker_manager.subprocess.run",
+            return_value=mocker.MagicMock(returncode=0, stdout="54321\n"),
+        )
+        assert _find_external_worker_pid("/proj") == 54321
+
+    def test_find_external_worker_pgrep_not_found(self, mocker):
+        from src.worker_manager import _find_external_worker_pid
+        mocker.patch("src.worker_manager.subprocess.run", side_effect=FileNotFoundError())
+        assert _find_external_worker_pid("/proj") is None
+
+    def test_find_external_worker_rc1_is_none(self, mocker):
+        from src.worker_manager import _find_external_worker_pid
+        mocker.patch(
+            "src.worker_manager.subprocess.run",
+            return_value=mocker.MagicMock(returncode=1, stdout=""),
+        )
+        assert _find_external_worker_pid("/proj") is None
+
+    def test_find_external_worker_garbage_is_none(self, mocker):
+        from src.worker_manager import _find_external_worker_pid
+        mocker.patch(
+            "src.worker_manager.subprocess.run",
+            return_value=mocker.MagicMock(returncode=0, stdout="not-a-pid\n"),
+        )
+        assert _find_external_worker_pid("/proj") is None
+
+    def test_find_external_worker_dead_is_none(self, mocker):
+        from src.worker_manager import _find_external_worker_pid
+        mocker.patch("src.worker_manager.is_alive", return_value=False)
+        mocker.patch(
+            "src.worker_manager.subprocess.run",
+            return_value=mocker.MagicMock(returncode=0, stdout="99999\n"),
+        )
+        assert _find_external_worker_pid("/proj") is None
 
 
 class TestReap:
