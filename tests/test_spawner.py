@@ -32,6 +32,15 @@ class TestInjectMcpConfig:
             }
         }
 
+    def test_inject_mcp_config_normalizes_wrong_shape(self, tmp_path):
+        from src.spawner import inject_mcp_config
+        (tmp_path / ".mcp.json").write_text(json.dumps({"mcpServers": []}))
+        inject_mcp_config(str(tmp_path), "http://localhost:9090/mcp")
+        data = json.loads((tmp_path / ".mcp.json").read_text())
+        assert data["mcpServers"]["claude-chat"] == {
+            "type": "sse", "url": "http://localhost:9090/mcp",
+        }
+
     def test_inject_mcp_config_merges_existing(self, tmp_path):
         from src.spawner import inject_mcp_config
 

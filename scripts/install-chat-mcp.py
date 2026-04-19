@@ -38,7 +38,7 @@ except ImportError:
     pass
 
 from src.spawner import (  # noqa: E402
-    _HOOK_SCRIPT,
+    HOOK_SCRIPT,
     inject_mcp_config,
     inject_session_start_hook,
 )
@@ -85,7 +85,7 @@ def main() -> int:
             continue
         try:
             inject_mcp_config(str(entry), chat_url)
-            inject_session_start_hook(str(entry), _HOOK_SCRIPT)
+            inject_session_start_hook(str(entry), HOOK_SCRIPT)
             installed.append(entry.name)
         except Exception as exc:  # noqa: BLE001
             skipped.append((entry.name, f"error: {exc}"))
