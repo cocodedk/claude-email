@@ -15,6 +15,8 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 from src.chat_db import ChatDB
+from src.task_queue import TaskQueue
+from src.worker_manager import WorkerManager
 from chat import tools
 from chat.tool_definitions import TOOLS
 
@@ -26,6 +28,11 @@ logger = logging.getLogger(__name__)
 def create_app(db_path: str, host: str, port: int) -> Starlette:
     """Build a Starlette app with MCP SSE transport and tool handlers."""
     db = ChatDB(db_path)
+    queue = TaskQueue(db_path)
+    manager = WorkerManager(
+        db_path=db_path,
+        project_root=os.environ.get("CLAUDE_CWD") or os.getcwd(),
+    )
     server = Server("claude-chat", version="1.0")
     sse = SseServerTransport("/messages/")
 
@@ -37,7 +44,7 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
     # ── call_tool handler ───────────────────────────────────
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
-        result = await _dispatch(db, name, arguments)
+        result = await _dispatch(db, queue, manager, name, arguments)
         return [TextContent(type="text", text=json.dumps(result))]
 
     # ── SSE endpoint ────────────────────────────────────────
@@ -80,7 +87,10 @@ def _sanitize_str(value: str, max_len: int, field: str) -> str:
     return value
 
 
-async def _dispatch(db: ChatDB, name: str, arguments: dict) -> dict:
+async def _dispatch(
+    db: ChatDB, queue: TaskQueue, manager: WorkerManager,
+    name: str, arguments: dict,
+) -> dict:
     """Route a tool call to the appropriate chat.tools function."""
     if name == "chat_register":
         return tools.register_agent(
@@ -122,5 +132,13 @@ async def _dispatch(db: ChatDB, name: str, arguments: dict) -> dict:
             model=os.environ.get("CLAUDE_MODEL") or None,
             effort=os.environ.get("CLAUDE_EFFORT") or None,
             max_budget_usd=os.environ.get("CLAUDE_MAX_BUDGET_USD") or None,
+        )
+    if name == "chat_enqueue_task":
+        return tools.enqueue_task_tool(
+            queue, manager,
+            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
+            body=_sanitize_str(arguments["body"], _MAX_MSG_LEN, "body"),
+            priority=int(arguments.get("priority", 0)),
+            allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
     raise ValueError(f"Unknown tool: {name}")
