@@ -69,7 +69,7 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
 
 ### Agent Management
 - Spawn Claude Code agents in any project directory via email
-- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.json` carries a `SessionStart` hook so every session auto-registers on the bus — see `scripts/chat-session-start-hook.sh` and the instruction text at `scripts/chat-agent-instruction.txt`
+- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.json` carries a `SessionStart` hook. The hook writes the agent's registration row directly to the SQLite bus via `scripts/chat-register-self.py` (deterministic — independent of whether the model obeys its instructions), then emits the bus usage guide (`scripts/chat-agent-instruction.txt`) as `additionalContext` so the model knows how to `chat_ask` / `chat_notify` / `chat_check_messages`.
 - Agent status tracking (running, idle, disconnected, deregistered)
 - Agent PIDs recorded in the database
 
@@ -370,7 +370,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 293 pytest tests (100% coverage)
+├── tests/                 # 302 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -399,7 +399,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (293 tests, 100% coverage)
+# Run all tests (302 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -417,7 +417,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **293 tests** with **100% code coverage** across all modules
+- **302 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
