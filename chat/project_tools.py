@@ -105,3 +105,26 @@ def confirm_reset_tool(
     if not tokens.consume(resolved, token):
         return {"error": "invalid or expired confirm token"}
     return perform_reset(queue, resolved)
+
+
+def where_am_i_tool(queue: TaskQueue, manager: WorkerManager) -> dict:
+    """Cross-project dashboard: one row per project with recent activity."""
+    projects = []
+    for path in queue.list_project_paths():
+        running = queue.get_running(path)
+        pending = queue.list_pending(path)
+        latest = queue.latest_task(path)
+        projects.append({
+            "project_path": path,
+            "project_name": Path(path).name,
+            "worker_pid": manager.pid_of(path),
+            "running_task": running,
+            "pending_count": len(pending),
+            "last_task_status": (latest or {}).get("status"),
+            "last_activity_at": (
+                (latest or {}).get("completed_at")
+                or (latest or {}).get("started_at")
+                or (latest or {}).get("created_at")
+            ),
+        })
+    return {"projects": projects}

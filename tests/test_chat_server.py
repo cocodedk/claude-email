@@ -77,6 +77,7 @@ class TestToolRegistration:
             "chat_queue_status",
             "chat_reset_project",
             "chat_confirm_reset",
+            "chat_where_am_i",
         }
         assert tool_names == expected
 
@@ -289,6 +290,24 @@ class TestToolDispatch:
         result = asyncio.run(_call())
         data = json.loads(result.root.content[0].text)
         assert data["status"] in {"idle", "cancelled"}
+
+    def test_call_chat_where_am_i(self, app):
+        import asyncio
+        import json
+        from mcp.types import CallToolRequest, CallToolRequestParams
+
+        async def _call():
+            server = app.state.mcp_server
+            handler = server.request_handlers[CallToolRequest]
+            return await handler(CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name="chat_where_am_i", arguments={}),
+            ))
+
+        result = asyncio.run(_call())
+        data = json.loads(result.root.content[0].text)
+        assert "projects" in data
+        assert isinstance(data["projects"], list)
 
     def test_call_chat_queue_status(self, app, tmp_path, monkeypatch):
         import asyncio

@@ -128,3 +128,24 @@ class TestDrainPending:
 class TestGetMissing:
     def test_get_returns_none_for_missing(self, tq):
         assert tq.get(9999) is None
+
+
+class TestListProjectPaths:
+    def test_returns_distinct_paths(self, tq):
+        tq.enqueue("/a", "x")
+        tq.enqueue("/a", "y")
+        tq.enqueue("/b", "z")
+        assert tq.list_project_paths() == ["/a", "/b"]
+
+    def test_empty(self, tq):
+        assert tq.list_project_paths() == []
+
+
+class TestLatestTask:
+    def test_returns_latest(self, tq):
+        tq.enqueue("/a", "one")
+        last = tq.enqueue("/a", "two")
+        assert tq.latest_task("/a")["id"] == last
+
+    def test_none_when_no_tasks(self, tq):
+        assert tq.latest_task("/never") is None
