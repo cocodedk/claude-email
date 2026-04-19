@@ -98,3 +98,49 @@ class TestEnqueueTaskTool:
             allowed_base=str(tmp_path),
         )
         assert tq.get(result["task_id"])["priority"] == 10
+
+
+class TestPriorityBounds:
+    def test_priority_above_max_is_clamped(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        result = enqueue_task_tool(
+            tq, mgr, project="p", body="x", priority=9999,
+            allowed_base=str(tmp_path),
+        )
+        assert tq.get(result["task_id"])["priority"] == 10
+
+    def test_priority_below_min_is_clamped(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        result = enqueue_task_tool(
+            tq, mgr, project="p", body="x", priority=-5,
+            allowed_base=str(tmp_path),
+        )
+        assert tq.get(result["task_id"])["priority"] == 0
+
+
+class TestHighPriorityJumpsQueue:
+    def test_higher_priority_claimed_first(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        low = enqueue_task_tool(
+            tq, mgr, project="p", body="regular",
+            allowed_base=str(tmp_path),
+        )
+        high = enqueue_task_tool(
+            tq, mgr, project="p", body="help!", priority=10,
+            allowed_base=str(tmp_path),
+        )
+        first = tq.claim_next(str((tmp_path / "p").resolve()))
+        assert first["id"] == high["task_id"]
+        # Queue has no concurrency cap itself — the worker is what enforces
+        # one-at-a-time. So the next claim_next returns the low-priority task.
+        second = tq.claim_next(str((tmp_path / "p").resolve()))
+        assert second["id"] == low["task_id"]
