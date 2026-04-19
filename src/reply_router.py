@@ -16,6 +16,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.git_ops import task_branch_name
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,8 +77,10 @@ def apply_reply(
                 f"Delivered to {agent_name} on the chat bus (couldn't queue: {exc}).",
                 "Delivered",
             )
+        branch = task_branch_name(task_id, body)
         return (
-            f"Queued as task #{task_id} for {agent_name} (worker pid {worker_pid}).",
+            f"Queued as task #{task_id} for {agent_name} on branch "
+            f"`{branch}` (worker pid {worker_pid}).",
             f"Queued #{task_id}",
         )
     if decision.route == "ask":

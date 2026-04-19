@@ -45,6 +45,9 @@ class TestEnqueueTaskTool:
         assert result["worker_pid"] == 777
         assert tq.get(result["task_id"])["body"] == "write tests"
         assert tq.get(result["task_id"])["project_path"] == str((tmp_path / "p").resolve())
+        # planned_branch surfaces the expected branch name to the router
+        assert result["planned_branch"].startswith("claude/task-")
+        assert result["planned_branch"].endswith("write-tests")
 
     def test_accepts_absolute_path(self, tq, mgr, tmp_path, mocker):
         (tmp_path / "p").mkdir()

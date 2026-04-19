@@ -8,6 +8,7 @@ outside CLAUDE_CWD.
 import os
 from pathlib import Path
 
+from src.git_ops import task_branch_name
 from src.reset_control import TokenStore, perform_reset
 from src.task_control import cancel_running_task, queue_status
 from src.task_queue import TaskQueue
@@ -48,7 +49,12 @@ def enqueue_task_tool(
     except ValueError as exc:
         return {"error": str(exc)}
     task_id = queue.enqueue(resolved, body, priority=_clamp_priority(priority))
-    return {"status": "enqueued", "task_id": task_id, "worker_pid": worker_pid}
+    return {
+        "status": "enqueued",
+        "task_id": task_id,
+        "worker_pid": worker_pid,
+        "planned_branch": task_branch_name(task_id, body),
+    }
 
 
 def cancel_task_tool(
