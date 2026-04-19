@@ -26,6 +26,11 @@ class TestEnsureWorker:
         argv = popen.call_args.args[0]
         assert argv[0] == "/usr/bin/python3"
         assert "src.project_worker" in argv
+        # cwd must be the claude-email repo so `-m src...` resolves;
+        # NOT the project_root passed in (that's only a fallback for tests
+        # that don't care about this axis).
+        from src.worker_manager import _REPO_ROOT
+        assert popen.call_args.kwargs["cwd"] == _REPO_ROOT
 
     def test_second_call_reuses_existing(self, mgr, tmp_path, mocker):
         (tmp_path / "p").mkdir()
