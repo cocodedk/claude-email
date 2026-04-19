@@ -122,7 +122,7 @@
         <li>
           <span class="num">№ 04</span>
           <h3>Agent Orchestration</h3>
-          <p>Target any agent by <code>@agent-name</code>, <code>spawn</code> a new one against a project path, or broadcast. Threading, liveness checks, and reaping are handled for you. Every project the orchestrator touches gets two hooks: <code>SessionStart</code> writes the registration row directly to the bus SQLite (deterministic) and <code>UserPromptSubmit</code> drains any queued mail into the next turn. Agents pick up messages even when they weren't polling — no "please check your inbox" needed.</p>
+          <p>Target any agent by <code>@agent-name</code>, <code>spawn</code> a new one against a project path, or broadcast. Threading, liveness checks, and reaping are handled for you. Every project the orchestrator touches gets two hooks: <code>SessionStart</code> writes the registration row directly to the bus SQLite (deterministic) and <code>UserPromptSubmit</code> drains any queued mail into the next turn. Agents pick up messages even when they weren't polling — no "please check your inbox" needed. And agents can talk to each other too via <code>chat_message_agent</code> — peer-to-peer notifications without round-tripping through the user.</p>
         </li>
         <li>
           <span class="num">№ 05</span>
@@ -132,7 +132,7 @@
         <li>
           <span class="num">№ 06</span>
           <h3>Tested to the Margins</h3>
-          <p>589 tests, 100% coverage, Python 3.12, fully typed, <code>shell=False</code> everywhere, verified TLS contexts. Boring on purpose; invasive vectors locked out.</p>
+          <p>598 tests, 100% coverage, Python 3.12, fully typed, <code>shell=False</code> everywhere, verified TLS contexts. Boring on purpose; invasive vectors locked out.</p>
         </li>
       </ol>
     </div>
