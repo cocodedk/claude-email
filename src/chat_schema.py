@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     status TEXT NOT NULL DEFAULT 'pending',
     priority INTEGER NOT NULL DEFAULT 0,
     pid INTEGER,
+    branch_name TEXT,
     created_at TEXT NOT NULL,
     started_at TEXT,
     completed_at TEXT,
@@ -48,3 +49,9 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project_path, status);
 """
+
+
+# Idempotent migrations for existing DBs that predate new columns.
+MIGRATIONS = [
+    "ALTER TABLE tasks ADD COLUMN branch_name TEXT",
+]
