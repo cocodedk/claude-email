@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     started_at TEXT,
     completed_at TEXT,
     error_text TEXT,
-    output_text TEXT
+    output_text TEXT,
+    retry_of INTEGER
 );
 CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project_path, status);
 """
@@ -56,4 +57,5 @@ CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project_path, statu
 MIGRATIONS = [
     "ALTER TABLE tasks ADD COLUMN branch_name TEXT",
     "ALTER TABLE tasks ADD COLUMN output_text TEXT",
+    "ALTER TABLE tasks ADD COLUMN retry_of INTEGER",
 ]
