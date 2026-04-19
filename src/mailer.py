@@ -19,13 +19,16 @@ def send_reply(
     in_reply_to: str = "",
     references: str = "",
     email_domain: str = "",
+    content_type: str = "text/plain",
 ) -> str:
-    """Send a plain-text reply via SMTP_SSL with verified TLS.
+    """Send a reply via SMTP_SSL with verified TLS.
+
+    content_type defaults to text/plain. Pass "application/json" to send
+    structured-client envelopes; body must already be the serialized
+    payload in that case.
 
     Creates a fresh connection per send to avoid stale-connection issues in
-    long-running service deployments.
-
-    Returns the Message-ID of the sent email.
+    long-running service deployments. Returns the Message-ID of the sent email.
     """
     msg = email.message.EmailMessage()
     msg["From"] = username
@@ -36,7 +39,14 @@ def send_reply(
         msg["In-Reply-To"] = " ".join(in_reply_to.splitlines()).strip()
     if references:
         msg["References"] = " ".join(references.splitlines()).strip()
-    msg.set_content(body)
+    maintype, _, subtype = content_type.partition("/")
+    if maintype == "text" or not maintype:
+        msg.set_content(body, subtype=subtype or "plain")
+    else:
+        msg.set_content(
+            body.encode("utf-8"), maintype=maintype, subtype=subtype or "octet-stream",
+        )
+        msg.replace_header("Content-Type", f"{content_type}; charset=utf-8")
     msg["Message-ID"] = email.utils.make_msgid(domain=email_domain) if email_domain else email.utils.make_msgid()
 
     ctx = ssl.create_default_context()
