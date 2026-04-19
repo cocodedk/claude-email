@@ -39,21 +39,39 @@ def _from_name(task_row: dict) -> str:
     return "agent-" + (Path(path).name or "unknown")
 
 
+_EXCERPT_LIMIT = 600
+
+
+def _excerpt(text: str | None) -> str:
+    if not text:
+        return ""
+    t = text.strip()
+    if len(t) <= _EXCERPT_LIMIT:
+        return t
+    return t[-_EXCERPT_LIMIT:]
+
+
 def _body(task_row: dict) -> str:
     tid = task_row.get("id")
     status = task_row.get("status")
     branch = task_row.get("branch_name")
     project = Path(task_row.get("project_path") or "").name
+    out_tail = _excerpt(task_row.get("output_text"))
     header = f"[{project}] Task #{tid} {status}"
     if status == "failed":
         err = (task_row.get("error_text") or "").strip()
-        return f"{header}: {err[:400]}" if err else header
+        parts = [f"{header}: {err[:400]}" if err else header]
+        if out_tail:
+            parts.append("--- tail of output ---")
+            parts.append(out_tail)
+        return "\n".join(parts)
     if status == "cancelled":
         return header + "."
     # done
-    if branch:
-        return (
-            f"{header} on branch `{branch}`. "
-            f"Run `git log -1 {branch}` in the project to see the changes."
-        )
-    return f"{header} (non-git project, no branch recorded)."
+    branch_line = (
+        f" on branch `{branch}`. Run `git log -1 {branch}` to see the changes."
+        if branch else " (non-git project, no branch recorded)."
+    )
+    if out_tail:
+        return f"{header}{branch_line}\n\n--- tail of output ---\n{out_tail}"
+    return f"{header}{branch_line}"
