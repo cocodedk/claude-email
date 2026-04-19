@@ -47,6 +47,17 @@ PROJECT_TOOLS = [
                     "description": "Higher runs first; default 0",
                     "default": 0,
                 },
+                "plan_first": {
+                    "type": "boolean",
+                    "description": (
+                        "When true, the worker's claude MUST propose a "
+                        "plan via chat_ask and wait for user approval "
+                        "before making any changes. Use for vague/big "
+                        "requests ('review', 'audit', 'refactor X', "
+                        "'analyze Y') where scope control matters."
+                    ),
+                    "default": False,
+                },
             },
             "required": ["project", "body"],
         },

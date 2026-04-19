@@ -28,12 +28,12 @@ class TaskQueue:
 
     def enqueue(
         self, project_path: str, body: str, priority: int = 0,
-        retry_of: int | None = None,
+        retry_of: int | None = None, plan_first: bool = False,
     ) -> int:
         cur = self._conn.execute(
-            "INSERT INTO tasks (project_path, body, priority, created_at, retry_of) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (project_path, body, priority, _now(), retry_of),
+            "INSERT INTO tasks (project_path, body, priority, created_at, retry_of, plan_first) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (project_path, body, priority, _now(), retry_of, 1 if plan_first else 0),
         )
         self._conn.commit()
         return cur.lastrowid
