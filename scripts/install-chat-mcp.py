@@ -16,9 +16,13 @@ Both must be set — the script errors out with guidance if either is missing.
 Skips:
   - non-directories (loose files, logs, scripts)
   - hidden directories (starting with '.')
-  - claude-email itself (hosts the server, does not connect to it)
 
-Idempotent: inject_mcp_config merges into existing .mcp.json so re-running is safe.
+Writes two files per project:
+  - .mcp.json  — declares the claude-chat MCP SSE server
+  - .claude/settings.json — SessionStart hook telling the agent to register
+    and how to use the bus (script lives in this repo's scripts/)
+
+Idempotent: both helpers merge into existing files so re-running is safe.
 """
 import os
 import sys
@@ -33,9 +37,13 @@ try:
 except ImportError:
     pass
 
-from src.spawner import inject_mcp_config  # noqa: E402
+from src.spawner import (  # noqa: E402
+    _HOOK_SCRIPT,
+    inject_mcp_config,
+    inject_session_start_hook,
+)
 
-SKIP_NAMES = {"claude-email"}
+SKIP_NAMES: set[str] = set()
 
 
 def main() -> int:
@@ -77,6 +85,7 @@ def main() -> int:
             continue
         try:
             inject_mcp_config(str(entry), chat_url)
+            inject_session_start_hook(str(entry), _HOOK_SCRIPT)
             installed.append(entry.name)
         except Exception as exc:  # noqa: BLE001
             skipped.append((entry.name, f"error: {exc}"))
