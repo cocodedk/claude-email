@@ -60,12 +60,20 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
-        queue.mark_failed(tid, f"timeout after {cfg.task_timeout}s")
+        if _status(queue, tid) == "running":
+            queue.mark_failed(tid, f"timeout after {cfg.task_timeout}s")
         return
+    if _status(queue, tid) != "running":
+        return  # cancelled externally — don't overwrite
     if rc == 0:
         queue.mark_done(tid)
     else:
         queue.mark_failed(tid, f"claude exited rc={rc}")
+
+
+def _status(queue: TaskQueue, task_id: int) -> str:
+    row = queue.get(task_id)
+    return row["status"] if row else ""
 
 
 def worker_loop(
