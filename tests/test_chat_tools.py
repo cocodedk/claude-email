@@ -9,6 +9,7 @@ from chat.tools import (
     check_messages,
     list_agents,
     deregister_agent,
+    message_agent,
 )
 
 
@@ -170,6 +171,44 @@ class TestListAgents:
         result = list_agents(db)
         agent = result["agents"][0]
         assert set(agent.keys()) == {"name", "status", "project_path", "last_seen_at"}
+
+
+# ── message_agent ─────────────────────────────────────────────
+
+class TestMessageAgent:
+    def test_delivers_to_registered_peer(self, db):
+        db.register_agent("a-sender", "/p/s")
+        db.register_agent("a-recipient", "/p/r")
+        result = message_agent(db, "a-sender", "a-recipient", "ping")
+        assert result == {"status": "sent", "to": "a-recipient"}
+        pending = db.get_pending_messages_for("a-recipient")
+        assert len(pending) == 1
+        assert pending[0]["from_name"] == "a-sender"
+        assert pending[0]["body"] == "ping"
+        assert pending[0]["type"] == "notify"
+
+    def test_rejects_user_recipient(self, db):
+        """'user' goes via chat_notify — two paths confuse the model."""
+        db.register_agent("a-sender", "/p")
+        result = message_agent(db, "a-sender", "user", "hi")
+        assert "error" in result
+        assert "chat_notify" in result["error"]
+        # No message inserted
+        assert db.get_pending_messages_for("user") == []
+
+    def test_rejects_unknown_recipient(self, db):
+        """Typos shouldn't silently queue ghost messages."""
+        db.register_agent("a-sender", "/p")
+        result = message_agent(db, "a-sender", "agent-typo", "hi")
+        assert "error" in result
+        assert "agent-typo" in result["error"]
+        # No message inserted for the ghost
+        assert db.get_pending_messages_for("agent-typo") == []
+
+    def test_rejects_empty_recipient(self, db):
+        db.register_agent("a-sender", "/p")
+        result = message_agent(db, "a-sender", "", "hi")
+        assert "error" in result
 
 
 # ── deregister_agent ──────────────────────────────────────────

@@ -112,6 +112,13 @@ async def _dispatch(
             _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
             _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
         )
+    if name == "chat_message_agent":
+        return tools.message_agent(
+            db,
+            _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
+            _sanitize_str(arguments["to_agent"], _MAX_NAME_LEN, "to_agent"),
+            _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
+        )
     if name == "chat_check_messages":
         return tools.check_messages(
             db, _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),

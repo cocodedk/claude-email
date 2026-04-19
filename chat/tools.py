@@ -24,6 +24,23 @@ def notify_user(db: ChatDB, caller: str, message: str) -> dict:
     return {"status": "sent"}
 
 
+def message_agent(db: ChatDB, caller: str, to_agent: str, message: str) -> dict:
+    """Send a one-way notification from caller to another registered agent.
+
+    Rejects to_agent=='user' — callers should use notify_user/chat_notify
+    for that. Rejects unknown recipients so typos don't silently queue
+    ghost messages that will never be drained.
+    """
+    if not to_agent:
+        return {"error": "to_agent must not be empty"}
+    if to_agent == "user":
+        return {"error": "to_agent='user' is not allowed — use chat_notify to reach the user"}
+    if db.get_agent(to_agent) is None:
+        return {"error": f"no registered agent named {to_agent!r}"}
+    db.insert_message(caller, to_agent, message, "notify")
+    return {"status": "sent", "to": to_agent}
+
+
 _ASK_TIMEOUT = 3600  # 1 hour max wait
 
 

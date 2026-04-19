@@ -51,6 +51,26 @@ _CORE_TOOLS = [
         },
     ),
     Tool(
+        name="chat_message_agent",
+        description=(
+            "Send a one-way notification from the caller agent to another "
+            "registered agent. Use chat_notify instead when the recipient is "
+            "the user."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "to_agent": {
+                    "type": "string",
+                    "description": "Recipient agent name (must be registered)",
+                },
+                "message": {"type": "string", "description": "Message body"},
+                "_caller": _CALLER_PROP,
+            },
+            "required": ["to_agent", "message", "_caller"],
+        },
+    ),
+    Tool(
         name="chat_check_messages",
         description="Return pending messages for the caller agent.",
         inputSchema={
