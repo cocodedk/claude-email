@@ -51,7 +51,8 @@ def _build_argv(cfg: WorkerConfig, body: str) -> list[str]:
 
 
 def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
-    """Run one claimed task to completion or failure."""
+    """Run one claimed task. Captures stdout+stderr (merged); last ~4KB
+    lands on task.output_text so the done-email has real context."""
     tid = claimed["id"]
     if not _prepare_branch(queue, tid, claimed["body"], cfg.project_path):
         _finish(queue, tid, cfg)
@@ -60,25 +61,40 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
     logger.info("worker task %d: launching claude --continue", tid)
     proc = subprocess.Popen(
         argv, cwd=cfg.project_path, shell=False,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     queue.set_pid(tid, proc.pid)
     try:
-        rc = proc.wait(timeout=cfg.task_timeout)
+        stdout, _ = proc.communicate(timeout=cfg.task_timeout)
     except subprocess.TimeoutExpired:
         proc.kill()
-        proc.wait()
+        stdout, _ = proc.communicate()
+        queue.set_output(tid, _tail(stdout))
         if _status(queue, tid) == "running":
             queue.mark_failed(tid, f"timeout after {cfg.task_timeout}s")
         _finish(queue, tid, cfg)
         return
+    rc = proc.returncode
+    queue.set_output(tid, _tail(stdout))
     if _status(queue, tid) != "running":
         return  # cancelled externally; cancel path logs
     if rc == 0:
         queue.mark_done(tid)
     else:
-        queue.mark_failed(tid, f"claude exited rc={rc}")
-    log_task_finished(cfg.project_path, queue.get(tid) or {})
+        queue.mark_failed(tid, f"claude exited rc={rc}; see output_text tail")
+    _finish(queue, tid, cfg)
+
+
+_MAX_OUTPUT_BYTES = 4_000
+
+
+def _tail(s: str | None) -> str:
+    if not s:
+        return ""
+    encoded = s.encode("utf-8", errors="replace")
+    if len(encoded) <= _MAX_OUTPUT_BYTES:
+        return s
+    return "…(truncated)…\n" + encoded[-_MAX_OUTPUT_BYTES:].decode("utf-8", errors="replace")
 
 
 def _status(queue: TaskQueue, task_id: int) -> str:
