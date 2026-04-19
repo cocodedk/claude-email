@@ -21,6 +21,7 @@ from src.chat_handlers import (
 )
 from src.config_validators import validated_effort
 from src.executor import execute_command, extract_command
+from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
 from src.poller import EmailPoller
 from src.security import is_authorized
 
@@ -76,6 +77,7 @@ def _config() -> dict:
         "claude_effort": validated_effort(os.environ.get("CLAUDE_EFFORT", "").strip() or None),
         "claude_max_budget_usd": os.environ.get("CLAUDE_MAX_BUDGET_USD") or None,
         "claude_extra_env": extra_env,
+        "llm_router": os.environ.get("LLM_ROUTER", "") == "1",
         "state_file": os.environ["STATE_FILE"],
         "email_domain": os.environ["EMAIL_DOMAIN"],
         "chat_db_path": os.environ["CHAT_DB_PATH"],
@@ -110,10 +112,7 @@ def process_email(message, config: dict, chat_db=None) -> None:
 
     timeout = config["claude_timeout"]
     try:
-        send_threaded_reply(
-            config, message,
-            f"Command received. Running (up to {timeout}s)...",
-        )
+        send_threaded_reply(config, message, f"Command received. Running (up to {timeout}s)...")
     except Exception:
         logger.exception("Failed to send progress ack — continuing with execution")
 
@@ -124,6 +123,7 @@ def process_email(message, config: dict, chat_db=None) -> None:
         extra_env=config.get("claude_extra_env") or None,
         model=config.get("claude_model"), effort=config.get("claude_effort"),
         max_budget_usd=config.get("claude_max_budget_usd"),
+        system_prompt=EMAIL_ROUTER_SYSTEM_PROMPT if config.get("llm_router") else None,
     )
     send_threaded_reply(config, message, output)
 

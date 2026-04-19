@@ -175,6 +175,26 @@ class TestExecuteCommand:
         cmd = mock_run.call_args.args[0]
         assert "--dangerously-skip-permissions" not in cmd
 
+    def test_system_prompt_appends_flag(self, mocker):
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        execute_command("hi", system_prompt="You are the email dispatcher.")
+        cmd = mock_run.call_args.args[0]
+        assert "--append-system-prompt" in cmd
+        idx = cmd.index("--append-system-prompt")
+        assert cmd[idx + 1] == "You are the email dispatcher."
+
+    def test_system_prompt_absent_when_none(self, mocker):
+        mock_run = mocker.patch("subprocess.run")
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="ok", stderr="",
+        )
+        execute_command("hi")
+        cmd = mock_run.call_args.args[0]
+        assert "--append-system-prompt" not in cmd
+
     def test_extra_env_merged_into_subprocess_env(self, mocker):
         mock_run = mocker.patch("subprocess.run")
         mock_run.return_value = subprocess.CompletedProcess(
