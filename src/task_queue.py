@@ -26,11 +26,14 @@ class TaskQueue:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA busy_timeout=5000")
 
-    def enqueue(self, project_path: str, body: str, priority: int = 0) -> int:
+    def enqueue(
+        self, project_path: str, body: str, priority: int = 0,
+        retry_of: int | None = None,
+    ) -> int:
         cur = self._conn.execute(
-            "INSERT INTO tasks (project_path, body, priority, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (project_path, body, priority, _now()),
+            "INSERT INTO tasks (project_path, body, priority, created_at, retry_of) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (project_path, body, priority, _now(), retry_of),
         )
         self._conn.commit()
         return cur.lastrowid

@@ -128,6 +128,27 @@ PROJECT_TOOLS = [
         },
     ),
     Tool(
+        name="chat_retry_task",
+        description=(
+            "Re-enqueue a previously terminal task (done / failed / "
+            "cancelled). Pass task_id; optionally pass new_body to refine. "
+            "Preserves priority and project; records the chain via retry_of "
+            "so the audit log shows lineage."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "integer", "description": "Original task id"},
+                "new_body": {
+                    "type": "string",
+                    "description": "Refined instruction (default: reuse original body)",
+                    "default": "",
+                },
+            },
+            "required": ["task_id"],
+        },
+    ),
+    Tool(
         name="chat_where_am_i",
         description=(
             "Cross-project dashboard. Returns one entry per project with a "
