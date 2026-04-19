@@ -130,6 +130,32 @@ class TestPriorityBounds:
         assert tq.get(result["task_id"])["priority"] == 0
 
 
+class TestPlanFirst:
+    def test_plan_first_flag_persisted_on_row(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        result = enqueue_task_tool(
+            tq, mgr, project="p", body="review the architecture",
+            allowed_base=str(tmp_path), plan_first=True,
+        )
+        assert result["plan_first"] is True
+        assert tq.get(result["task_id"])["plan_first"] == 1
+
+    def test_plan_first_default_false(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        result = enqueue_task_tool(
+            tq, mgr, project="p", body="add a test",
+            allowed_base=str(tmp_path),
+        )
+        assert result["plan_first"] is False
+        assert tq.get(result["task_id"])["plan_first"] == 0
+
+
 class TestHighPriorityJumpsQueue:
     def test_higher_priority_claimed_first(self, tq, mgr, tmp_path, mocker):
         (tmp_path / "p").mkdir()

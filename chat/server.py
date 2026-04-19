@@ -141,6 +141,7 @@ async def _dispatch(
             project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
             body=_sanitize_str(arguments["body"], _MAX_MSG_LEN, "body"),
             priority=int(arguments.get("priority", 0)),
+            plan_first=bool(arguments.get("plan_first", False)),
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
     if name == "chat_cancel_task":
