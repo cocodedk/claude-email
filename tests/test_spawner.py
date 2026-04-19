@@ -81,6 +81,51 @@ class TestInjectSessionStartHook:
             }
         }
 
+    def test_merges_existing_settings(self, tmp_path):
+        from src.spawner import inject_session_start_hook
+        (tmp_path / ".claude").mkdir()
+        existing = {
+            "theme": "dark",
+            "hooks": {
+                "UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "/bin/true"}]}],
+            },
+        }
+        (tmp_path / ".claude" / "settings.json").write_text(json.dumps(existing))
+
+        hook_path = "/opt/claude-email/scripts/chat-session-start-hook.sh"
+        inject_session_start_hook(str(tmp_path), hook_path)
+
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert data["theme"] == "dark"
+        assert data["hooks"]["UserPromptSubmit"] == existing["hooks"]["UserPromptSubmit"]
+        assert data["hooks"]["SessionStart"] == [{
+            "matcher": "startup|resume",
+            "hooks": [{"type": "command", "command": hook_path}],
+        }]
+
+    def test_is_idempotent(self, tmp_path):
+        from src.spawner import inject_session_start_hook
+        hook_path = "/opt/claude-email/scripts/chat-session-start-hook.sh"
+        inject_session_start_hook(str(tmp_path), hook_path)
+        inject_session_start_hook(str(tmp_path), hook_path)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert len(data["hooks"]["SessionStart"]) == 1
+
+    def test_replaces_stale_session_start_when_path_changes(self, tmp_path):
+        from src.spawner import inject_session_start_hook
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "settings.json").write_text(json.dumps({
+            "hooks": {"SessionStart": [{
+                "matcher": "startup",
+                "hooks": [{"type": "command", "command": "/old/path/hook.sh"}],
+            }]}
+        }))
+        new_path = "/new/path/hook.sh"
+        inject_session_start_hook(str(tmp_path), new_path)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        assert cmd == new_path
+
 
 class TestValidateProjectPath:
     def test_valid_path_returns_resolved(self, tmp_path):
