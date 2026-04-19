@@ -10,16 +10,16 @@ import signal
 import sys
 import time
 
-from dotenv import dotenv_values, load_dotenv
+from dotenv import load_dotenv
 
 from src.chat_handlers import handle_chat_email, maybe_cleanup_db, relay_outbound_messages, send_threaded_reply
-from src.config_validators import validated_effort
+from src.config import build_config
 from src.dispatch import build_universe_resources, dispatch_by_sender, universes_from_config
 from src.executor import execute_command, extract_command
+from src.ghost_reaper import sweep_ghosts
 from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
 from src.poller import EmailPoller
 from src.security import is_authorized
-from src.universes import build_universes
 
 load_dotenv()
 
@@ -49,37 +49,7 @@ signal.signal(signal.SIGTERM, _handle_signal)
 signal.signal(signal.SIGINT, _handle_signal)
 
 
-def _config() -> dict:
-    shared_secret = os.environ.get("SHARED_SECRET", "")
-    _ev = lambda k: os.environ.get(k, "")  # noqa: E731
-    extra_env = {k: v for k, v in (("CLAUDE_CONFIG_DIR", _ev("CLAUDE_CONFIG_DIR")), ("IS_SANDBOX", _ev("IS_SANDBOX"))) if v}
-    tep = os.path.join(os.path.dirname(__file__), ".env.test")
-    universes = build_universes(os.environ, test_env=(dotenv_values(tep) if os.path.exists(tep) else {}))
-    return {
-        "universes": universes,
-        "authorized_senders": [u.sender for u in universes],
-        "imap_host": os.environ["IMAP_HOST"], "imap_port": int(os.environ["IMAP_PORT"]),
-        "smtp_host": os.environ["SMTP_HOST"], "smtp_port": int(os.environ["SMTP_PORT"]),
-        "username": os.environ["EMAIL_ADDRESS"], "password": os.environ["EMAIL_PASSWORD"],
-        "authorized_sender": os.environ["AUTHORIZED_SENDER"],
-        "shared_secret": shared_secret,
-        "gpg_fingerprint": os.environ.get("GPG_FINGERPRINT", ""),
-        "gpg_home": os.environ.get("GPG_HOME"),
-        "poll_interval": int(os.environ["POLL_INTERVAL"]),
-        "claude_timeout": int(os.environ["CLAUDE_TIMEOUT"]),
-        "claude_bin": os.environ["CLAUDE_BIN"], "claude_cwd": os.environ["CLAUDE_CWD"],
-        "claude_yolo": os.environ.get("CLAUDE_YOLO", "") == "1",
-        "claude_model": os.environ.get("CLAUDE_MODEL") or None,
-        "claude_effort": validated_effort(os.environ.get("CLAUDE_EFFORT", "").strip() or None),
-        "claude_max_budget_usd": os.environ.get("CLAUDE_MAX_BUDGET_USD") or None,
-        "claude_extra_env": extra_env,
-        "llm_router": os.environ.get("LLM_ROUTER", "") == "1",
-        "state_file": os.environ["STATE_FILE"], "email_domain": os.environ["EMAIL_DOMAIN"],
-        "chat_db_path": os.environ["CHAT_DB_PATH"], "chat_url": os.environ["CHAT_URL"],
-        "service_name_email": os.environ["SERVICE_NAME_EMAIL"],
-        "service_name_chat": os.environ["SERVICE_NAME_CHAT"],
-        "auth_prefix": f"AUTH:{shared_secret}",
-    }
+_config = build_config  # alias: tests patch `main._config`
 
 
 def process_email(message, config: dict, chat_db=None, task_queue=None, worker_manager=None) -> None:
@@ -124,6 +94,21 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
     send_threaded_reply(config, message, output, tag="Result")
 
 
+def _tick_housekeeping(config: dict, cdb, tq) -> None:
+    """Per-universe chores: relay, reap agents, reap ghost tasks, cleanup."""
+    try: relay_outbound_messages(config, cdb)
+    except Exception: logger.exception("Outbound relay error")
+    try:
+        for name in cdb.reap_dead_agents():
+            logger.info("Agent %s marked disconnected (process exited)", name)
+    except Exception: logger.exception("Liveness check error")
+    try:
+        n = sweep_ghosts(tq)
+        if n: logger.warning("Ghost reaper: %d orphaned task(s) marked failed", n)
+    except Exception: logger.exception("Ghost reaper error")
+    maybe_cleanup_db(cdb)
+
+
 def run_loop(config: dict) -> None:
     """Main polling loop. Runs until SIGTERM/SIGINT received."""
     global _shutdown
@@ -164,17 +149,8 @@ def run_loop(config: dict) -> None:
         except Exception:
             logger.exception("IMAP error — retrying after %ds", config["poll_interval"])
 
-        for _, cdb, _, _ in resources.values():
-            try:
-                relay_outbound_messages(config, cdb)
-            except Exception:
-                logger.exception("Outbound relay error")
-            try:
-                for name in cdb.reap_dead_agents():
-                    logger.info("Agent %s marked disconnected (process exited)", name)
-            except Exception:
-                logger.exception("Liveness check error")
-            maybe_cleanup_db(cdb)
+        for _, cdb, tq, _ in resources.values():
+            _tick_housekeeping(config, cdb, tq)
 
         for _ in range(config["poll_interval"]):
             if _shutdown:

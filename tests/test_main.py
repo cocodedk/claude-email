@@ -273,6 +273,20 @@ class TestConfig:
         cfg = _config()
         assert cfg["claude_effort"] is None
 
+    def test_tick_housekeeping_logs_ghost_reaped(self, mocker):
+        """When sweep_ghosts returns >0, main logs a warning."""
+        import main
+        mocker.patch("main.relay_outbound_messages")
+        mocker.patch("main.sweep_ghosts", return_value=3)
+        cdb = MagicMock()
+        cdb.reap_dead_agents.return_value = []
+        tq = MagicMock()
+        mock_logger = mocker.patch("main.logger")
+        mocker.patch("main.maybe_cleanup_db")
+        main._tick_housekeeping({}, cdb, tq)
+        warn_msgs = [c.args[0] for c in mock_logger.warning.call_args_list]
+        assert any("Ghost reaper" in m for m in warn_msgs)
+
     def test_config_unset_effort_is_none(self, monkeypatch):
         self._base_env(monkeypatch)
         monkeypatch.delenv("CLAUDE_EFFORT", raising=False)
