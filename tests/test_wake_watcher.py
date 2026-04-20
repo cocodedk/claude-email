@@ -1,7 +1,28 @@
 """Tests for wake_watcher helpers and main loop."""
+import os
+import tempfile
+
 import pytest
 
-from src.wake_watcher import _AgentLocks, _FailureTracker, _SessionCache
+from src.chat_db import ChatDB
+from src.wake_spawn import WakeTurnResult
+from src.wake_watcher import (
+    _AgentLocks,
+    _FailureTracker,
+    _SessionCache,
+    process_agent,
+)
+
+
+@pytest.fixture
+def live_db():
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    db = ChatDB(path)
+    try:
+        yield db
+    finally:
+        os.unlink(path)
 
 
 @pytest.mark.asyncio
@@ -84,3 +105,31 @@ def test_failure_tracker_rate_limits_notifications():
     assert ft.can_notify("agent-foo") is False
     t[0] = 61
     assert ft.can_notify("agent-foo") is True
+
+
+@pytest.mark.asyncio
+async def test_process_agent_success_first_session(live_db, tmp_path):
+    live_db.register_agent("agent-foo", str(tmp_path))
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+    locks = _AgentLocks()
+    cache = _SessionCache(idle_secs=900)
+    tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)
+
+    calls: list[list[str]] = []
+
+    async def fake_spawn(cmd, cwd, timeout):
+        calls.append(cmd)
+        for m in live_db.get_pending_messages_for("agent-foo"):
+            live_db.mark_message_delivered(m["id"])
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=fake_spawn, claude_bin="claude",
+        prompt="drain", timeout=300, user_avatar="user",
+    )
+
+    assert len(calls) == 1
+    assert "--session-id" in calls[0]
+    assert tracker.count("agent-foo") == 0
+    assert cache.get("agent-foo") is not None

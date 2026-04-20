@@ -7,8 +7,15 @@ and the main loop stays readable.
 """
 from __future__ import annotations
 
+import logging
 import time
+import uuid
 from collections.abc import Callable
+
+from src.chat_db import ChatDB
+from src.wake_spawn import WakeTurnResult, build_wake_cmd
+
+logger = logging.getLogger(__name__)
 
 
 class _AgentLocks:
@@ -87,3 +94,72 @@ class _FailureTracker:
 
     def mark_notified(self, name: str) -> None:
         self._last_notified[name] = self._clock()
+
+
+async def process_agent(
+    agent_name: str, db: ChatDB, locks: _AgentLocks, cache: _SessionCache,
+    tracker: _FailureTracker, *, spawn_fn, claude_bin: str, prompt: str,
+    timeout: float, user_avatar: str,
+) -> None:
+    """Drive one wake turn for one agent. Safe to call from the loop."""
+    if not await locks.try_acquire(agent_name):
+        return
+    try:
+        agent = db.get_agent(agent_name)
+        if not agent or not agent.get("project_path"):
+            logger.warning("wake: unknown/path-less agent %s", agent_name)
+            return
+        project_path = agent["project_path"]
+
+        cached = cache.get(agent_name)
+        if cached is None:
+            persisted = db.get_wake_session(agent_name)
+            cached = persisted["session_id"] if persisted else None
+        is_resume = cached is not None
+        session_id = cached or str(uuid.uuid4())
+
+        cmd = build_wake_cmd(claude_bin, session_id, is_resume, prompt)
+        result = await spawn_fn(cmd, cwd=project_path, timeout=timeout)
+
+        if isinstance(result, WakeTurnResult) and result.exit_code == 0:
+            cache.set(agent_name, session_id)
+            db.upsert_wake_session(agent_name, session_id)
+            tracker.record_success(agent_name)
+        else:
+            _handle_failure(
+                db, tracker, agent_name, project_path, result, user_avatar,
+            )
+    finally:
+        locks.release(agent_name)
+
+
+def _handle_failure(
+    db: ChatDB, tracker: _FailureTracker, agent_name: str, project_path: str,
+    result, user_avatar: str,
+) -> None:
+    tracker.record_failure(agent_name)
+    logger.warning(
+        "wake: turn failed for %s (exit=%s timeout=%s error=%s)",
+        agent_name,
+        getattr(result, "exit_code", "?"),
+        getattr(result, "timed_out", "?"),
+        getattr(result, "error", None),
+    )
+    if not tracker.should_escalate(agent_name):
+        return
+    if not tracker.can_notify(agent_name):
+        return
+    pending = db.get_pending_messages_for(agent_name)
+    body = (
+        f"[wake-watcher] persistent spawn failure\n"
+        f"agent: {agent_name}\n"
+        f"project: {project_path}\n"
+        f"stuck messages: {len(pending)}\n"
+        f"last error: exit={getattr(result, 'exit_code', '?')} "
+        f"timeout={getattr(result, 'timed_out', '?')} "
+        f"error={getattr(result, 'error', None)}"
+    )
+    db.insert_message("wake-watcher", user_avatar, body, "notify")
+    for m in pending:
+        db.mark_message_failed(m["id"])
+    tracker.mark_notified(agent_name)
