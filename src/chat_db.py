@@ -115,6 +115,13 @@ class ChatDB(WakeSessionStoreMixin):
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_distinct_pending_recipients(self) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT DISTINCT to_name FROM messages "
+            "WHERE status='pending' AND to_name IS NOT NULL"
+        ).fetchall()
+        return [r["to_name"] for r in rows]
+
     def mark_message_delivered(self, msg_id: int) -> None:
         self._conn.execute(
             "UPDATE messages SET status='delivered' WHERE id=?", (msg_id,)

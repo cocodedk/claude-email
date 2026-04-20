@@ -68,3 +68,20 @@ def test_delete_wake_session_removes_row(db):
 
 def test_delete_wake_session_noop_on_missing(db):
     db.delete_wake_session("agent-nope")
+
+
+def test_get_distinct_pending_recipients_empty(db):
+    assert db.get_distinct_pending_recipients() == []
+
+
+def test_get_distinct_pending_recipients_dedupes(db):
+    db.insert_message("a", "foo", "m1", "notify")
+    db.insert_message("b", "foo", "m2", "notify")
+    db.insert_message("a", "bar", "m3", "notify")
+    assert sorted(db.get_distinct_pending_recipients()) == ["bar", "foo"]
+
+
+def test_get_distinct_pending_recipients_ignores_delivered(db):
+    msg = db.insert_message("a", "foo", "m1", "notify")
+    db.mark_message_delivered(msg["id"])
+    assert db.get_distinct_pending_recipients() == []
