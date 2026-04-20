@@ -6,6 +6,7 @@ lives under scripts/ and is invoked directly by Claude Code hooks.
 import importlib.util
 import io
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -118,6 +119,66 @@ class TestMain:
         assert out.out == ""
         assert out.err == ""
 
+    def test_skips_drain_when_subagent_indicated_by_agent_id(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        """SessionStart/UserPromptSubmit hook input includes agent_id only
+        inside a subagent — if present, drain must skip."""
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "sub"
+        project.mkdir()
+        db.insert_message("user", "agent-sub", "hello", "command")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        buf = io.StringIO(json.dumps({
+            "hook_event_name": "UserPromptSubmit",
+            "agent_id": "sub-123",
+        }))
+        monkeypatch.setattr(sys, "stdin", buf)
+        rc = drain_mod.main()
+        assert rc == 0
+        assert capsys.readouterr().out == ""
+        assert len(db.get_pending_messages_for("agent-sub")) == 1
+
+    def test_skips_drain_when_another_live_pid_owns_name(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        """A sub-agent or sibling session with the same caller name must
+        not steal messages from the registered master process."""
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "alpha"
+        project.mkdir()
+        master_pid = os.getpid()
+        db.register_agent("agent-alpha", str(project), pid=master_pid)
+        db.insert_message("user", "agent-alpha", "hi there", "command")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        # Pretend to be a subagent with a different pid than the master
+        monkeypatch.setattr(drain_mod.os, "getpid", lambda: master_pid + 1)
+        rc = drain_mod.main()
+        assert rc == 0
+        assert capsys.readouterr().out == ""
+        assert len(db.get_pending_messages_for("agent-alpha")) == 1
+
+    def test_drains_when_we_own_the_name(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        """If the registered pid matches ours, we are the master — drain."""
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "alpha"
+        project.mkdir()
+        db.register_agent("agent-alpha", str(project), pid=os.getpid())
+        db.insert_message("user", "agent-alpha", "hi there", "command")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        rc = drain_mod.main()
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "hi there" in out
+
     def test_drains_pending_and_emits_json(self, drain_mod, tmp_path, monkeypatch, capsys):
         db_file = tmp_path / "bus.db"
         db = ChatDB(str(db_file))
@@ -219,7 +280,7 @@ class TestMain:
         monkeypatch.chdir(project)
         monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
         mocker.patch(
-            "src.chat_db.ChatDB.get_pending_messages_for",
+            "src.chat_db.ChatDB.claim_pending_messages_for",
             side_effect=RuntimeError("boom"),
         )
         rc = drain_mod.main()

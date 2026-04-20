@@ -1,7 +1,9 @@
 """Tests for the shared SQLite database layer (ChatDB)."""
+import asyncio
+import os
 import sqlite3
 import pytest
-from src.chat_db import ChatDB
+from src.chat_db import ChatDB, AgentNameTaken, AgentProjectTaken
 
 
 @pytest.fixture
@@ -89,6 +91,50 @@ class TestAgents:
         db.touch_agent("a1")
         second = db.get_agent("a1")["last_seen_at"]
         assert second >= first
+
+    def test_register_with_pid_stores_pid(self, db):
+        db.register_agent("a1", "/p", pid=4242)
+        assert db.get_agent("a1")["pid"] == 4242
+
+    def test_register_same_pid_refreshes(self, db):
+        db.register_agent("a1", "/p", pid=os.getpid())
+        db.register_agent("a1", "/p2", pid=os.getpid())
+        agent = db.get_agent("a1")
+        assert agent["project_path"] == "/p2"
+        assert agent["pid"] == os.getpid()
+
+    def test_register_different_live_pid_raises(self, db):
+        db.register_agent("a1", "/p", pid=os.getpid())
+        with pytest.raises(AgentNameTaken) as excinfo:
+            db.register_agent("a1", "/p", pid=os.getpid() + 10_000_000)
+        assert excinfo.value.owner_pid == os.getpid()
+
+    def test_register_different_dead_pid_takes_over(self, db):
+        db.register_agent("a1", "/p", pid=99_999_999)
+        db.register_agent("a1", "/p2", pid=os.getpid())
+        agent = db.get_agent("a1")
+        assert agent["pid"] == os.getpid()
+        assert agent["project_path"] == "/p2"
+
+    def test_register_legacy_no_pid_still_upserts(self, db):
+        db.register_agent("a1", "/old")
+        db.register_agent("a1", "/new")
+        assert db.get_agent("a1")["project_path"] == "/new"
+
+    def test_register_different_name_same_project_live_pid_raises(self, db):
+        db.register_agent("agent-one", "/shared/project", pid=os.getpid())
+        with pytest.raises(AgentProjectTaken) as excinfo:
+            db.register_agent(
+                "agent-two", "/shared/project", pid=os.getpid() + 10_000_000,
+            )
+        assert excinfo.value.project_path == "/shared/project"
+        assert excinfo.value.owner_name == "agent-one"
+        assert excinfo.value.owner_pid == os.getpid()
+
+    def test_register_different_name_same_project_dead_pid_allowed(self, db):
+        db.register_agent("agent-one", "/shared/project", pid=99_999_999)
+        db.register_agent("agent-two", "/shared/project", pid=os.getpid())
+        assert db.get_agent("agent-two")["project_path"] == "/shared/project"
 
     def test_register_logs_event(self, db):
         db.register_agent("a1", "/p")
@@ -244,6 +290,66 @@ class TestMessages:
 
     def test_find_message_by_email_id_missing(self, db):
         assert db.find_message_by_email_id("<missing@x>") is None
+
+
+class TestClaimPendingMessages:
+    def test_claim_returns_pending_messages_fifo(self, db):
+        db.insert_message("a", "bob", "first", "ask")
+        db.insert_message("a", "bob", "second", "ask")
+        db.insert_message("a", "other", "not for bob", "ask")
+        claimed = db.claim_pending_messages_for("bob")
+        assert len(claimed) == 2
+        assert claimed[0]["body"] == "first"
+        assert claimed[1]["body"] == "second"
+
+    def test_claim_marks_messages_delivered(self, db):
+        db.insert_message("a", "bob", "hi", "ask")
+        db.claim_pending_messages_for("bob")
+        assert db.get_pending_messages_for("bob") == []
+
+    def test_claim_second_call_returns_empty(self, db):
+        db.insert_message("a", "bob", "hi", "ask")
+        db.claim_pending_messages_for("bob")
+        assert db.claim_pending_messages_for("bob") == []
+
+    def test_claim_does_not_affect_other_recipients(self, db):
+        db.insert_message("a", "alice", "for alice", "ask")
+        db.insert_message("a", "bob", "for bob", "ask")
+        db.claim_pending_messages_for("bob")
+        assert len(db.get_pending_messages_for("alice")) == 1
+
+    def test_claim_returns_empty_when_no_pending(self, db):
+        assert db.claim_pending_messages_for("nobody") == []
+
+    def test_claim_sets_status_to_delivered_in_db(self, db):
+        msg = db.insert_message("a", "bob", "hi", "ask")
+        db.claim_pending_messages_for("bob")
+        row = db._conn.execute(
+            "SELECT status FROM messages WHERE id=?", (msg["id"],)
+        ).fetchone()
+        assert row["status"] == "delivered"
+
+
+class TestWakeNudge:
+    def test_insert_message_sets_registered_nudge(self, db):
+        nudge = asyncio.Event()
+        db.set_wake_nudge(nudge)
+        assert not nudge.is_set()
+        db.insert_message("a", "b", "hi", "notify")
+        assert nudge.is_set()
+
+    def test_insert_message_without_nudge_does_not_raise(self, db):
+        db.insert_message("a", "b", "hi", "notify")
+        assert db.get_pending_messages_for("b") != []
+
+    def test_nudge_fires_on_every_insert(self, db):
+        nudge = asyncio.Event()
+        db.set_wake_nudge(nudge)
+        db.insert_message("a", "b", "one", "notify")
+        assert nudge.is_set()
+        nudge.clear()
+        db.insert_message("a", "b", "two", "notify")
+        assert nudge.is_set()
 
     def test_get_reply_to_message(self, db):
         ask = db.insert_message("a", "b", "question?", "ask")

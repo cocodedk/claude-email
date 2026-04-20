@@ -2,16 +2,19 @@
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
+from src.agent_registry import AgentRegistryMixin
+from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.chat_schema import MIGRATIONS as _MIGRATIONS, SCHEMA as _SCHEMA
-from src.process_liveness import is_alive
 from src.wake_session_store import WakeSessionStoreMixin
+
+__all__ = ["AgentNameTaken", "AgentProjectTaken", "ChatDB"]
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-class ChatDB(WakeSessionStoreMixin):
+class ChatDB(AgentRegistryMixin, WakeSessionStoreMixin):
     """Single entry-point for all chat DB operations."""
 
     def __init__(self, path: str):
@@ -27,64 +30,14 @@ class ChatDB(WakeSessionStoreMixin):
             except sqlite3.OperationalError:
                 pass  # column/index already present
         self._conn.commit()
+        self._wake_nudge = None
 
-    # ── Agents ──────────────────────────────────────────────
+    def set_wake_nudge(self, event) -> None:
+        """Fire event after each insert (writer must be on the event's loop thread)."""
+        self._wake_nudge = event
 
-    def register_agent(self, name: str, project_path: str) -> dict:
-        now = _now()
-        self._conn.execute(
-            """INSERT INTO agents (name, project_path, status, registered_at, last_seen_at)
-               VALUES (?, ?, 'running', ?, ?)
-               ON CONFLICT(name) DO UPDATE SET
-                 project_path=excluded.project_path,
-                 status='running',
-                 last_seen_at=excluded.last_seen_at""",
-            (name, project_path, now, now),
-        )
-        self._conn.commit()
-        self._log_event(name, "register", f"Agent {name} registered")
-        return self.get_agent(name)
-
-    def get_agent(self, name: str) -> dict | None:
-        row = self._conn.execute(
-            "SELECT * FROM agents WHERE name=?", (name,)
-        ).fetchone()
-        return dict(row) if row else None
-
-    def list_agents(self) -> list[dict]:
-        rows = self._conn.execute("SELECT * FROM agents").fetchall()
-        return [dict(r) for r in rows]
-
-    def update_agent_status(self, name: str, status: str) -> None:
-        self._conn.execute(
-            "UPDATE agents SET status=? WHERE name=?", (status, name)
-        )
-        self._conn.commit()
-
-    def update_agent_pid(self, name: str, pid: int) -> None:
-        self._conn.execute(
-            "UPDATE agents SET pid=? WHERE name=?", (pid, name)
-        )
-        self._conn.commit()
-
-    def reap_dead_agents(self) -> list[str]:
-        """Mark dead agents as disconnected; reap zombie children via is_alive."""
-        rows = self._conn.execute(
-            "SELECT name, pid FROM agents WHERE pid IS NOT NULL AND status='running'"
-        ).fetchall()
-        reaped = []
-        for row in rows:
-            if not is_alive(row["pid"]):
-                self.update_agent_status(row["name"], "disconnected")
-                self._log_event(row["name"], "disconnect", f"Agent {row['name']} (PID {row['pid']}) no longer running")
-                reaped.append(row["name"])
-        return reaped
-
-    def touch_agent(self, name: str) -> None:
-        self._conn.execute(
-            "UPDATE agents SET last_seen_at=? WHERE name=?", (_now(), name)
-        )
-        self._conn.commit()
+    def _nudge_wake(self) -> None:
+        if self._wake_nudge is not None: self._wake_nudge.set()
 
     # ── Messages ────────────────────────────────────────────
 
@@ -106,6 +59,7 @@ class ChatDB(WakeSessionStoreMixin):
         row = self._conn.execute(
             "SELECT * FROM messages WHERE id=?", (cur.lastrowid,)
         ).fetchone()
+        self._nudge_wake()
         return dict(row)
 
     def get_pending_messages_for(self, to_name: str) -> list[dict]:
@@ -113,6 +67,20 @@ class ChatDB(WakeSessionStoreMixin):
             "SELECT * FROM messages WHERE to_name=? AND status='pending' ORDER BY id",
             (to_name,),
         ).fetchall()
+        return [dict(r) for r in rows]
+
+    def claim_pending_messages_for(self, to_name: str) -> list[dict]:
+        """Atomically mark pending messages as delivered and return them."""
+        rows = self._conn.execute(
+            """UPDATE messages SET status='delivered'
+               WHERE id IN (
+                   SELECT id FROM messages
+                   WHERE to_name=? AND status='pending' ORDER BY id
+               )
+               RETURNING *""",
+            (to_name,),
+        ).fetchall()
+        self._conn.commit()
         return [dict(r) for r in rows]
 
     def get_distinct_pending_recipients(self) -> list[str]:

@@ -17,6 +17,16 @@ _MAX_MSG_LEN = 100_000
 _MAX_PATH_LEN = 4096
 
 
+def _parse_task_id(arguments: dict) -> int | None:
+    raw = arguments.get("task_id")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _sanitize_str(value: str, max_len: int, field: str) -> str:
     """Validate and strip a string parameter."""
     if not isinstance(value, str):
@@ -45,12 +55,14 @@ async def dispatch(
             db,
             _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
             _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
+            task_id=_parse_task_id(arguments),
         )
     if name == "chat_notify":
         return tools.notify_user(
             db,
             _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
             _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
+            task_id=_parse_task_id(arguments),
         )
     if name == "chat_message_agent":
         return tools.message_agent(

@@ -4,6 +4,7 @@ We load the script by path since it lives under scripts/ and is invoked
 directly by the shell hook, not imported by any package.
 """
 import importlib.util
+import json
 import os
 import sys
 from pathlib import Path
@@ -94,7 +95,70 @@ class TestMain:
         rc = reg_mod.main()
         assert rc == 1
         err = capsys.readouterr().err
-        assert "registration failed" in err
+        assert "cannot open DB" in err
+
+    def test_skips_register_when_subagent_indicated_by_agent_id(
+        self, reg_mod, tmp_path, monkeypatch, capsys,
+    ):
+        db_file = tmp_path / "bus.db"
+        ChatDB(str(db_file))
+        project = tmp_path / "subagent-proj"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        import io as _io
+        buf = _io.StringIO(json.dumps({"agent_id": "sub-xyz"}))
+        monkeypatch.setattr(sys, "stdin", buf)
+        rc = reg_mod.main()
+        assert rc == 0
+        out = capsys.readouterr()
+        assert out.err == ""
+        # No agent registered
+        db = ChatDB(str(db_file))
+        assert db.get_agent("agent-subagent-proj") is None
+
+    def test_silent_skip_when_another_live_pid_owns_name(
+        self, reg_mod, tmp_path, monkeypatch, capsys,
+    ):
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "contested"
+        project.mkdir()
+        import os as _os
+        master_pid = _os.getpid()
+        db.register_agent("agent-contested", str(project), pid=master_pid)
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        monkeypatch.setattr(reg_mod.os, "getpid", lambda: master_pid + 1)
+        rc = reg_mod.main()
+        assert rc == 0
+        out = capsys.readouterr()
+        assert out.out == ""
+        assert out.err == ""
+        # Master registration unchanged
+        assert db.get_agent("agent-contested")["pid"] == master_pid
+
+    def test_silent_skip_when_different_name_owns_same_project(
+        self, reg_mod, tmp_path, monkeypatch, capsys,
+    ):
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "shared"
+        project.mkdir()
+        import os as _os
+        master_pid = _os.getpid()
+        db.register_agent("agent-old-name", str(project), pid=master_pid)
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        monkeypatch.setattr(reg_mod.os, "getpid", lambda: master_pid + 1)
+        rc = reg_mod.main()
+        assert rc == 0
+        out = capsys.readouterr()
+        assert out.err == ""
+        # Should not have registered a second agent for this project
+        from src.chat_db import ChatDB as _DB
+        db2 = _DB(str(db_file))
+        assert db2.get_agent("agent-shared") is None
 
     def test_name_derivation_strips_trailing_slash(self, reg_mod, tmp_path, monkeypatch):
         """cwd never has a trailing slash per POSIX, but basename logic should be robust."""

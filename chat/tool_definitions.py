@@ -34,6 +34,7 @@ _CORE_TOOLS = [
             "properties": {
                 "message": {"type": "string", "description": "Question text"},
                 "_caller": _CALLER_PROP,
+                "task_id": {"type": "integer", "description": "Task ID this message belongs to (for email threading)"},
             },
             "required": ["message", "_caller"],
         },
@@ -46,6 +47,7 @@ _CORE_TOOLS = [
             "properties": {
                 "message": {"type": "string", "description": "Notification text"},
                 "_caller": _CALLER_PROP,
+                "task_id": {"type": "integer", "description": "Task ID this message belongs to (for email threading)"},
             },
             "required": ["message", "_caller"],
         },

@@ -35,6 +35,7 @@ except ImportError:
     pass
 
 from src.chat_db import ChatDB  # noqa: E402
+from src.process_liveness import is_alive  # noqa: E402
 
 
 def _resolved_db_path() -> Path:
@@ -51,19 +52,28 @@ def _caller_name() -> str:
     return "agent-" + PurePosixPath(os.getcwd()).name
 
 
-def _read_hook_event() -> str:
-    """Hook runtime passes JSON on stdin with hook_event_name. Fall back to
-    UserPromptSubmit when nothing is piped (standalone / tests)."""
-    if sys.stdin.isatty():
-        return "UserPromptSubmit"
-    data = sys.stdin.read()
-    if not data.strip():
-        return "UserPromptSubmit"
+def _read_hook_payload() -> dict:
+    """Parse the JSON payload that Claude Code pipes on stdin to a hook.
+
+    Returns {} when stdin is a tty, empty, unavailable, or malformed.
+    """
     try:
-        payload = json.loads(data)
-        return payload.get("hook_event_name") or "UserPromptSubmit"
+        if sys.stdin.isatty():
+            return {}
+        data = sys.stdin.read()
+    except (OSError, ValueError):
+        return {}
+    if not data.strip():
+        return {}
+    try:
+        return json.loads(data)
     except json.JSONDecodeError:
-        return "UserPromptSubmit"
+        return {}
+
+
+def _read_hook_event() -> str:
+    """Back-compat wrapper used by existing tests."""
+    return _read_hook_payload().get("hook_event_name") or "UserPromptSubmit"
 
 
 def _format_context(caller: str, msgs: list[dict]) -> str:
@@ -86,7 +96,12 @@ def _format_context(caller: str, msgs: list[dict]) -> str:
 
 
 def main() -> int:
-    event = _read_hook_event()
+    payload = _read_hook_payload()
+    if payload.get("agent_id"):
+        # Claude Code marks subagent hook invocations with agent_id; the
+        # master session owns the bus slot — sub-agents must not drain.
+        return 0
+    event = payload.get("hook_event_name") or "UserPromptSubmit"
     try:
         db_path = _resolved_db_path()
     except RuntimeError as exc:
@@ -105,16 +120,24 @@ def main() -> int:
         return 0
 
     caller = _caller_name()
+    agent = db.get_agent(caller)
+    if (
+        agent is not None
+        and agent["pid"] is not None
+        and agent["pid"] != os.getpid()
+        and is_alive(agent["pid"])
+    ):
+        # Another live process (e.g. master claude session, or our parent)
+        # owns this name — subagents and sibling sessions must not steal
+        # messages from the master.
+        return 0
     try:
-        msgs = db.get_pending_messages_for(caller)
+        msgs = db.claim_pending_messages_for(caller)
     except Exception as exc:  # noqa: BLE001
         print(f"chat-drain-inbox: query failed: {exc}", file=sys.stderr)
         return 0
     if not msgs:
         return 0  # quiet turn
-
-    for m in msgs:
-        db.mark_message_delivered(m["id"])
 
     context = _format_context(caller, msgs)
     if event == "Stop":

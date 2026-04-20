@@ -51,6 +51,17 @@ class TestNotifyUser:
         assert msgs[0]["body"] == "Build done!"
         assert msgs[0]["type"] == "notify"
 
+    def test_notify_with_task_id_stores_task_id(self, db):
+        db.register_agent("bot", "/p")
+        task_id = db._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, created_at) VALUES (?, ?, ?, ?)",
+            ("/p", "work", "running", "2026-01-01T00:00:00"),
+        ).lastrowid
+        db._conn.commit()
+        notify_user(db, "bot", "done", task_id=task_id)
+        msgs = db.get_pending_messages_for("user")
+        assert msgs[0]["task_id"] == task_id
+
 
 # ── ask_user ──────────────────────────────────────────────────
 
@@ -104,6 +115,29 @@ class TestAskUser:
             "SELECT * FROM messages WHERE type='ask' AND from_name='bot'"
         ).fetchall()
         assert len(msgs) == 1
+
+    @pytest.mark.asyncio
+    async def test_ask_with_task_id_stores_task_id(self, db):
+        db.register_agent("bot", "/p")
+        task_id = db._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, created_at) VALUES (?, ?, ?, ?)",
+            ("/p", "work", "running", "2026-01-01T00:00:00"),
+        ).lastrowid
+        db._conn.commit()
+
+        async def quick_reply():
+            await asyncio.sleep(0.02)
+            pending = db.get_pending_messages_for("user")
+            ask_msg = [m for m in pending if m["type"] == "ask"][0]
+            db.insert_message("user", "bot", "ok", "reply", in_reply_to=ask_msg["id"])
+
+        asyncio.create_task(quick_reply())
+        await ask_user(db, "bot", "question?", poll_interval=0.01, task_id=task_id)
+
+        row = db._conn.execute(
+            "SELECT task_id FROM messages WHERE type='ask' AND from_name='bot'"
+        ).fetchone()
+        assert row["task_id"] == task_id
 
 
 # ── check_messages ────────────────────────────────────────────
