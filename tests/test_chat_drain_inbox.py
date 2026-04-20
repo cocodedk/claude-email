@@ -179,6 +179,35 @@ class TestMain:
         out = capsys.readouterr().out
         assert "hi there" in out
 
+    def test_drains_when_stored_pid_is_our_ancestor(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        """Spawned-agent case: agents.pid stores the long-lived Claude
+        session PID (written by src/spawner.py), and this hook is its
+        descendant. Must drain — an earlier version skipped when
+        os.getpid() != stored_pid, breaking hook-based delivery for
+        every spawned agent (caught by codex review)."""
+        import src.process_liveness as pl
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "spawned"
+        project.mkdir()
+        fake_hook_pid = 100
+        claude_session_pid = 555
+        db.register_agent("agent-spawned", str(project), pid=claude_session_pid)
+        db.insert_message("user", "agent-spawned", "welcome back", "command")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        chain = {fake_hook_pid: 200, 200: claude_session_pid, claude_session_pid: 1}
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: chain.get(pid))
+        monkeypatch.setattr(pl.os, "getpid", lambda: fake_hook_pid)
+        # Stored PID is "alive" — this is the real Claude session.
+        monkeypatch.setattr(drain_mod, "is_alive", lambda pid: True)
+        rc = drain_mod.main()
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "welcome back" in out
+
     def test_drains_pending_and_emits_json(self, drain_mod, tmp_path, monkeypatch, capsys):
         db_file = tmp_path / "bus.db"
         db = ChatDB(str(db_file))

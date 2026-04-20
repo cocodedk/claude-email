@@ -35,7 +35,7 @@ except ImportError:
     pass
 
 from src.chat_db import ChatDB  # noqa: E402
-from src.process_liveness import is_alive  # noqa: E402
+from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
 
 
 def _resolved_db_path() -> Path:
@@ -124,12 +124,14 @@ def main() -> int:
     if (
         agent is not None
         and agent["pid"] is not None
-        and agent["pid"] != os.getpid()
+        and not is_ancestor_or_self(agent["pid"])
         and is_alive(agent["pid"])
     ):
-        # Another live process (e.g. master claude session, or our parent)
-        # owns this name — subagents and sibling sessions must not steal
-        # messages from the master.
+        # A different live process owns this agent name and is NOT in our
+        # PPID chain — so it's a sibling Claude session, not the one that
+        # launched this hook. Silent skip so sibling sessions don't steal
+        # each other's messages. (Matching os.getpid() directly was wrong:
+        # hook scripts are short-lived helpers, never the stored PID.)
         return 0
     try:
         msgs = db.claim_pending_messages_for(caller)

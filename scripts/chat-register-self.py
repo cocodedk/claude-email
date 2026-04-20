@@ -28,7 +28,24 @@ except ImportError:
     pass
 
 from src.chat_db import AgentNameTaken, AgentProjectTaken, ChatDB  # noqa: E402
-from src.process_liveness import is_alive  # noqa: E402
+from src.process_liveness import (  # noqa: E402
+    find_ancestor_pid_matching, is_alive, is_ancestor_or_self,
+)
+
+
+_CLAUDE_CMDLINE_MARKER = os.environ.get("CLAUDE_PROCESS_MARKER", "bin/claude")
+
+
+def _durable_session_pid() -> int:
+    """Return a PID that will still be alive on later hook invocations.
+
+    Hook helpers are short-lived — os.getpid() here dies when this script
+    exits. To make ownership checks meaningful across subsequent hooks we
+    store the long-lived Claude session PID instead, found by walking up
+    the PPID chain for a cmdline containing ``bin/claude``. Falls back to
+    os.getpid() when no Claude ancestor is visible (e.g. ad-hoc CLI runs,
+    CI, tests) so existing standalone paths still work."""
+    return find_ancestor_pid_matching(_CLAUDE_CMDLINE_MARKER) or os.getpid()
 
 
 def _resolved_db_path() -> Path:
@@ -79,18 +96,18 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    my_pid = os.getpid()
+    session_pid = _durable_session_pid()
     try:
         db = ChatDB(str(db_path))
     except Exception as exc:  # noqa: BLE001
         print(f"chat-register-self: cannot open DB: {exc}", file=sys.stderr)
         return 1
-    if _master_already_owns(db, name, cwd, my_pid):
+    if _master_already_owns(db, name, cwd):
         # Another live claude session or parent agent already holds this
         # slot — subagents and sibling sessions must stay silent.
         return 0
     try:
-        db.register_agent(name, cwd, pid=my_pid)
+        db.register_agent(name, cwd, pid=session_pid)
     except (AgentNameTaken, AgentProjectTaken):
         # Race: someone else registered between our pre-check and insert.
         # Quietly concede.
@@ -101,18 +118,22 @@ def main() -> int:
     return 0
 
 
-def _master_already_owns(db: ChatDB, name: str, cwd: str, my_pid: int) -> bool:
-    """True if another live process is registered as this name or project."""
+def _master_already_owns(db: ChatDB, name: str, cwd: str) -> bool:
+    """True if another live process (not in our PPID chain) already owns
+    this agent name or project path. Uses PPID ancestry instead of PID
+    equality because hook helpers are short-lived — the hook's os.getpid()
+    is never what's stored in the DB for a properly-registered master."""
     existing = db.get_agent(name)
     if existing and existing["pid"] is not None \
-            and existing["pid"] != my_pid and is_alive(existing["pid"]):
+            and not is_ancestor_or_self(existing["pid"]) \
+            and is_alive(existing["pid"]):
         return True
     row = db._conn.execute(  # noqa: SLF001
         "SELECT name, pid FROM agents "
         "WHERE project_path=? AND name!=? AND pid IS NOT NULL",
         (cwd, name),
     ).fetchone()
-    if row and row["pid"] != my_pid and is_alive(row["pid"]):
+    if row and not is_ancestor_or_self(row["pid"]) and is_alive(row["pid"]):
         return True
     return False
 
