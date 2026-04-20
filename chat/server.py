@@ -3,6 +3,8 @@
 Creates a Starlette app with MCP SSE transport and wires up
 tool handlers that delegate to chat.tools functions.
 """
+import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -17,14 +19,29 @@ from starlette.routing import Mount, Route
 from src.chat_db import ChatDB
 from src.reset_control import TokenStore
 from src.task_queue import TaskQueue
+from src.wake_spawn import run_wake_turn
+from src.wake_watcher import WakeWatcherConfig, run_wake_watcher
 from src.worker_manager import WorkerManager
-from chat import tools
+from chat.dispatch import dispatch
 from chat.tool_definitions import TOOLS
 
 logger = logging.getLogger(__name__)
 
 
-# ── App factory ─────────────────────────────────────────────────
+def _wake_config_from_env() -> WakeWatcherConfig:
+    return WakeWatcherConfig(
+        interval_secs=float(os.environ.get("WAKE_WATCHER_INTERVAL_SECS", "1.0")),
+        timeout_secs=float(os.environ.get("WAKE_SUBPROCESS_TIMEOUT_SECS", "300")),
+        idle_expiry_secs=float(os.environ.get("WAKE_SESSION_IDLE_EXPIRY_SECS", "900")),
+        max_failures=int(os.environ.get("WAKE_MAX_CONSECUTIVE_FAILURES", "3")),
+        rate_limit_secs=float(
+            os.environ.get("WAKE_ERROR_EMAIL_RATE_LIMIT_SECS", "3600"),
+        ),
+        claude_bin=os.environ.get("CLAUDE_BIN", "claude"),
+        prompt=os.environ.get("WAKE_PROMPT", "Handle any pending bus messages."),
+        user_avatar=os.environ.get("WAKE_USER_AVATAR_NAME", "user"),
+    )
+
 
 def create_app(db_path: str, host: str, port: int) -> Starlette:
     """Build a Starlette app with MCP SSE transport and tool handlers."""
@@ -38,18 +55,15 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
     server = Server("claude-chat", version="1.0")
     sse = SseServerTransport("/messages/")
 
-    # ── list_tools handler ──────────────────────────────────
     @server.list_tools()
     async def handle_list_tools() -> list[Tool]:
         return TOOLS
 
-    # ── call_tool handler ───────────────────────────────────
     @server.call_tool()
     async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
-        result = await _dispatch(db, queue, manager, tokens, name, arguments)
+        result = await dispatch(db, queue, manager, tokens, name, arguments)
         return [TextContent(type="text", text=json.dumps(result))]
 
-    # ── SSE endpoint ────────────────────────────────────────
     async def handle_sse(request):
         async with sse.connect_sse(
             request.scope, request.receive, request._send,
@@ -61,134 +75,29 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
             )
         return Response()
 
+    @contextlib.asynccontextmanager
+    async def lifespan(app_):
+        stop = asyncio.Event()
+        cfg = _wake_config_from_env()
+        task = asyncio.create_task(
+            run_wake_watcher(db, cfg, stop, spawn_fn=run_wake_turn),
+        )
+        app_.state.wake_watcher_task = task
+        app_.state.wake_watcher_stop = stop
+        try:
+            yield
+        finally:
+            stop.set()
+            task.cancel()
+            with contextlib.suppress(BaseException):
+                await task
+
     app = Starlette(
         routes=[
             Route("/sse", endpoint=handle_sse),
             Mount("/messages/", app=sse.handle_post_message),
         ],
+        lifespan=lifespan,
     )
-    # Expose server on app.state for testing
     app.state.mcp_server = server
     return app
-
-
-_MAX_NAME_LEN = 128
-_MAX_MSG_LEN = 100_000
-_MAX_PATH_LEN = 4096
-
-
-def _sanitize_str(value: str, max_len: int, field: str) -> str:
-    """Validate and strip a string parameter."""
-    if not isinstance(value, str):
-        raise ValueError(f"{field} must be a string")
-    value = value.strip()
-    if not value:
-        raise ValueError(f"{field} must not be empty")
-    if len(value) > max_len:
-        raise ValueError(f"{field} exceeds {max_len} chars")
-    return value
-
-
-async def _dispatch(
-    db: ChatDB, queue: TaskQueue, manager: WorkerManager, tokens: TokenStore,
-    name: str, arguments: dict,
-) -> dict:
-    """Route a tool call to the appropriate chat.tools function."""
-    if name == "chat_register":
-        return tools.register_agent(
-            db,
-            _sanitize_str(arguments["name"], _MAX_NAME_LEN, "name"),
-            _sanitize_str(arguments["project_path"], _MAX_PATH_LEN, "project_path"),
-        )
-    if name == "chat_ask":
-        return await tools.ask_user(
-            db,
-            _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
-            _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
-        )
-    if name == "chat_notify":
-        return tools.notify_user(
-            db,
-            _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
-            _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
-        )
-    if name == "chat_message_agent":
-        return tools.message_agent(
-            db,
-            _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
-            _sanitize_str(arguments["to_agent"], _MAX_NAME_LEN, "to_agent"),
-            _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
-        )
-    if name == "chat_check_messages":
-        return tools.check_messages(
-            db, _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
-        )
-    if name == "chat_list_agents":
-        return tools.list_agents(db)
-    if name == "chat_deregister":
-        return tools.deregister_agent(
-            db, _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
-        )
-    if name == "chat_spawn_agent":
-        return tools.spawn_agent_tool(
-            db,
-            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
-            instruction=arguments.get("instruction", ""),
-            chat_url=os.environ.get("CHAT_URL", ""),
-            claude_bin=os.environ.get("CLAUDE_BIN", "claude"),
-            allowed_base=os.environ.get("CLAUDE_CWD", ""),
-            yolo=os.environ.get("CLAUDE_YOLO", "") == "1",
-            model=os.environ.get("CLAUDE_MODEL") or None,
-            effort=os.environ.get("CLAUDE_EFFORT") or None,
-            max_budget_usd=os.environ.get("CLAUDE_MAX_BUDGET_USD") or None,
-        )
-    if name == "chat_enqueue_task":
-        return tools.enqueue_task_tool(
-            queue, manager,
-            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
-            body=_sanitize_str(arguments["body"], _MAX_MSG_LEN, "body"),
-            priority=int(arguments.get("priority", 0)),
-            plan_first=bool(arguments.get("plan_first", False)),
-            allowed_base=os.environ.get("CLAUDE_CWD", ""),
-        )
-    if name == "chat_cancel_task":
-        return tools.cancel_task_tool(
-            queue,
-            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
-            drain_queue=bool(arguments.get("drain_queue", False)),
-            allowed_base=os.environ.get("CLAUDE_CWD", ""),
-        )
-    if name == "chat_queue_status":
-        return tools.queue_status_tool(
-            queue,
-            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
-            allowed_base=os.environ.get("CLAUDE_CWD", ""),
-        )
-    if name == "chat_reset_project":
-        return tools.reset_project_tool(
-            tokens,
-            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
-            allowed_base=os.environ.get("CLAUDE_CWD", ""),
-        )
-    if name == "chat_confirm_reset":
-        return tools.confirm_reset_tool(
-            queue, tokens,
-            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
-            token=_sanitize_str(arguments["token"], _MAX_NAME_LEN, "token"),
-            allowed_base=os.environ.get("CLAUDE_CWD", ""),
-        )
-    if name == "chat_retry_task":
-        return tools.retry_task_tool(
-            queue, manager,
-            task_id=int(arguments["task_id"]),
-            new_body=str(arguments.get("new_body", "")),
-        )
-    if name == "chat_where_am_i":
-        return tools.where_am_i_tool(queue, manager)
-    if name == "chat_commit_project":
-        return tools.commit_project_tool(
-            project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
-            message=_sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
-            allowed_base=os.environ.get("CLAUDE_CWD", ""),
-        )
-    raise ValueError(f"Unknown tool: {name}")
