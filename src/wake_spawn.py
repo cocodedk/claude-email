@@ -21,3 +21,22 @@ class WakeTurnResult:
     exit_code: int
     timed_out: bool
     error: str | None = None
+
+
+async def run_wake_turn(
+    cmd: list[str], cwd: str, timeout: float,
+) -> WakeTurnResult:
+    """Run a wake subprocess. stdout/stderr discarded; only exit code matters."""
+    try:
+        proc = await _launch_proc(
+            *cmd, cwd=cwd, stdout=DEVNULL, stderr=DEVNULL,
+        )
+    except (FileNotFoundError, PermissionError) as exc:
+        return WakeTurnResult(exit_code=-1, timed_out=False, error=str(exc))
+    try:
+        exit_code = await asyncio.wait_for(proc.wait(), timeout=timeout)
+        return WakeTurnResult(exit_code=exit_code, timed_out=False)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return WakeTurnResult(exit_code=-1, timed_out=True)
