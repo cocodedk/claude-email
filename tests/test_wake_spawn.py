@@ -35,3 +35,20 @@ async def test_run_wake_turn_nonzero(tmp_path):
     result = await run_wake_turn(cmd, cwd=str(tmp_path), timeout=5)
     assert result.exit_code == 2
     assert result.timed_out is False
+
+
+@pytest.mark.asyncio
+async def test_run_wake_turn_timeout(tmp_path):
+    cmd = ["python3", "-c", "import time; time.sleep(10)"]
+    result = await run_wake_turn(cmd, cwd=str(tmp_path), timeout=0.3)
+    assert result.timed_out is True
+    assert result.exit_code == -1
+
+
+@pytest.mark.asyncio
+async def test_run_wake_turn_binary_missing(tmp_path):
+    cmd = ["/nonexistent/binary", "arg"]
+    result = await run_wake_turn(cmd, cwd=str(tmp_path), timeout=5)
+    assert result.exit_code == -1
+    assert result.error is not None
+    assert result.timed_out is False
