@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 """Drain pending chat messages for this agent and emit them as hook context.
 
-Runs from a Claude Code SessionStart or UserPromptSubmit hook. Reads from the
-shared SQLite bus, marks each message delivered (same consume-with-ack
+Runs from a Claude Code SessionStart, UserPromptSubmit, or Stop hook. Reads
+from the shared SQLite bus, marks each message delivered (same consume-with-ack
 semantics as the chat_check_messages MCP tool), and prints a hook JSON payload
-whose additionalContext lists the drained messages so the model sees them on
-its next turn — instead of depending on the model to call chat_check_messages
-itself.
+so the model sees them on its next turn — instead of depending on the model
+to call chat_check_messages itself.
+
+Shape depends on the triggering event:
+  - SessionStart / UserPromptSubmit → hookSpecificOutput + additionalContext
+  - Stop → {"decision": "block", "reason": ...} so the end-of-turn stop is
+    cancelled and the drained messages become the next thing Claude sees.
+
+Stop is the "push-like" path: it fires when Claude finishes a response, so
+peer messages that arrived mid-response get surfaced before the session idles.
+stop_hook_active is intentionally ignored — mark_message_delivered is the
+real loop guard (same msg can't be re-emitted), so sustained peer chatter is
+allowed to keep the agent conversant.
 
 Emits no stdout when the inbox is empty — quiet turns stay quiet.
 """
@@ -106,12 +116,16 @@ def main() -> int:
     for m in msgs:
         db.mark_message_delivered(m["id"])
 
-    payload = {
-        "hookSpecificOutput": {
-            "hookEventName": event,
-            "additionalContext": _format_context(caller, msgs),
-        },
-    }
+    context = _format_context(caller, msgs)
+    if event == "Stop":
+        payload = {"decision": "block", "reason": context}
+    else:
+        payload = {
+            "hookSpecificOutput": {
+                "hookEventName": event,
+                "additionalContext": context,
+            },
+        }
     sys.stdout.write(json.dumps(payload))
     return 0
 

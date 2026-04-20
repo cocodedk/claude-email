@@ -74,7 +74,7 @@ class TestInjectSessionStartHook:
     HOOK = "/opt/claude-email/scripts/chat-session-start-hook.sh"
     DRAIN = "/opt/claude-email/scripts/chat-drain-inbox.py"
 
-    def test_creates_settings_file_with_both_events(self, tmp_path):
+    def test_creates_settings_file_with_all_events(self, tmp_path):
         from src.spawner import inject_session_start_hook
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
@@ -91,8 +91,51 @@ class TestInjectSessionStartHook:
                     "matcher": "",
                     "hooks": [{"type": "command", "command": self.DRAIN}],
                 }],
+                "Stop": [{
+                    "matcher": "",
+                    "hooks": [{"type": "command", "command": self.DRAIN}],
+                }],
             }
         }
+
+    def test_stop_event_wired_to_drain_script(self, tmp_path):
+        """Stop hook closes the gap between 'peer sent message mid-response'
+        and 'next user prompt' — it reinjects pending messages as a block
+        reason before the session idles."""
+        from src.spawner import inject_session_start_hook
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        stop_entries = data["hooks"]["Stop"]
+        assert len(stop_entries) == 1
+        cmds = [h["command"] for h in stop_entries[0]["hooks"]]
+        assert cmds == [self.DRAIN]
+
+    def test_stop_replaces_stale_drain_path_on_reinstall(self, tmp_path):
+        from src.spawner import inject_session_start_hook
+        old_drain = "/old/install/scripts/chat-drain-inbox.py"
+        inject_session_start_hook(str(tmp_path), self.HOOK, old_drain)
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        stop_cmds = [h["command"] for h in data["hooks"]["Stop"][0]["hooks"]]
+        assert stop_cmds == [self.DRAIN]
+        assert old_drain not in stop_cmds
+
+    def test_stop_preserves_third_party_hooks(self, tmp_path):
+        from src.spawner import inject_session_start_hook
+        (tmp_path / ".claude").mkdir()
+        existing = {
+            "hooks": {
+                "Stop": [{"matcher": "", "hooks": [
+                    {"type": "command", "command": "/opt/other/notify.sh"},
+                ]}],
+            },
+        }
+        (tmp_path / ".claude" / "settings.json").write_text(json.dumps(existing))
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        stop_cmds = [h["command"] for h in data["hooks"]["Stop"][0]["hooks"]]
+        assert self.DRAIN in stop_cmds
+        assert "/opt/other/notify.sh" in stop_cmds
 
     def test_preserves_third_party_hooks(self, tmp_path):
         from src.spawner import inject_session_start_hook

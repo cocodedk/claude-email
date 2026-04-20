@@ -128,9 +128,12 @@ def inject_session_start_hook(
     additionalContext).
 
     UserPromptSubmit: runs drain_script_path so every user turn auto-drains
-    messages that arrived mid-session — otherwise the agent sits on pending
-    mail until it chooses to call chat_check_messages itself, which models
-    rarely do without a prompt.
+    messages that arrived mid-session.
+
+    Stop: runs drain_script_path to surface peer messages that arrived
+    mid-response. The drain script emits {"decision":"block","reason":...}
+    for the Stop event, cancelling the stop so the agent stays conversant
+    without needing to poll chat_check_messages itself.
 
     Both paths MUST be absolute. drain_script_path defaults to DRAIN_SCRIPT
     (sibling of hook_script_path in the claude-email install).
@@ -160,5 +163,12 @@ def inject_session_start_hook(
         hooks, "UserPromptSubmit", "",
         [drain_script_path],
     )
+    _merge_hook_event(
+        hooks, "Stop", "",
+        [drain_script_path],
+    )
     _write_json(settings_path, data)
-    logger.info("Wrote SessionStart + UserPromptSubmit hooks to %s", settings_path)
+    logger.info(
+        "Wrote SessionStart + UserPromptSubmit + Stop hooks to %s",
+        settings_path,
+    )
