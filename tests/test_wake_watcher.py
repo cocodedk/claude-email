@@ -1,4 +1,5 @@
 """Tests for wake_watcher helpers and main loop."""
+import asyncio
 import os
 import tempfile
 
@@ -7,10 +8,12 @@ import pytest
 from src.chat_db import ChatDB
 from src.wake_spawn import WakeTurnResult
 from src.wake_watcher import (
+    WakeWatcherConfig,
     _AgentLocks,
     _FailureTracker,
     _SessionCache,
     process_agent,
+    run_wake_watcher,
 )
 
 
@@ -231,3 +234,69 @@ async def test_process_agent_skips_unknown_agent(live_db):
         timeout=300, user_avatar="user",
     )
     assert called == []
+
+
+def _cfg(**over):
+    base = dict(
+        interval_secs=0.05, timeout_secs=5,
+        idle_expiry_secs=900, max_failures=3, rate_limit_secs=3600,
+        claude_bin="claude", prompt="drain", user_avatar="user",
+    )
+    base.update(over)
+    return WakeWatcherConfig(**base)
+
+
+@pytest.mark.asyncio
+async def test_run_wake_watcher_processes_pending_and_stops(live_db, tmp_path):
+    live_db.register_agent("agent-foo", str(tmp_path))
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+
+    seen: list[str] = []
+
+    async def fake_spawn(cmd, cwd, timeout):
+        seen.append(cwd)
+        for m in live_db.get_pending_messages_for("agent-foo"):
+            live_db.mark_message_delivered(m["id"])
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    stop = asyncio.Event()
+    task = asyncio.create_task(
+        run_wake_watcher(live_db, _cfg(), stop, spawn_fn=fake_spawn),
+    )
+    await asyncio.sleep(0.25)
+    stop.set()
+    await asyncio.wait_for(task, timeout=2)
+    assert seen == [str(tmp_path)]
+
+
+@pytest.mark.asyncio
+async def test_run_wake_watcher_shuts_down_cleanly(live_db):
+    stop = asyncio.Event()
+
+    async def never_called_spawn(cmd, cwd, timeout):
+        raise AssertionError("no pending recipients — should not be called")
+
+    task = asyncio.create_task(
+        run_wake_watcher(live_db, _cfg(), stop, spawn_fn=never_called_spawn),
+    )
+    await asyncio.sleep(0.15)
+    stop.set()
+    await asyncio.wait_for(task, timeout=2)
+
+
+@pytest.mark.asyncio
+async def test_run_wake_watcher_skips_user_avatar(live_db, tmp_path):
+    """Messages to the user avatar belong to the email relay, not the watcher."""
+    live_db.register_agent("agent-foo", str(tmp_path))
+    live_db.insert_message("agent-foo", "user", "outbound", "notify")
+
+    async def fake_spawn(cmd, cwd, timeout):
+        raise AssertionError("user-avatar rows must not trigger spawn")
+
+    stop = asyncio.Event()
+    task = asyncio.create_task(
+        run_wake_watcher(live_db, _cfg(), stop, spawn_fn=fake_spawn),
+    )
+    await asyncio.sleep(0.15)
+    stop.set()
+    await asyncio.wait_for(task, timeout=2)
