@@ -42,3 +42,19 @@ def test_get_wake_session_present(db):
     row = db.get_wake_session("agent-foo")
     assert row["session_id"] == "uuid-1"
     assert row["last_turn_at"] == "2026-04-20T00:00:00Z"
+
+
+def test_upsert_wake_session_insert(db):
+    db.upsert_wake_session("agent-foo", "uuid-1")
+    row = db.get_wake_session("agent-foo")
+    assert row["session_id"] == "uuid-1"
+    assert row["last_turn_at"]
+
+
+def test_upsert_wake_session_update_bumps_timestamp(db):
+    db.upsert_wake_session("agent-foo", "uuid-1")
+    first = db.get_wake_session("agent-foo")["last_turn_at"]
+    db.upsert_wake_session("agent-foo", "uuid-2")
+    row = db.get_wake_session("agent-foo")
+    assert row["session_id"] == "uuid-2"
+    assert row["last_turn_at"] >= first

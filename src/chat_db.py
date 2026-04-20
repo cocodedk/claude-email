@@ -4,13 +4,14 @@ from datetime import datetime, timedelta, timezone
 
 from src.chat_schema import MIGRATIONS as _MIGRATIONS, SCHEMA as _SCHEMA
 from src.process_liveness import is_alive
+from src.wake_session_store import WakeSessionStoreMixin
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-class ChatDB:
+class ChatDB(WakeSessionStoreMixin):
     """Single entry-point for all chat DB operations."""
 
     def __init__(self, path: str):
@@ -172,14 +173,6 @@ class ChatDB:
         ).rowcount
         self._conn.commit()
         return {"messages": m, "events": e}
-
-    # ── Wake sessions ──────────────────────────────────────
-
-    def get_wake_session(self, agent_name: str) -> dict | None:
-        row = self._conn.execute(
-            "SELECT * FROM wake_sessions WHERE agent_name=?", (agent_name,),
-        ).fetchone()
-        return dict(row) if row else None
 
     # ── Events (internal) ──────────────────────────────────
 
