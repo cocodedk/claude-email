@@ -142,8 +142,13 @@ def _int_or_none(value) -> int | None:
 def build_envelope(
     kind: str, body: str = "", task_id: int | None = None,
     data: dict | None = None, error: dict | None = None,
+    ask_id: int | None = None,
 ) -> str:
-    """Build an outbound envelope as a JSON string."""
+    """Build an outbound envelope as a JSON string.
+
+    `ask_id` echoes the inbound `meta.ask_id` so the app can match a reply
+    to the originating question and unblock the right chat_ask.
+    """
     out: dict[str, Any] = {
         "v": V,
         "kind": kind,
@@ -153,6 +158,8 @@ def build_envelope(
             "sent_at": datetime.now(timezone.utc).isoformat(),
         },
     }
+    if ask_id is not None:
+        out["meta"]["ask_id"] = int(ask_id)
     if task_id is not None:
         out["task_id"] = int(task_id)
     if data:

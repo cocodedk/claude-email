@@ -149,6 +149,82 @@ class TestHandleJsonEmail:
         })
         handle_json_email(msg, cfg, cdb, tq, wm)  # must not raise
 
+    def test_ack_echoes_meta_ask_id(self, resources, tmp_path, mocker):
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({
+            "v": 1, "kind": "command", "project": "p", "body": "x",
+            "meta": {"auth": "s3cret", "ask_id": 99},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["kind"] == "ack"
+        assert body["meta"]["ask_id"] == 99
+
+    def test_unauthorized_error_echoes_meta_ask_id(self, resources, tmp_path, mocker):
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path, secret="correct")
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({
+            "v": 1, "kind": "command", "project": "p", "body": "x",
+            "meta": {"auth": "WRONG", "ask_id": 13},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "unauthorized"
+        assert body["meta"]["ask_id"] == 13
+
+    def test_invalid_state_error_echoes_meta_ask_id(self, resources, tmp_path, mocker):
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({
+            "v": 1, "kind": "cancel", "project": "p",
+            "meta": {"auth": "s3cret", "ask_id": 4},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "invalid_state"
+        assert body["meta"]["ask_id"] == 4
+
+    def test_command_missing_body_error_echoes_meta_ask_id(self, resources, tmp_path, mocker):
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({
+            "v": 1, "kind": "command", "project": "p",
+            "meta": {"auth": "s3cret", "ask_id": 5},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "bad_envelope"
+        assert body["meta"]["ask_id"] == 5
+
+    def test_project_not_found_error_echoes_meta_ask_id(self, resources, tmp_path, mocker):
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({
+            "v": 1, "kind": "command", "project": "never-made", "body": "x",
+            "meta": {"auth": "s3cret", "ask_id": 77},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "project_not_found"
+        assert body["meta"]["ask_id"] == 77
+
+    def test_parse_failure_error_omits_ask_id(self, resources, tmp_path, mocker):
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({"v": 99, "kind": "command", "meta": {"ask_id": 1}})
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "bad_envelope"
+        # Parse failed before envelope was populated — ask_id is not known.
+        assert "ask_id" not in body["meta"]
+
     def test_no_auth_required_when_universe_secret_empty(self, resources, tmp_path, mocker):
         cdb, tq, wm = resources
         cfg = _base_config(tmp_path, secret="")

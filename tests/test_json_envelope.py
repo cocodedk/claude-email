@@ -148,6 +148,26 @@ class TestBuildEnvelope:
         assert parsed["data"]["status"] == "done"
         assert parsed["task_id"] == 42
 
+    def test_ask_id_echoed_in_meta_when_set(self):
+        out = build_envelope("ack", body="ok", task_id=1, ask_id=7)
+        parsed = json.loads(out)
+        assert parsed["meta"]["ask_id"] == 7
+
+    def test_ask_id_absent_from_meta_when_none(self):
+        out = build_envelope("ack", body="ok", task_id=1)
+        parsed = json.loads(out)
+        assert "ask_id" not in parsed["meta"]
+
+    def test_ask_id_on_error_envelope(self):
+        out = build_envelope(
+            "error", body="nope",
+            error={"code": "unauthorized", "message": "auth fail"},
+            ask_id=42,
+        )
+        parsed = json.loads(out)
+        assert parsed["meta"]["ask_id"] == 42
+        assert parsed["error"]["code"] == "unauthorized"
+
 
 class TestStripAuth:
     def test_removes_exact_token(self):
