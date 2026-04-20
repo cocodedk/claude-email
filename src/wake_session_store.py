@@ -29,3 +29,9 @@ class WakeSessionStoreMixin:
             (agent_name, session_id, _now()),
         )
         self._conn.commit()
+
+    def delete_wake_session(self, agent_name: str) -> None:
+        self._conn.execute(
+            "DELETE FROM wake_sessions WHERE agent_name=?", (agent_name,),
+        )
+        self._conn.commit()

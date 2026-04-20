@@ -58,3 +58,13 @@ def test_upsert_wake_session_update_bumps_timestamp(db):
     row = db.get_wake_session("agent-foo")
     assert row["session_id"] == "uuid-2"
     assert row["last_turn_at"] >= first
+
+
+def test_delete_wake_session_removes_row(db):
+    db.upsert_wake_session("agent-foo", "uuid-1")
+    db.delete_wake_session("agent-foo")
+    assert db.get_wake_session("agent-foo") is None
+
+
+def test_delete_wake_session_noop_on_missing(db):
+    db.delete_wake_session("agent-nope")
