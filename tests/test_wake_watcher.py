@@ -1,7 +1,7 @@
 """Tests for wake_watcher helpers and main loop."""
 import pytest
 
-from src.wake_watcher import _AgentLocks, _SessionCache
+from src.wake_watcher import _AgentLocks, _FailureTracker, _SessionCache
 
 
 @pytest.mark.asyncio
@@ -49,3 +49,38 @@ def test_session_cache_expired_drops_entry():
     assert cache.get("agent-foo") is None
     cache.set("agent-foo", "uuid-2")
     assert cache.get("agent-foo") == "uuid-2"
+
+
+def test_failure_tracker_starts_at_zero():
+    ft = _FailureTracker(max_failures=3, rate_limit_secs=3600, clock=lambda: 0.0)
+    assert ft.count("agent-foo") == 0
+
+
+def test_failure_tracker_increment_and_reset():
+    ft = _FailureTracker(max_failures=3, rate_limit_secs=3600, clock=lambda: 0.0)
+    ft.record_failure("agent-foo")
+    ft.record_failure("agent-foo")
+    assert ft.count("agent-foo") == 2
+    ft.record_success("agent-foo")
+    assert ft.count("agent-foo") == 0
+
+
+def test_failure_tracker_should_escalate():
+    ft = _FailureTracker(max_failures=3, rate_limit_secs=3600, clock=lambda: 0.0)
+    assert ft.should_escalate("agent-foo") is False
+    ft.record_failure("agent-foo")
+    ft.record_failure("agent-foo")
+    assert ft.should_escalate("agent-foo") is False
+    ft.record_failure("agent-foo")
+    assert ft.should_escalate("agent-foo") is True
+
+
+def test_failure_tracker_rate_limits_notifications():
+    t = [0.0]
+    ft = _FailureTracker(max_failures=1, rate_limit_secs=60, clock=lambda: t[0])
+    ft.record_failure("agent-foo")
+    assert ft.can_notify("agent-foo") is True
+    ft.mark_notified("agent-foo")
+    assert ft.can_notify("agent-foo") is False
+    t[0] = 61
+    assert ft.can_notify("agent-foo") is True
