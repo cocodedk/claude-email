@@ -173,6 +173,14 @@ class ChatDB:
         self._conn.commit()
         return {"messages": m, "events": e}
 
+    # ── Wake sessions ──────────────────────────────────────
+
+    def get_wake_session(self, agent_name: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM wake_sessions WHERE agent_name=?", (agent_name,),
+        ).fetchone()
+        return dict(row) if row else None
+
     # ── Events (internal) ──────────────────────────────────
 
     def _log_event(self, participant: str, event_type: str, summary: str) -> None:

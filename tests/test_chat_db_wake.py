@@ -28,3 +28,17 @@ def test_wake_sessions_columns(db):
     rows = db._conn.execute("PRAGMA table_info(wake_sessions)").fetchall()
     cols = {r["name"] for r in rows}
     assert cols == {"agent_name", "session_id", "last_turn_at"}
+
+
+def test_get_wake_session_missing(db):
+    assert db.get_wake_session("agent-foo") is None
+
+
+def test_get_wake_session_present(db):
+    db._conn.execute(
+        "INSERT INTO wake_sessions VALUES ('agent-foo','uuid-1','2026-04-20T00:00:00Z')"
+    )
+    db._conn.commit()
+    row = db.get_wake_session("agent-foo")
+    assert row["session_id"] == "uuid-1"
+    assert row["last_turn_at"] == "2026-04-20T00:00:00Z"
