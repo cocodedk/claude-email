@@ -17,6 +17,7 @@ from starlette.responses import Response
 from starlette.routing import Mount, Route
 
 from src.chat_db import ChatDB
+from src.llm_router import ROUTER_MCP_CONFIG_PATH
 from src.reset_control import TokenStore
 from src.task_queue import TaskQueue
 from src.wake_spawn import run_wake_turn
@@ -50,6 +51,7 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
     manager = WorkerManager(
         db_path=db_path,
         project_root=os.environ.get("CLAUDE_CWD") or os.getcwd(),
+        module_env={"ROUTER_MCP_CONFIG": ROUTER_MCP_CONFIG_PATH},
     )
     tokens = TokenStore()
     server = Server("claude-chat", version="1.0")
@@ -78,16 +80,22 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
     @contextlib.asynccontextmanager
     async def lifespan(app_):
         stop = asyncio.Event()
+        nudge = asyncio.Event()
+        db.set_wake_nudge(nudge)
         cfg = _wake_config_from_env()
         task = asyncio.create_task(
-            run_wake_watcher(db, cfg, stop, spawn_fn=run_wake_turn),
+            run_wake_watcher(db, cfg, stop, spawn_fn=run_wake_turn, nudge=nudge),
         )
         app_.state.wake_watcher_task = task
         app_.state.wake_watcher_stop = stop
+        app_.state.wake_watcher_nudge = nudge
+        app_.state.chat_db = db
+        app_.state.worker_manager = manager
         try:
             yield
         finally:
             stop.set()
+            nudge.set()  # unblock watcher sleep so shutdown is prompt
             task.cancel()
             with contextlib.suppress(BaseException):
                 await task

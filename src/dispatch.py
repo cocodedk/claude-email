@@ -20,7 +20,13 @@ def build_universe_resources(universes) -> dict:
     for u in universes:
         cdb = ChatDB(u.chat_db_path)
         tq = TaskQueue(u.chat_db_path)
-        wm = WorkerManager(db_path=u.chat_db_path, project_root=u.allowed_base)
+        wm = WorkerManager(
+            db_path=u.chat_db_path, project_root=u.allowed_base,
+            module_env={
+                "ROUTER_MCP_CONFIG": u.mcp_config,
+                "CHAT_DB_PATH": u.chat_db_path,
+            },
+        )
         res[u.sender.lower()] = (u, cdb, tq, wm)
     return res
 

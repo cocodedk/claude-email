@@ -112,8 +112,14 @@ def _handle_failure(
 
 async def run_wake_watcher(
     db: ChatDB, cfg: WakeWatcherConfig, stop: asyncio.Event, *, spawn_fn,
+    nudge: asyncio.Event | None = None,
 ) -> None:
-    """Poll for pending recipients and drive wake turns until stop is set."""
+    """Poll for pending recipients and drive wake turns until stop is set.
+
+    When `nudge` is provided, writers (e.g. ChatDB.insert_message) can set it
+    to wake the loop immediately instead of waiting for `cfg.interval_secs`.
+    The nudge is cleared after each wake so the next sleep is full-duration.
+    """
     locks = _AgentLocks()
     cache = _SessionCache(idle_secs=cfg.idle_expiry_secs)
     tracker = _FailureTracker(
@@ -136,8 +142,11 @@ async def run_wake_watcher(
             )
             for r in recipients
         ], return_exceptions=True)
+        waiter = nudge.wait() if nudge is not None else stop.wait()
         try:
-            await asyncio.wait_for(stop.wait(), timeout=cfg.interval_secs)
+            await asyncio.wait_for(waiter, timeout=cfg.interval_secs)
         except asyncio.TimeoutError:
             pass
+        if nudge is not None:
+            nudge.clear()
     logger.info("wake watcher stopped")

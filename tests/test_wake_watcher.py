@@ -307,6 +307,74 @@ async def test_run_wake_watcher_shuts_down_cleanly(live_db):
 
 
 @pytest.mark.asyncio
+async def test_run_wake_watcher_wakes_on_nudge_before_interval(live_db, tmp_path):
+    """A writer that sets nudge must wake the loop well before the poll tick."""
+    live_db.register_agent("agent-foo", str(tmp_path))
+    nudge = asyncio.Event()
+    seen: list[str] = []
+
+    async def fake_spawn(cmd, cwd, timeout):
+        seen.append(cwd)
+        for m in live_db.get_pending_messages_for("agent-foo"):
+            live_db.mark_message_delivered(m["id"])
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    stop = asyncio.Event()
+    # 5s interval — without nudge the test would hang far past its timeout.
+    cfg = _cfg(interval_secs=5.0)
+    task = asyncio.create_task(
+        run_wake_watcher(live_db, cfg, stop, spawn_fn=fake_spawn, nudge=nudge),
+    )
+    await asyncio.sleep(0.05)  # let iter 1 scan (empty) and enter wait
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+    nudge.set()
+    for _ in range(50):  # up to ~1s
+        if seen:
+            break
+        await asyncio.sleep(0.02)
+    assert seen == [str(tmp_path)]
+    stop.set()
+    nudge.set()  # wake the loop so it can observe stop and exit
+    await asyncio.wait_for(task, timeout=2)
+
+
+@pytest.mark.asyncio
+async def test_run_wake_watcher_nudge_auto_cleared_between_ticks(live_db, tmp_path):
+    """After a nudge wakes the loop, the event clears so the next sleep is
+    full-duration unless another write nudges again."""
+    live_db.register_agent("agent-foo", str(tmp_path))
+    nudge = asyncio.Event()
+    spawns = 0
+
+    async def fake_spawn(cmd, cwd, timeout):
+        nonlocal spawns
+        spawns += 1
+        for m in live_db.get_pending_messages_for("agent-foo"):
+            live_db.mark_message_delivered(m["id"])
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    stop = asyncio.Event()
+    cfg = _cfg(interval_secs=5.0)
+    task = asyncio.create_task(
+        run_wake_watcher(live_db, cfg, stop, spawn_fn=fake_spawn, nudge=nudge),
+    )
+    await asyncio.sleep(0.05)
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+    nudge.set()
+    # Wait for the first spawn to complete
+    for _ in range(50):
+        if spawns >= 1:
+            break
+        await asyncio.sleep(0.02)
+    # No further writes — nudge must be cleared, loop must be sleeping again
+    await asyncio.sleep(0.2)
+    assert spawns == 1, "nudge stayed set and caused spin"
+    stop.set()
+    nudge.set()
+    await asyncio.wait_for(task, timeout=2)
+
+
+@pytest.mark.asyncio
 async def test_run_wake_watcher_skips_user_avatar(live_db, tmp_path):
     """Messages to the user avatar belong to the email relay, not the watcher."""
     live_db.register_agent("agent-foo", str(tmp_path))
