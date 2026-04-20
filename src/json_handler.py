@@ -35,6 +35,7 @@ def handle_json_email(
         _send_json_reply(config, message, build_envelope(
             "error", body=exc.message,
             error={"code": exc.code, "message": exc.message},
+            ask_id=exc.ask_id,
         ))
         return True
 

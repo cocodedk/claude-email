@@ -36,12 +36,16 @@ INBOUND_KINDS = {
 
 class EnvelopeError(Exception):
     """Raised when an inbound email's body can't be parsed as a valid
-    envelope. Carries a stable `code` the outbound error envelope echoes."""
+    envelope. Carries a stable `code` the outbound error envelope echoes,
+    plus an optional `ask_id` salvaged from `meta.ask_id` so the app can
+    still correlate the error reply with the originating `chat_ask` even
+    when the envelope itself fails validation."""
 
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, ask_id: int | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.ask_id = ask_id
 
 
 @dataclass
@@ -102,15 +106,18 @@ def parse_envelope(message: email.message.Message) -> Envelope:
     if not isinstance(data, dict):
         raise EnvelopeError("bad_envelope", "envelope must be a JSON object")
 
+    # Salvage meta.ask_id as early as possible so validation-failure
+    # replies can still carry it for app-side chat_ask correlation.
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    ask_id = _int_or_none(meta.get("ask_id"))
+
     v = data.get("v")
     if v != V:
-        raise EnvelopeError("bad_envelope", f"unsupported version {v!r}; expected {V}")
+        raise EnvelopeError("bad_envelope", f"unsupported version {v!r}; expected {V}", ask_id=ask_id)
 
     kind = data.get("kind")
     if kind not in INBOUND_KINDS:
-        raise EnvelopeError("unknown_kind", f"kind {kind!r} is not one of {sorted(INBOUND_KINDS)}")
-
-    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+        raise EnvelopeError("unknown_kind", f"kind {kind!r} is not one of {sorted(INBOUND_KINDS)}", ask_id=ask_id)
     return Envelope(
         v=v,
         kind=kind,
@@ -125,7 +132,7 @@ def parse_envelope(message: email.message.Message) -> Envelope:
         auth=str(meta.get("auth") or ""),
         client=str(meta.get("client") or ""),
         sent_at=str(meta.get("sent_at") or ""),
-        ask_id=_int_or_none(meta.get("ask_id")),
+        ask_id=ask_id,
         extras=data,
     )
 

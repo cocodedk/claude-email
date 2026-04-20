@@ -214,15 +214,41 @@ class TestHandleJsonEmail:
         assert body["error"]["code"] == "project_not_found"
         assert body["meta"]["ask_id"] == 77
 
-    def test_parse_failure_error_omits_ask_id(self, resources, tmp_path, mocker):
+    def test_bad_version_error_echoes_ask_id(self, resources, tmp_path, mocker):
+        """Valid JSON with meta.ask_id but bad `v` — salvage ask_id so the
+        app can unblock the originating chat_ask."""
         cdb, tq, wm = resources
         cfg = _base_config(tmp_path)
         mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
-        msg = _json_email({"v": 99, "kind": "command", "meta": {"ask_id": 1}})
+        msg = _json_email({"v": 99, "kind": "command", "meta": {"ask_id": 11}})
         handle_json_email(msg, cfg, cdb, tq, wm)
         body = json.loads(mock_send.call_args.kwargs["body"])
         assert body["error"]["code"] == "bad_envelope"
-        # Parse failed before envelope was populated — ask_id is not known.
+        assert body["meta"]["ask_id"] == 11
+
+    def test_unknown_kind_error_echoes_ask_id(self, resources, tmp_path, mocker):
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({"v": 1, "kind": "dance", "meta": {"ask_id": 22}})
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "unknown_kind"
+        assert body["meta"]["ask_id"] == 22
+
+    def test_malformed_json_error_omits_ask_id(self, resources, tmp_path, mocker):
+        """Pure JSON-decode failure — no structured data, nothing to salvage."""
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = email.message.Message()
+        msg.add_header("Content-Type", CONTENT_TYPE)
+        msg["Message-ID"] = "<c@x>"
+        msg["Subject"] = "app command"
+        msg.set_payload("{not json")
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "bad_envelope"
         assert "ask_id" not in body["meta"]
 
     def test_no_auth_required_when_universe_secret_empty(self, resources, tmp_path, mocker):
