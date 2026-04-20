@@ -56,6 +56,11 @@ async def process_agent(
             return
         project_path = agent["project_path"]
 
+        pre_ids = {m["id"] for m in db.get_pending_messages_for(agent_name)}
+        if not pre_ids:
+            # Drained by another consumer between recipient scan and entry.
+            return
+
         cached = cache.get(agent_name)
         if cached is None:
             persisted = db.get_wake_session(agent_name)
@@ -67,9 +72,25 @@ async def process_agent(
         result = await spawn_fn(cmd, cwd=project_path, timeout=timeout)
 
         if isinstance(result, WakeTurnResult) and result.exit_code == 0:
+            # Cache the session even on stall — if the user fixes the drain
+            # hook later, --resume keeps the prompt cache warm.
             cache.set(agent_name, session_id)
             db.upsert_wake_session(agent_name, session_id)
-            tracker.record_success(agent_name)
+            post_ids = {m["id"] for m in db.get_pending_messages_for(agent_name)}
+            if pre_ids <= post_ids:
+                # No pre-spawn message was delivered — treat as a stall.
+                # Likely missing drain hook or dead session. Escalation
+                # fires after max_failures consecutive stalls.
+                _handle_failure(
+                    db, tracker, agent_name, project_path,
+                    WakeTurnResult(
+                        exit_code=0, timed_out=False,
+                        error=f"no progress ({len(pre_ids)} stuck)",
+                    ),
+                    user_avatar,
+                )
+            else:
+                tracker.record_success(agent_name)
         else:
             _handle_failure(
                 db, tracker, agent_name, project_path, result, user_avatar,

@@ -390,3 +390,77 @@ async def test_run_wake_watcher_skips_user_avatar(live_db, tmp_path):
     await asyncio.sleep(0.15)
     stop.set()
     await asyncio.wait_for(task, timeout=2)
+
+
+@pytest.mark.asyncio
+async def test_process_agent_stalled_spawn_records_failure(live_db, tmp_path):
+    """Spawn exits 0 but drains nothing (e.g. project missing drain hook) —
+    must count as a failure so escalation eventually fires. Without this, the
+    watcher respawns the same stuck agent forever at ~18s per tick."""
+    live_db.register_agent("agent-foo", str(tmp_path))
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+    locks = _AgentLocks()
+    cache = _SessionCache(idle_secs=900)
+    tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)
+
+    async def stalled_spawn(cmd, cwd, timeout):
+        # exit 0 but mark nothing delivered — simulates missing drain hook
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=stalled_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    assert tracker.count("agent-foo") == 1
+    # session still cached so a later fix + resume stays prompt-cache warm
+    assert cache.get("agent-foo") is not None
+
+
+@pytest.mark.asyncio
+async def test_process_agent_partial_drain_counts_as_success(live_db, tmp_path):
+    """Agent that drains 1 of N pending messages is making progress — must
+    reset the failure counter, not escalate."""
+    live_db.register_agent("agent-foo", str(tmp_path))
+    live_db.insert_message("bar", "agent-foo", "m1", "notify")
+    live_db.insert_message("bar", "agent-foo", "m2", "notify")
+    locks = _AgentLocks()
+    cache = _SessionCache(idle_secs=900)
+    tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)
+    tracker.record_failure("agent-foo")  # pre-seed so we can see reset
+
+    async def partial_spawn(cmd, cwd, timeout):
+        pending = live_db.get_pending_messages_for("agent-foo")
+        live_db.mark_message_delivered(pending[0]["id"])  # drain just one
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=partial_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    assert tracker.count("agent-foo") == 0
+
+
+@pytest.mark.asyncio
+async def test_process_agent_empty_pending_skips_spawn(live_db, tmp_path):
+    """If another consumer (MCP chat_check_messages, concurrent drain) empties
+    the queue between recipient scan and process_agent entry, don't spawn —
+    avoids counting an inevitable no-progress turn as a failure."""
+    live_db.register_agent("agent-foo", str(tmp_path))
+    locks = _AgentLocks()
+    cache = _SessionCache(idle_secs=900)
+    tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)
+    calls: list[list[str]] = []
+
+    async def fake_spawn(cmd, cwd, timeout):
+        calls.append(cmd)
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=fake_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    assert calls == []
+    assert tracker.count("agent-foo") == 0
