@@ -48,10 +48,11 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
     """Build a Starlette app with MCP SSE transport and tool handlers."""
     db = ChatDB(db_path)
     queue = TaskQueue(db_path)
+    router_mcp_config = os.environ.get("ROUTER_MCP_CONFIG") or ROUTER_MCP_CONFIG_PATH
     manager = WorkerManager(
         db_path=db_path,
         project_root=os.environ.get("CLAUDE_CWD") or os.getcwd(),
-        module_env={"ROUTER_MCP_CONFIG": ROUTER_MCP_CONFIG_PATH},
+        module_env={"ROUTER_MCP_CONFIG": router_mcp_config},
     )
     tokens = TokenStore()
     server = Server("claude-chat", version="1.0")

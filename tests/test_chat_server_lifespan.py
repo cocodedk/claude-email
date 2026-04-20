@@ -31,6 +31,7 @@ def test_chat_server_worker_manager_forwards_router_mcp_config(monkeypatch):
     try:
         monkeypatch.setenv("WAKE_WATCHER_INTERVAL_SECS", "0.05")
         monkeypatch.setenv("WAKE_SUBPROCESS_TIMEOUT_SECS", "5")
+        monkeypatch.delenv("ROUTER_MCP_CONFIG", raising=False)
         from chat.server import create_app
         from src.llm_router import ROUTER_MCP_CONFIG_PATH
         app = create_app(path, "127.0.0.1", 0)
@@ -38,6 +39,27 @@ def test_chat_server_worker_manager_forwards_router_mcp_config(monkeypatch):
             mgr = getattr(app.state, "worker_manager", None)
             assert mgr is not None
             assert mgr._module_env == {"ROUTER_MCP_CONFIG": ROUTER_MCP_CONFIG_PATH}
+    finally:
+        os.unlink(path)
+
+
+def test_chat_server_worker_manager_respects_router_mcp_config_env(monkeypatch):
+    """Multi-universe setups (claude-chat-test.service) set ROUTER_MCP_CONFIG
+    to a non-default path so spawned workers connect to the test bus. The
+    server MUST propagate that override instead of hardcoding the repo
+    default — otherwise test workers reach for prod MCP config and defeat
+    isolation."""
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        monkeypatch.setenv("WAKE_WATCHER_INTERVAL_SECS", "0.05")
+        monkeypatch.setenv("WAKE_SUBPROCESS_TIMEOUT_SECS", "5")
+        monkeypatch.setenv("ROUTER_MCP_CONFIG", "/repo/.mcp-test.json")
+        from chat.server import create_app
+        app = create_app(path, "127.0.0.1", 0)
+        with TestClient(app):
+            mgr = app.state.worker_manager
+            assert mgr._module_env == {"ROUTER_MCP_CONFIG": "/repo/.mcp-test.json"}
     finally:
         os.unlink(path)
 
