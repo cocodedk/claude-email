@@ -218,6 +218,28 @@ async def test_process_agent_escalates_and_rate_limits(live_db, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_process_agent_skips_when_already_locked(live_db, tmp_path):
+    live_db.register_agent("agent-foo", str(tmp_path))
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+    locks = _AgentLocks()
+    await locks.try_acquire("agent-foo")  # pre-acquire to simulate in-flight turn
+    cache = _SessionCache(idle_secs=900)
+    tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)
+    called = []
+
+    async def fake_spawn(cmd, cwd, timeout):
+        called.append(cmd)
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=fake_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    assert called == []
+
+
+@pytest.mark.asyncio
 async def test_process_agent_skips_unknown_agent(live_db):
     locks = _AgentLocks()
     cache = _SessionCache(idle_secs=900)
