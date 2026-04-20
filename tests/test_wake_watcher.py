@@ -133,3 +133,28 @@ async def test_process_agent_success_first_session(live_db, tmp_path):
     assert "--session-id" in calls[0]
     assert tracker.count("agent-foo") == 0
     assert cache.get("agent-foo") is not None
+
+
+@pytest.mark.asyncio
+async def test_process_agent_resume_path(live_db, tmp_path):
+    live_db.register_agent("agent-foo", str(tmp_path))
+    live_db.upsert_wake_session("agent-foo", "uuid-pre")
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+    locks = _AgentLocks()
+    cache = _SessionCache(idle_secs=900)
+    tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)
+    calls = []
+
+    async def fake_spawn(cmd, cwd, timeout):
+        calls.append(cmd)
+        for m in live_db.get_pending_messages_for("agent-foo"):
+            live_db.mark_message_delivered(m["id"])
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=fake_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    assert "--resume" in calls[0]
+    assert "uuid-pre" in calls[0]
