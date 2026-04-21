@@ -17,7 +17,7 @@ Skips:
   - non-directories (loose files, logs, scripts)
   - hidden directories (starting with '.')
 
-Writes two files per project:
+Writes per project:
   - .mcp.json  — declares the claude-chat MCP SSE server
   - .claude/settings.json — three Claude Code hooks:
       * SessionStart: register on the bus + inject the bus guide
@@ -26,7 +26,12 @@ Writes two files per project:
         agent keeps the conversation alive without polling
     (scripts live in this repo's scripts/)
 
-Idempotent: both helpers merge into existing files so re-running is safe —
+Also updates the user's Claude Code config (``$CLAUDE_CONFIG_DIR/.claude.json``,
+defaulting to ``~/.claude.json``) to pre-approve the ``claude-chat`` MCP
+server for each project — without this, Claude Code silently ignores the
+``.mcp.json`` entry on first session start.
+
+Idempotent: all helpers merge into existing files so re-running is safe —
 new hook events (e.g. Stop added after an earlier install) get appended
 without disturbing third-party hook entries.
 """
@@ -44,7 +49,9 @@ except ImportError:
     pass
 
 from src.spawner import (  # noqa: E402
+    CHAT_MCP_SERVER_NAME,
     HOOK_SCRIPT,
+    approve_mcp_server_for_project,
     inject_mcp_config,
     inject_session_start_hook,
 )
@@ -76,6 +83,10 @@ def main() -> int:
         print(f"error: {base} is not a directory", file=sys.stderr)
         return 1
 
+    config_dir = (
+        os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~")
+    )
+
     installed: list[str] = []
     skipped: list[tuple[str, str]] = []
 
@@ -92,6 +103,9 @@ def main() -> int:
         try:
             inject_mcp_config(str(entry), chat_url)
             inject_session_start_hook(str(entry), HOOK_SCRIPT)
+            approve_mcp_server_for_project(
+                config_dir, str(entry), CHAT_MCP_SERVER_NAME,
+            )
             installed.append(entry.name)
         except Exception as exc:  # noqa: BLE001
             skipped.append((entry.name, f"error: {exc}"))
