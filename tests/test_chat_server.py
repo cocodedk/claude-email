@@ -690,17 +690,17 @@ class TestSanitizeStr:
     """Covers line 157: non-string value rejected."""
 
     def test_non_string_raises_value_error(self):
-        from chat.server import _sanitize_str
+        from chat.dispatch import _sanitize_str
         with pytest.raises(ValueError, match="must be a string"):
             _sanitize_str(123, 10, "myfield")
 
     def test_integer_zero_raises_value_error(self):
-        from chat.server import _sanitize_str
+        from chat.dispatch import _sanitize_str
         with pytest.raises(ValueError, match="must be a string"):
             _sanitize_str(0, 10, "field")
 
     def test_none_raises_value_error(self):
-        from chat.server import _sanitize_str
+        from chat.dispatch import _sanitize_str
         with pytest.raises(ValueError, match="must be a string"):
             _sanitize_str(None, 10, "field")
 

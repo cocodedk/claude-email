@@ -55,6 +55,12 @@ CREATE TABLE IF NOT EXISTS tasks (
     origin_message_id TEXT
 );
 CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project_path, status);
+
+CREATE TABLE IF NOT EXISTS wake_sessions (
+    agent_name TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    last_turn_at TEXT NOT NULL
+);
 """
 
 

@@ -47,3 +47,123 @@ def test_is_alive_rejects_non_positive_pids(bad_pid):
     a naive probe could inadvertently reap or signal unrelated processes.
     """
     assert is_alive(bad_pid) is False
+
+
+class TestIsAncestorOrSelf:
+    """PPID-chain walker used by hook scripts for ownership checks."""
+
+    def test_self_pid_is_match(self):
+        from src.process_liveness import is_ancestor_or_self
+        assert is_ancestor_or_self(os.getpid()) is True
+
+    def test_rejects_non_positive(self):
+        from src.process_liveness import is_ancestor_or_self
+        assert is_ancestor_or_self(0) is False
+        assert is_ancestor_or_self(-1) is False
+
+    def test_matches_on_first_ancestor(self, monkeypatch):
+        import src.process_liveness as pl
+        monkeypatch.setattr(pl.os, "getpid", lambda: 100)
+        chain = {100: 200, 200: 300, 300: 1}
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: chain.get(pid))
+        assert pl.is_ancestor_or_self(300) is True
+
+    def test_returns_false_when_target_outside_chain(self, monkeypatch):
+        import src.process_liveness as pl
+        monkeypatch.setattr(pl.os, "getpid", lambda: 100)
+        chain = {100: 200, 200: 1}
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: chain.get(pid))
+        # Sibling session PID (say 999) is live but not in our ancestry.
+        assert pl.is_ancestor_or_self(999) is False
+
+    def test_stops_at_init(self, monkeypatch):
+        import src.process_liveness as pl
+        monkeypatch.setattr(pl.os, "getpid", lambda: 100)
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: 1)
+        assert pl.is_ancestor_or_self(42) is False
+
+    def test_missing_proc_entry_returns_false(self, monkeypatch):
+        import src.process_liveness as pl
+        monkeypatch.setattr(pl.os, "getpid", lambda: 100)
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: None)
+        assert pl.is_ancestor_or_self(42) is False
+
+
+class TestFindAncestorPidMatching:
+    def test_finds_first_matching_ancestor(self, monkeypatch):
+        import src.process_liveness as pl
+        monkeypatch.setattr(pl.os, "getpid", lambda: 100)
+        chain = {100: 200, 200: 300, 300: 1}
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: chain.get(pid))
+        cmdlines = {200: "/bin/sh hook.sh", 300: "/usr/local/bin/claude --print"}
+        monkeypatch.setattr(pl, "_read_cmdline", lambda pid: cmdlines.get(pid, ""))
+        assert pl.find_ancestor_pid_matching("bin/claude") == 300
+
+    def test_none_when_no_ancestor_matches(self, monkeypatch):
+        import src.process_liveness as pl
+        monkeypatch.setattr(pl.os, "getpid", lambda: 100)
+        chain = {100: 200, 200: 1}
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: chain.get(pid))
+        monkeypatch.setattr(pl, "_read_cmdline", lambda pid: "/bin/bash")
+        assert pl.find_ancestor_pid_matching("bin/claude") is None
+
+    def test_none_when_proc_unreadable(self, monkeypatch):
+        import src.process_liveness as pl
+        monkeypatch.setattr(pl.os, "getpid", lambda: 100)
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: None)
+        assert pl.find_ancestor_pid_matching("bin/claude") is None
+
+
+class TestProcReaders:
+    """Thin /proc readers — contract test against the real filesystem
+    using our own process."""
+
+    def test_get_ppid_returns_int_for_self(self):
+        from src.process_liveness import _get_ppid
+        assert _get_ppid(os.getpid()) == os.getppid()
+
+    def test_get_ppid_returns_none_for_missing_pid(self):
+        from src.process_liveness import _get_ppid
+        assert _get_ppid(99_999_999) is None
+
+    def test_read_cmdline_returns_text_for_self(self):
+        from src.process_liveness import _read_cmdline
+        out = _read_cmdline(os.getpid())
+        assert out  # non-empty for a live process
+
+    def test_read_cmdline_returns_empty_for_missing_pid(self):
+        from src.process_liveness import _read_cmdline
+        assert _read_cmdline(99_999_999) == ""
+
+    def test_get_ppid_returns_none_when_status_lacks_ppid_line(self, monkeypatch):
+        """Defensive fallthrough — a /proc/<pid>/status without a PPid:
+        line (shouldn't happen in practice, but we don't trust /proc
+        blindly)."""
+        import builtins
+        import src.process_liveness as pl
+        from io import StringIO
+        original = builtins.open
+        def fake_open(path, *a, **k):
+            if "/proc/" in str(path) and str(path).endswith("/status"):
+                return StringIO("Name: foo\nState: S\n")
+            return original(path, *a, **k)
+        monkeypatch.setattr(builtins, "open", fake_open)
+        assert pl._get_ppid(12345) is None
+
+
+class TestPpidWalkerMaxDepth:
+    """Defensive guard: the PPID walkers stop after a bounded number of
+    hops even if /proc feeds a cyclic chain (paranoid /proc corruption)."""
+
+    def test_is_ancestor_or_self_stops_after_max_depth(self, monkeypatch):
+        import src.process_liveness as pl
+        monkeypatch.setattr(pl.os, "getpid", lambda: 100)
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: pid + 1)
+        assert pl.is_ancestor_or_self(9_999_999) is False
+
+    def test_find_ancestor_pid_matching_stops_after_max_depth(self, monkeypatch):
+        import src.process_liveness as pl
+        monkeypatch.setattr(pl.os, "getpid", lambda: 100)
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: pid + 1)
+        monkeypatch.setattr(pl, "_read_cmdline", lambda pid: "/bin/bash")
+        assert pl.find_ancestor_pid_matching("bin/claude") is None

@@ -51,6 +51,17 @@ class TestNotifyUser:
         assert msgs[0]["body"] == "Build done!"
         assert msgs[0]["type"] == "notify"
 
+    def test_notify_with_task_id_stores_task_id(self, db):
+        db.register_agent("bot", "/p")
+        task_id = db._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, created_at) VALUES (?, ?, ?, ?)",
+            ("/p", "work", "running", "2026-01-01T00:00:00"),
+        ).lastrowid
+        db._conn.commit()
+        notify_user(db, "bot", "done", task_id=task_id)
+        msgs = db.get_pending_messages_for("user")
+        assert msgs[0]["task_id"] == task_id
+
 
 # ── ask_user ──────────────────────────────────────────────────
 
@@ -104,6 +115,30 @@ class TestAskUser:
             "SELECT * FROM messages WHERE type='ask' AND from_name='bot'"
         ).fetchall()
         assert len(msgs) == 1
+
+    @pytest.mark.asyncio
+    async def test_ask_with_task_id_stores_task_id(self, db):
+        db.register_agent("bot", "/p")
+        task_id = db._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, created_at) VALUES (?, ?, ?, ?)",
+            ("/p", "work", "running", "2026-01-01T00:00:00"),
+        ).lastrowid
+        db._conn.commit()
+
+        async def quick_reply():
+            await asyncio.sleep(0.02)
+            pending = db.get_pending_messages_for("user")
+            ask_msg = [m for m in pending if m["type"] == "ask"][0]
+            db.insert_message("user", "bot", "ok", "reply", in_reply_to=ask_msg["id"])
+
+        task = asyncio.create_task(quick_reply())
+        await ask_user(db, "bot", "question?", poll_interval=0.01, task_id=task_id)
+        await task
+
+        row = db._conn.execute(
+            "SELECT task_id FROM messages WHERE type='ask' AND from_name='bot'"
+        ).fetchone()
+        assert row["task_id"] == task_id
 
 
 # ── check_messages ────────────────────────────────────────────
@@ -209,6 +244,21 @@ class TestMessageAgent:
         db.register_agent("a-sender", "/p")
         result = message_agent(db, "a-sender", "", "hi")
         assert "error" in result
+
+    def test_message_with_task_id_stores_task_id(self, db):
+        """Threads peer-to-peer messages back to the originating task,
+        matching notify_user / ask_user behaviour."""
+        db.register_agent("a-sender", "/p/s")
+        db.register_agent("a-recipient", "/p/r")
+        task_id = db._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("/p/s", "work", "running", "2026-01-01T00:00:00"),
+        ).lastrowid
+        db._conn.commit()
+        message_agent(db, "a-sender", "a-recipient", "ping", task_id=task_id)
+        pending = db.get_pending_messages_for("a-recipient")
+        assert pending[0]["task_id"] == task_id
 
 
 # ── deregister_agent ──────────────────────────────────────────

@@ -71,11 +71,21 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
 
 ### Agent Management
 - Spawn Claude Code agents in any project directory via email
-- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.json` wires two Claude Code hooks:
+- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.json` wires three Claude Code hooks:
   - `SessionStart` runs `scripts/chat-session-start-hook.sh` (pre-registers server-side via `chat-register-self.py` + injects the bus guide from `chat-agent-instruction.txt`) and `scripts/chat-drain-inbox.py` (drains any queued mail into the session's opening context).
   - `UserPromptSubmit` runs `chat-drain-inbox.py` again so every user turn auto-delivers messages that arrived mid-session — messages you send while the agent is idle get picked up on its next turn without relying on the model to poll.
+  - `Stop` runs `chat-drain-inbox.py` at the end of every agent response; when peer messages are pending it emits `{"decision":"block","reason":...}`, cancelling the stop and reinjecting the messages as the agent's next turn. Closes the "peer sent something while I was mid-response" gap without polling.
 - Agent status tracking (running, idle, disconnected, deregistered)
 - Agent PIDs recorded in the database
+
+### Wake watcher (idle-agent gap)
+Hooks only fire on session events. When a peer message arrives for an agent whose Claude Code session is idle (or not running), there is no hook to fire. The wake watcher lives inside `claude-chat.service`, polls the `messages` table once per second, and spawns a short-lived `claude --print` subprocess in the recipient's `project_path` so the existing `SessionStart` drain hook can surface the queued messages.
+
+- Sessions resume via `claude --print --resume <uuid>` to keep the prompt cache warm across turns; UUID is cached in-memory and persisted in the `wake_sessions` table.
+- Turns for the same agent are serialized with an in-memory lock; arrivals during an in-flight turn are picked up on the next tick.
+- After 3 consecutive spawn failures for an agent, an error notification is inserted as a bus message to `"user"` — the existing email relay picks it up. Rate-limited to one email per agent per hour.
+- Tunable via `WAKE_*` env vars — see `.env.example`.
+- Manual smoke test: `scripts/test-wake-smoke.sh agent-smoke /tmp/smoke-wake` (requires running services).
 
 ### Test-Sender Isolation (optional)
 - Set `TEST_SENDER` in `.env` and copy `.env.test.example` → `.env.test`, then rerun `install.sh`. A second systemd unit `claude-chat-test.service` comes up on port 8421 with its own DB and `CLAUDE_CWD`.
@@ -96,7 +106,7 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.12+
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - GPG key for the authorized sender (recommended) or a shared secret
 
@@ -291,17 +301,16 @@ Replace the URL with your `CHAT_URL` from `.env`. Once configured, Claude Code d
 
 ### Using the chat tools from Claude Code
 
-After connecting, the agent should register itself, then use the tools to communicate:
+The agent is pre-registered by the `SessionStart` hook before its first turn (via `scripts/chat-register-self.py` writing the row directly to the DB), so it never needs to call `chat_register` itself — it just uses the tools:
 
-```
-You: Register as an agent and ask the user if the tests should include integration tests.
+```text
+You: Ask the user if the tests should include integration tests.
 
 Claude Code:
-  1. Calls chat_register(name="agent-myproject", project_path="/home/user/myproject")
-  2. Calls chat_ask(message="Should I include integration tests in the test suite?")
-  3. Blocks until the user replies via email
-  4. Receives { reply: "Yes, include integration tests for the API endpoints" }
-  5. Continues working with that answer
+  1. Calls chat_ask(_caller="agent-myproject", message="Should I include integration tests in the test suite?")
+  2. Blocks until the user replies via email
+  3. Receives { reply: "Yes, include integration tests for the API endpoints" }
+  4. Continues working with that answer
 ```
 
 Agents can also send fire-and-forget status updates:
@@ -325,7 +334,7 @@ Agents connect to the chat server via MCP SSE and use these tools:
 
 | Tool | Description | Blocking |
 |---|---|---|
-| `chat_register` | Register as a participant (name + project path) | No |
+| `chat_register` | Register as a participant (name + project path). Normally called server-side by the `SessionStart` hook; agents don't need to call it themselves. | No |
 | `chat_ask` | Send a question to the user and wait for reply | Yes |
 | `chat_notify` | Send a fire-and-forget status update to the user | No |
 | `chat_message_agent` | Send a one-way notification to another registered agent (peer-to-peer). Rejects unknown recipients and `user` (use `chat_notify` for that). | No |
@@ -397,7 +406,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 598 pytest tests (100% coverage)
+├── tests/                 # 732 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -426,7 +435,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (598 tests, 100% coverage)
+# Run all tests (732 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -444,7 +453,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **598 tests** with **100% code coverage** across all modules
+- **732 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
