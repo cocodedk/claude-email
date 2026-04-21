@@ -35,6 +35,7 @@ def handle_json_email(
         _send_json_reply(config, message, build_envelope(
             "error", body=exc.message,
             error={"code": exc.code, "message": exc.message},
+            ask_id=exc.ask_id,
         ))
         return True
 
@@ -48,6 +49,7 @@ def handle_json_email(
         _send_json_reply(config, message, build_envelope(
             "error", body="auth failed",
             error={"code": "unauthorized", "message": "meta.auth does not match"},
+            ask_id=env.ask_id,
         ))
         return True
 
@@ -67,6 +69,7 @@ def _dispatch(env: Envelope, config, chat_db, task_queue, worker_manager, inboun
     return build_envelope(
         "error", body=f"kind {env.kind!r} not yet implemented in Phase 8a",
         error={"code": "invalid_state", "message": f"kind {env.kind!r} comes online in a later phase"},
+        ask_id=env.ask_id,
     )
 
 
@@ -75,11 +78,13 @@ def _handle_command(env, task_queue, worker_manager, allowed_base, inbound_msg_i
         return build_envelope(
             "error", body="command requires project + body",
             error={"code": "bad_envelope", "message": "missing project or body"},
+            ask_id=env.ask_id,
         )
     if enqueue_task_tool is None:  # pragma: no cover
         return build_envelope(
             "error", body="server not fully initialized",
             error={"code": "internal", "message": "enqueue_task_tool unavailable"},
+            ask_id=env.ask_id,
         )
     result = enqueue_task_tool(
         task_queue, worker_manager,
@@ -94,10 +99,12 @@ def _handle_command(env, task_queue, worker_manager, allowed_base, inbound_msg_i
         return build_envelope(
             "error", body=result["error"],
             error={"code": code, "message": result["error"]},
+            ask_id=env.ask_id,
         )
     return build_envelope(
         "ack", body=f"Queued as task #{result['task_id']}.",
         task_id=result["task_id"],
+        ask_id=env.ask_id,
         data={
             "status": "queued",
             "branch": result["planned_branch"],
