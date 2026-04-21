@@ -73,7 +73,7 @@ def test_wake_sessions_columns(db):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-```
+```bash
 .venv/bin/pytest tests/test_chat_db_wake.py -v
 ```
 
@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS wake_sessions (
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-```
+```bash
 .venv/bin/pytest tests/test_chat_db_wake.py -v
 ```
 
@@ -101,7 +101,7 @@ Expected: 2 passed.
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/chat_schema.py tests/test_chat_db_wake.py
 git commit -m "feat(wake): add wake_sessions table to chat schema"
 ```
@@ -157,7 +157,7 @@ Expected: 4 passed.
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/chat_db.py tests/test_chat_db_wake.py
 git commit -m "feat(wake): ChatDB.get_wake_session"
 ```
@@ -211,7 +211,7 @@ def test_upsert_wake_session_update_bumps_timestamp(db):
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/chat_db.py tests/test_chat_db_wake.py
 git commit -m "feat(wake): ChatDB.upsert_wake_session"
 ```
@@ -253,7 +253,7 @@ def test_delete_wake_session_noop_on_missing(db):
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/chat_db.py tests/test_chat_db_wake.py
 git commit -m "feat(wake): ChatDB.delete_wake_session"
 ```
@@ -305,7 +305,7 @@ Add in the `# ── Messages ──` section of `src/chat_db.py`:
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/chat_db.py tests/test_chat_db_wake.py
 git commit -m "feat(wake): ChatDB.get_distinct_pending_recipients"
 ```
@@ -374,7 +374,7 @@ class WakeTurnResult:
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/wake_spawn.py tests/test_wake_spawn.py
 git commit -m "feat(wake): build_wake_cmd argv builder"
 ```
@@ -414,13 +414,13 @@ async def test_run_wake_turn_nonzero(tmp_path):
 
 Check whether `pytest-asyncio` is configured:
 
-```
+```text
 grep -rE "asyncio_mode|pytest-asyncio" pyproject.toml setup.cfg pytest.ini 2>/dev/null
 ```
 
 If nothing is found, install it into the venv and add `asyncio_mode = "auto"` to `pyproject.toml` under `[tool.pytest.ini_options]`:
 
-```
+```bash
 .venv/bin/pip install pytest-asyncio
 ```
 
@@ -454,7 +454,7 @@ async def run_wake_turn(
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/wake_spawn.py tests/test_wake_spawn.py
 git commit -m "feat(wake): run_wake_turn subprocess runner"
 ```
@@ -492,7 +492,7 @@ async def test_run_wake_turn_binary_missing(tmp_path):
 
 - [ ] **Step 3: Commit**
 
-```
+```bash
 git add tests/test_wake_spawn.py
 git commit -m "test(wake): cover run_wake_turn timeout + missing-binary paths"
 ```
@@ -576,7 +576,7 @@ class _AgentLocks:
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/wake_watcher.py tests/test_wake_watcher.py
 git commit -m "feat(wake): _AgentLocks per-agent turn lock"
 ```
@@ -656,7 +656,7 @@ class _SessionCache:
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/wake_watcher.py tests/test_wake_watcher.py
 git commit -m "feat(wake): _SessionCache with TTL"
 ```
@@ -754,7 +754,7 @@ class _FailureTracker:
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/wake_watcher.py tests/test_wake_watcher.py
 git commit -m "feat(wake): _FailureTracker with hourly rate limit"
 ```
@@ -905,7 +905,7 @@ def _handle_failure(
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/wake_watcher.py tests/test_wake_watcher.py
 git commit -m "feat(wake): process_agent success path"
 ```
@@ -944,7 +944,7 @@ async def test_process_agent_resume_path(live_db, tmp_path):
 
 - [ ] **Step 3: Commit**
 
-```
+```bash
 git add tests/test_wake_watcher.py
 git commit -m "test(wake): cover process_agent resume path"
 ```
@@ -1012,7 +1012,7 @@ async def test_process_agent_escalates_and_rate_limits(live_db, tmp_path):
 
 - [ ] **Step 3: Commit**
 
-```
+```bash
 git add tests/test_wake_watcher.py
 git commit -m "test(wake): cover process_agent escalation + rate limit"
 ```
@@ -1045,7 +1045,7 @@ async def test_process_agent_skips_unknown_agent(live_db):
 
 - [ ] **Step 3: Commit**
 
-```
+```bash
 git add tests/test_wake_watcher.py
 git commit -m "test(wake): cover process_agent unknown-agent skip"
 ```
@@ -1146,7 +1146,7 @@ async def run_wake_watcher(
 
 - [ ] **Step 5: Commit**
 
-```
+```bash
 git add src/wake_watcher.py tests/test_wake_watcher.py
 git commit -m "feat(wake): run_wake_watcher main loop"
 ```
@@ -1179,7 +1179,7 @@ async def test_run_wake_watcher_shuts_down_cleanly(live_db):
 
 - [ ] **Step 8: Commit**
 
-```
+```bash
 git add tests/test_wake_watcher.py
 git commit -m "test(wake): cover clean shutdown of main loop"
 ```
@@ -1282,13 +1282,13 @@ Replace the final Starlette construction inside `create_app` with a lifespan-awa
 
 - [ ] **Step 4: Run — expect PASS**
 
-```
+```bash
 .venv/bin/pytest tests/test_chat_server_lifespan.py -v
 ```
 
 - [ ] **Step 5: Run full suite**
 
-```
+```bash
 .venv/bin/pytest tests/ -q
 ```
 
@@ -1296,7 +1296,7 @@ Expected: 604 + new tests all pass.
 
 - [ ] **Step 6: Commit**
 
-```
+```bash
 git add chat/server.py tests/test_chat_server_lifespan.py
 git commit -m "feat(wake): wire run_wake_watcher into chat server lifespan"
 ```
@@ -1311,7 +1311,7 @@ git commit -m "feat(wake): wire run_wake_watcher into chat server lifespan"
 
 - [ ] **Step 1: Append to `.env.example`**
 
-```
+```markdown
 # Wake watcher (claude-chat background task)
 WAKE_WATCHER_INTERVAL_SECS=1.0
 WAKE_SUBPROCESS_TIMEOUT_SECS=300
@@ -1349,7 +1349,7 @@ Tunable via `WAKE_*` env vars — see `.env.example`.
 
 - [ ] **Step 3: Commit**
 
-```
+```bash
 git add README.md .env.example
 git commit -m "docs(wake): document wake watcher env vars + behavior"
 ```
@@ -1362,7 +1362,7 @@ git commit -m "docs(wake): document wake watcher env vars + behavior"
 
 - [ ] **Step 1: Full suite**
 
-```
+```bash
 .venv/bin/pytest tests/ -q
 ```
 
@@ -1370,7 +1370,7 @@ All passing.
 
 - [ ] **Step 2: Coverage**
 
-```
+```bash
 .venv/bin/pytest --cov=src --cov=chat --cov-report=term-missing tests/ -q
 ```
 
@@ -1378,7 +1378,7 @@ All passing.
 
 - [ ] **Step 3: Line-limit**
 
-```
+```text
 scripts/check-line-limit.sh
 ```
 
@@ -1420,7 +1420,7 @@ sleep 15
 
 - [ ] **Step 2: Permissions + commit**
 
-```
+```text
 chmod +x scripts/test-wake-smoke.sh
 git add scripts/test-wake-smoke.sh
 git commit -m "test(wake): manual e2e smoke script"
@@ -1434,7 +1434,7 @@ Manual smoke: `scripts/test-wake-smoke.sh agent-smoke /tmp/smoke-wake` (requires
 
 Commit:
 
-```
+```bash
 git add README.md
 git commit -m "docs(wake): reference manual smoke script"
 ```
@@ -1445,7 +1445,7 @@ git commit -m "docs(wake): reference manual smoke script"
 
 - [ ] **Step 1: Restart claude-chat.service**
 
-```
+```bash
 systemctl --user restart claude-chat.service
 systemctl --user status claude-chat.service --no-pager
 journalctl --user -u claude-chat -n 40 --no-pager
