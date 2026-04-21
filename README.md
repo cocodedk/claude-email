@@ -402,17 +402,68 @@ claude-email/
 │   ├── chat_db.py         # Shared SQLite layer (WAL mode) — agents, messages, events
 │   ├── chat_router.py     # Email-to-chat routing: reply, @agent, meta, CLI fallback
 │   ├── chat_handlers.py   # Chat dispatch + relay outbound agent-to-user emails
+│   ├── dashboard_queries.py  # Read-only ChatDB projections for the dashboard
 │   └── spawner.py         # Spawn Claude Code agents, inject MCP config
 ├── chat/
-│   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
-│   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 743 pytest tests (100% coverage)
+│   ├── tools.py                 # MCP tool implementations
+│   ├── server.py                # MCP SSE server (Starlette + low-level mcp.server)
+│   ├── dashboard.py             # Dashboard HTTP routes + SSE message stream
+│   ├── dashboard_page.py        # SVG radar page skeleton
+│   ├── dashboard_css.py         # CSS concatenator (shell + graph)
+│   ├── dashboard_css_shell.py   # Body/topbar/typography + CRT overlays
+│   ├── dashboard_css_graph.py   # Radar, nodes, edges, pulses, feed styles
+│   ├── dashboard_js.py          # JS concatenator (graph + stream)
+│   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
+│   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
+├── tests/                 # 779 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
 ├── claude-email.service   # User-level systemd unit
 └── claude-chat.service    # User-level systemd unit (MCP SSE server)
 ```
+
+## Live Dashboard — CRT Observatory
+
+`claude-chat` serves a fully-graphic single-page dashboard at
+`http://127.0.0.1:$CHAT_PORT/dashboard` (default
+`http://127.0.0.1:8420/dashboard`). It visualises **who talks to whom** in
+real time as a node-graph, not a text timeline.
+
+- **Radar stage** — the user sits at the centre as a phosphor node; registered agents orbit on a ring sized to the roster. A slow sweep gradient rotates under scan-lines and film noise for a green-phosphor CRT feel.
+- **Message pulses** — each bus message fires an easing dot along the chord from sender to recipient, coloured by the sender's hash-derived hue. The target node's halo briefly blooms on arrival.
+- **Persistent heat edges** — every `(from, to)` pair accumulates a bowed arc; stroke width and opacity scale logarithmically with volume, so high-traffic channels stand out.
+- **Transmission feed** — a CRT-styled log on the side; click any row to expand the full body, coloured by the same per-agent hue.
+- **Filter by click** — clicking an agent node narrows the feed to that agent's traffic and dims the other nodes.
+- **Live stream** — `EventSource` on `/events` pushes new messages the instant they land in SQLite; the page auto-reconnects on disconnect.
+- **Top bar** — UTC clock, operator count, running event counter, and a `LINK LIVE` LED. Typography: `Major Mono Display` for headers, `IBM Plex Mono` for body.
+
+The page is composed from seven ~100-line modules
+(`dashboard_page.py`, `dashboard_css{_shell,_graph}.py`,
+`dashboard_js{_graph,_stream}.py`, plus two concatenators) so every file
+stays under the 200-line cap.
+
+All routes are read-only and bind to the same host/port as the MCP server —
+127.0.0.1 by default, so access stays local. Tune the poll cadence with
+`DASHBOARD_POLL_SECS` (default `1.0`).
+
+## Mobile Companion (Android)
+
+A native Android app is being built in a separate companion repository so
+you can dispatch commands and reply to agents from a phone without
+composing them in a generic mail client. The app speaks the same
+IMAP/SMTP backbone, so the server side requires no changes.
+
+- Repository: *link pending — to be added here once the repo is public.*
+- Screenshots: *coming soon — will be embedded below as the app reaches usable milestones.*
+
+<!-- TODO: replace with real repo link + <img> tags or a linked gallery. -->
+<!-- Example layout:
+| Inbox | Compose | Agent chat |
+| :---: | :-----: | :--------: |
+| ![inbox](docs/android/inbox.png) | ![compose](docs/android/compose.png) | ![chat](docs/android/chat.png) |
+-->
+
 
 ## Service Management
 
@@ -435,7 +486,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (743 tests, 100% coverage)
+# Run all tests (779 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -453,7 +504,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **743 tests** with **100% code coverage** across all modules
+- **779 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
