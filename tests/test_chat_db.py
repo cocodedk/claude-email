@@ -1,7 +1,9 @@
 """Tests for the shared SQLite database layer (ChatDB)."""
+import asyncio
+import os
 import sqlite3
 import pytest
-from src.chat_db import ChatDB
+from src.chat_db import ChatDB, AgentNameTaken, AgentProjectTaken
 
 
 @pytest.fixture
@@ -89,6 +91,50 @@ class TestAgents:
         db.touch_agent("a1")
         second = db.get_agent("a1")["last_seen_at"]
         assert second >= first
+
+    def test_register_with_pid_stores_pid(self, db):
+        db.register_agent("a1", "/p", pid=4242)
+        assert db.get_agent("a1")["pid"] == 4242
+
+    def test_register_same_pid_refreshes(self, db):
+        db.register_agent("a1", "/p", pid=os.getpid())
+        db.register_agent("a1", "/p2", pid=os.getpid())
+        agent = db.get_agent("a1")
+        assert agent["project_path"] == "/p2"
+        assert agent["pid"] == os.getpid()
+
+    def test_register_different_live_pid_raises(self, db):
+        db.register_agent("a1", "/p", pid=os.getpid())
+        with pytest.raises(AgentNameTaken) as excinfo:
+            db.register_agent("a1", "/p", pid=os.getpid() + 10_000_000)
+        assert excinfo.value.owner_pid == os.getpid()
+
+    def test_register_different_dead_pid_takes_over(self, db):
+        db.register_agent("a1", "/p", pid=99_999_999)
+        db.register_agent("a1", "/p2", pid=os.getpid())
+        agent = db.get_agent("a1")
+        assert agent["pid"] == os.getpid()
+        assert agent["project_path"] == "/p2"
+
+    def test_register_legacy_no_pid_still_upserts(self, db):
+        db.register_agent("a1", "/old")
+        db.register_agent("a1", "/new")
+        assert db.get_agent("a1")["project_path"] == "/new"
+
+    def test_register_different_name_same_project_live_pid_raises(self, db):
+        db.register_agent("agent-one", "/shared/project", pid=os.getpid())
+        with pytest.raises(AgentProjectTaken) as excinfo:
+            db.register_agent(
+                "agent-two", "/shared/project", pid=os.getpid() + 10_000_000,
+            )
+        assert excinfo.value.project_path == "/shared/project"
+        assert excinfo.value.owner_name == "agent-one"
+        assert excinfo.value.owner_pid == os.getpid()
+
+    def test_register_different_name_same_project_dead_pid_allowed(self, db):
+        db.register_agent("agent-one", "/shared/project", pid=99_999_999)
+        db.register_agent("agent-two", "/shared/project", pid=os.getpid())
+        assert db.get_agent("agent-two")["project_path"] == "/shared/project"
 
     def test_register_logs_event(self, db):
         db.register_agent("a1", "/p")
@@ -187,6 +233,79 @@ class TestAgents:
         assert db.get_agent("agent-ghost")["status"] == "disconnected"
 
 
+class TestFindLiveOwner:
+    """Ownership probe used by scripts/chat-register-self.py."""
+
+    def test_no_row_returns_none(self, db):
+        assert db.find_live_owner("agent-ghost", "/nowhere") is None
+
+    def test_dead_owner_returns_none(self, db):
+        db.register_agent("agent-a", "/p", pid=99999999)  # not alive
+        assert db.find_live_owner("agent-a", "/p") is None
+
+    def test_live_name_owner_returned(self, db):
+        import os as _os
+        db.register_agent("agent-a", "/p", pid=_os.getpid())
+        owner = db.find_live_owner("agent-a", "/elsewhere")
+        assert owner == {"name": "agent-a", "pid": _os.getpid()}
+
+    def test_live_project_owner_returned_under_different_name(self, db):
+        import os as _os
+        db.register_agent("agent-a", "/shared", pid=_os.getpid())
+        owner = db.find_live_owner("agent-b", "/shared")
+        assert owner == {"name": "agent-a", "pid": _os.getpid()}
+
+    def test_exclude_pid_filters_name_match(self, db):
+        """exclude_pid lets our own session exempt itself from the probe."""
+        import os as _os
+        db.register_agent("agent-a", "/p", pid=_os.getpid())
+        assert db.find_live_owner(
+            "agent-a", "/p", exclude_pid=_os.getpid(),
+        ) is None
+
+    def test_exclude_pid_filters_project_match(self, db):
+        import os as _os
+        db.register_agent("agent-a", "/shared", pid=_os.getpid())
+        assert db.find_live_owner(
+            "agent-b", "/shared", exclude_pid=_os.getpid(),
+        ) is None
+
+
+class TestRegisterAgentTransactionFallback:
+    """When BEGIN IMMEDIATE fails, register_agent must still work via the
+    non-atomic fallback path — the ON CONFLICT clause serialises the write."""
+
+    def test_begin_immediate_failure_falls_back(self, tmp_path):
+        import os as _os
+        import sqlite3 as _sqlite3
+
+        class _FakeConn:
+            """Proxy that raises on BEGIN IMMEDIATE, delegates everything else."""
+
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, attr):
+                return getattr(self._real, attr)
+
+            def execute(self, sql, *args, **kwargs):
+                if (
+                    isinstance(sql, str)
+                    and sql.strip().upper().startswith("BEGIN IMMEDIATE")
+                ):
+                    raise _sqlite3.OperationalError(
+                        "cannot start a transaction within a transaction",
+                    )
+                return self._real.execute(sql, *args, **kwargs)
+
+        db = ChatDB(str(tmp_path / "fallback.db"))
+        db._conn = _FakeConn(db._conn)
+        # Should still succeed via the fallback path.
+        result = db.register_agent("agent-x", "/tmp", pid=_os.getpid())
+        assert result["name"] == "agent-x"
+        assert result["pid"] == _os.getpid()
+
+
 class TestMessages:
     def test_insert_message_returns_dict(self, db):
         msg = db.insert_message("alice", "bob", "hello", "ask")
@@ -244,6 +363,66 @@ class TestMessages:
 
     def test_find_message_by_email_id_missing(self, db):
         assert db.find_message_by_email_id("<missing@x>") is None
+
+
+class TestClaimPendingMessages:
+    def test_claim_returns_pending_messages_fifo(self, db):
+        db.insert_message("a", "bob", "first", "ask")
+        db.insert_message("a", "bob", "second", "ask")
+        db.insert_message("a", "other", "not for bob", "ask")
+        claimed = db.claim_pending_messages_for("bob")
+        assert len(claimed) == 2
+        assert claimed[0]["body"] == "first"
+        assert claimed[1]["body"] == "second"
+
+    def test_claim_marks_messages_delivered(self, db):
+        db.insert_message("a", "bob", "hi", "ask")
+        db.claim_pending_messages_for("bob")
+        assert db.get_pending_messages_for("bob") == []
+
+    def test_claim_second_call_returns_empty(self, db):
+        db.insert_message("a", "bob", "hi", "ask")
+        db.claim_pending_messages_for("bob")
+        assert db.claim_pending_messages_for("bob") == []
+
+    def test_claim_does_not_affect_other_recipients(self, db):
+        db.insert_message("a", "alice", "for alice", "ask")
+        db.insert_message("a", "bob", "for bob", "ask")
+        db.claim_pending_messages_for("bob")
+        assert len(db.get_pending_messages_for("alice")) == 1
+
+    def test_claim_returns_empty_when_no_pending(self, db):
+        assert db.claim_pending_messages_for("nobody") == []
+
+    def test_claim_sets_status_to_delivered_in_db(self, db):
+        msg = db.insert_message("a", "bob", "hi", "ask")
+        db.claim_pending_messages_for("bob")
+        row = db._conn.execute(
+            "SELECT status FROM messages WHERE id=?", (msg["id"],)
+        ).fetchone()
+        assert row["status"] == "delivered"
+
+
+class TestWakeNudge:
+    def test_insert_message_sets_registered_nudge(self, db):
+        nudge = asyncio.Event()
+        db.set_wake_nudge(nudge)
+        assert not nudge.is_set()
+        db.insert_message("a", "b", "hi", "notify")
+        assert nudge.is_set()
+
+    def test_insert_message_without_nudge_does_not_raise(self, db):
+        db.insert_message("a", "b", "hi", "notify")
+        assert db.get_pending_messages_for("b") != []
+
+    def test_nudge_fires_on_every_insert(self, db):
+        nudge = asyncio.Event()
+        db.set_wake_nudge(nudge)
+        db.insert_message("a", "b", "one", "notify")
+        assert nudge.is_set()
+        nudge.clear()
+        db.insert_message("a", "b", "two", "notify")
+        assert nudge.is_set()
 
     def test_get_reply_to_message(self, db):
         ask = db.insert_message("a", "b", "question?", "ask")
