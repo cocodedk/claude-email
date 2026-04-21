@@ -296,6 +296,39 @@ async def test_run_wake_watcher_processes_pending_and_stops(live_db, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_wake_watcher_swallows_recipient_query_failure(live_db, caplog):
+    """A transient DB error on the recipient query must be logged and the loop
+    must continue. Previously this path was accidentally exercised by a
+    cross-thread sqlite error from the TestClient fixture; with
+    check_same_thread=False that incidental coverage went away."""
+    import logging
+    call_count = {"n": 0}
+    original = live_db.get_distinct_pending_recipients
+
+    def flaky():
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise RuntimeError("simulated db blip")
+        return original()
+
+    live_db.get_distinct_pending_recipients = flaky
+    stop = asyncio.Event()
+
+    async def never_spawn(cmd, cwd, timeout):
+        raise AssertionError("no pending recipients after recovery")
+
+    with caplog.at_level(logging.ERROR):
+        task = asyncio.create_task(
+            run_wake_watcher(live_db, _cfg(), stop, spawn_fn=never_spawn),
+        )
+        await asyncio.sleep(0.2)
+        stop.set()
+        await asyncio.wait_for(task, timeout=2)
+    assert call_count["n"] >= 2  # raised once, then recovered
+    assert any("recipient query failed" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
 async def test_run_wake_watcher_shuts_down_cleanly(live_db):
     stop = asyncio.Event()
 
