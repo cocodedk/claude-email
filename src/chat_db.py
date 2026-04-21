@@ -37,7 +37,8 @@ class ChatDB(AgentRegistryMixin, WakeSessionStoreMixin):
         self._wake_nudge = event
 
     def _nudge_wake(self) -> None:
-        if self._wake_nudge is not None: self._wake_nudge.set()
+        if self._wake_nudge is not None:
+            self._wake_nudge.set()
 
     # ── Messages ────────────────────────────────────────────
 
@@ -70,7 +71,11 @@ class ChatDB(AgentRegistryMixin, WakeSessionStoreMixin):
         return [dict(r) for r in rows]
 
     def claim_pending_messages_for(self, to_name: str) -> list[dict]:
-        """Atomically mark pending messages as delivered and return them."""
+        """Atomically mark pending messages as delivered and return them.
+
+        SQLite's RETURNING does not guarantee row order, so we sort by id
+        before returning to match get_pending_messages_for / _format_context.
+        """
         rows = self._conn.execute(
             """UPDATE messages SET status='delivered'
                WHERE id IN (
@@ -81,7 +86,7 @@ class ChatDB(AgentRegistryMixin, WakeSessionStoreMixin):
             (to_name,),
         ).fetchall()
         self._conn.commit()
-        return [dict(r) for r in rows]
+        return sorted((dict(r) for r in rows), key=lambda r: r["id"])
 
     def get_distinct_pending_recipients(self) -> list[str]:
         rows = self._conn.execute(

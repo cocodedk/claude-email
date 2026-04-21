@@ -106,7 +106,7 @@ Hooks only fire on session events. When a peer message arrives for an agent whos
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.12+
 - [Claude Code CLI](https://claude.ai/code) installed and authenticated
 - GPG key for the authorized sender (recommended) or a shared secret
 
@@ -303,7 +303,7 @@ Replace the URL with your `CHAT_URL` from `.env`. Once configured, Claude Code d
 
 The agent is pre-registered by the `SessionStart` hook before its first turn (via `scripts/chat-register-self.py` writing the row directly to the DB), so it never needs to call `chat_register` itself — it just uses the tools:
 
-```
+```text
 You: Ask the user if the tests should include integration tests.
 
 Claude Code:
@@ -406,7 +406,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 673 pytest tests (100% coverage)
+├── tests/                 # 732 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -435,7 +435,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (673 tests, 100% coverage)
+# Run all tests (732 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -453,7 +453,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **673 tests** with **100% code coverage** across all modules
+- **732 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit

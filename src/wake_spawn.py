@@ -26,10 +26,16 @@ class WakeTurnResult:
 async def run_wake_turn(
     cmd: list[str], cwd: str, timeout: float,
 ) -> WakeTurnResult:
-    """Run a wake subprocess. stdout/stderr discarded; only exit code matters."""
+    """Run a wake subprocess. stdout/stderr discarded; only exit code matters.
+
+    stdin is closed (DEVNULL) so the child cannot accidentally block on
+    inherited console input. On timeout we kill the process and wait at
+    most 5s for it to reap, to avoid hanging on an uncooperative child.
+    """
     try:
         proc = await _launch_proc(
-            *cmd, cwd=cwd, stdout=DEVNULL, stderr=DEVNULL,
+            *cmd, cwd=cwd,
+            stdin=DEVNULL, stdout=DEVNULL, stderr=DEVNULL,
         )
     except (FileNotFoundError, PermissionError) as exc:
         return WakeTurnResult(exit_code=-1, timed_out=False, error=str(exc))
@@ -38,5 +44,8 @@ async def run_wake_turn(
         return WakeTurnResult(exit_code=exit_code, timed_out=False)
     except asyncio.TimeoutError:
         proc.kill()
-        await proc.wait()
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=5)
+        except asyncio.TimeoutError:
+            pass  # child refuses to reap; release the coroutine anyway
         return WakeTurnResult(exit_code=-1, timed_out=True)

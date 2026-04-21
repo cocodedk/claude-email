@@ -13,7 +13,9 @@ import uuid
 from dataclasses import dataclass
 
 from src.chat_db import ChatDB
-from src.wake_helpers import _AgentLocks, _FailureTracker, _SessionCache
+from src.wake_helpers import (
+    _AgentLocks, _FailureTracker, _SessionCache, _is_session_fresh,
+)
 from src.wake_spawn import WakeTurnResult, build_wake_cmd
 
 logger = logging.getLogger(__name__)
@@ -64,7 +66,12 @@ async def process_agent(
         cached = cache.get(agent_name)
         if cached is None:
             persisted = db.get_wake_session(agent_name)
-            cached = persisted["session_id"] if persisted else None
+            if persisted and _is_session_fresh(persisted, cache.idle_secs):
+                cached = persisted["session_id"]
+            elif persisted:
+                # Older than idle_expiry — drop it; next turn creates a
+                # fresh session-id rather than resuming an expired one.
+                db.delete_wake_session(agent_name)
         is_resume = cached is not None
         session_id = cached or str(uuid.uuid4())
 
@@ -113,9 +120,14 @@ def _handle_failure(
     )
     if not tracker.should_escalate(agent_name):
         return
+    # Always clear stuck pending messages at escalation so the watcher
+    # doesn't respawn the same failing agent forever. Rate limiting gates
+    # only the user-facing email, not the queue cleanup.
+    pending = db.get_pending_messages_for(agent_name)
+    for m in pending:
+        db.mark_message_failed(m["id"])
     if not tracker.can_notify(agent_name):
         return
-    pending = db.get_pending_messages_for(agent_name)
     body = (
         f"[wake-watcher] persistent spawn failure\n"
         f"agent: {agent_name}\n"
@@ -126,8 +138,6 @@ def _handle_failure(
         f"error={getattr(result, 'error', None)}"
     )
     db.insert_message("wake-watcher", user_avatar, body, "notify")
-    for m in pending:
-        db.mark_message_failed(m["id"])
     tracker.mark_notified(agent_name)
 
 
@@ -154,7 +164,7 @@ async def run_wake_watcher(
             logger.exception("wake: recipient query failed")
             recipients = []
         recipients = [r for r in recipients if r != cfg.user_avatar]
-        await asyncio.gather(*[
+        results = await asyncio.gather(*[
             process_agent(
                 r, db, locks, cache, tracker,
                 spawn_fn=spawn_fn, claude_bin=cfg.claude_bin,
@@ -163,6 +173,12 @@ async def run_wake_watcher(
             )
             for r in recipients
         ], return_exceptions=True)
+        for recipient, result in zip(recipients, results):
+            if isinstance(result, Exception):
+                logger.error(
+                    "wake: process_agent failed for %s", recipient,
+                    exc_info=result,
+                )
         waiter = nudge.wait() if nudge is not None else stop.wait()
         try:
             await asyncio.wait_for(waiter, timeout=cfg.interval_secs)

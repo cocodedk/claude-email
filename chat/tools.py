@@ -24,12 +24,17 @@ def notify_user(db: ChatDB, caller: str, message: str, task_id: int | None = Non
     return {"status": "sent"}
 
 
-def message_agent(db: ChatDB, caller: str, to_agent: str, message: str) -> dict:
+def message_agent(
+    db: ChatDB, caller: str, to_agent: str, message: str,
+    task_id: int | None = None,
+) -> dict:
     """Send a one-way notification from caller to another registered agent.
 
     Rejects to_agent=='user' — callers should use notify_user/chat_notify
     for that. Rejects unknown recipients so typos don't silently queue
-    ghost messages that will never be drained.
+    ghost messages that will never be drained. ``task_id`` is forwarded
+    so agent-to-agent replies can thread back to the originating task,
+    matching notify_user/ask_user behaviour.
     """
     if not to_agent:
         return {"error": "to_agent must not be empty"}
@@ -37,7 +42,7 @@ def message_agent(db: ChatDB, caller: str, to_agent: str, message: str) -> dict:
         return {"error": "to_agent='user' is not allowed — use chat_notify to reach the user"}
     if db.get_agent(to_agent) is None:
         return {"error": f"no registered agent named {to_agent!r}"}
-    db.insert_message(caller, to_agent, message, "notify")
+    db.insert_message(caller, to_agent, message, "notify", task_id=task_id)
     return {"status": "sent", "to": to_agent}
 
 

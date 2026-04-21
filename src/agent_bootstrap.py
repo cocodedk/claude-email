@@ -80,30 +80,42 @@ def inject_mcp_config(project_dir: str, chat_url: str) -> None:
 def _merge_hook_event(
     hooks: dict, event: str, matcher: str, our_commands: list[str],
 ) -> None:
-    """Ensure `event` has a matcher-block whose hook list contains exactly
-    our_commands (in order) alongside any third-party commands already there.
+    """Ensure `event` has our commands while preserving every third-party
+    entry verbatim (matcher + remaining hooks).
 
-    A command is considered "ours" if it lives under the claude-email
-    scripts/ dir — so stale paths from a prior install layout are dropped
-    on upgrade while genuine third-party hooks (arbitrary command paths)
-    survive.
+    A command is "ours" if its basename matches our script names — stale
+    paths from a prior install layout are dropped while genuine third-party
+    hooks survive. Each third-party entry keeps its own matcher and any
+    remaining hooks, so installing into a project with a custom Stop matcher
+    (for example) does not collapse it into our generic block.
     """
     entries = hooks.get(event)
     if not isinstance(entries, list):
         entries = []
-    kept: list[dict] = []
+    kept_entries: list[dict] = []
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        for h in entry.get("hooks", []) if isinstance(entry.get("hooks"), list) else []:
-            if (
+        entry_hooks = entry.get("hooks")
+        if not isinstance(entry_hooks, list):
+            continue
+        kept_hooks = [
+            h for h in entry_hooks
+            if not (
                 isinstance(h, dict)
                 and h.get("type") == "command"
-                and not _is_ours(h.get("command", ""))
-            ):
-                kept.append(h)
-    new_hooks = [{"type": "command", "command": c} for c in our_commands] + kept
-    hooks[event] = [{"matcher": matcher, "hooks": new_hooks}]
+                and _is_ours(h.get("command", ""))
+            )
+        ]
+        if kept_hooks:
+            kept_entry = dict(entry)
+            kept_entry["hooks"] = kept_hooks
+            kept_entries.append(kept_entry)
+    our_entry = {
+        "matcher": matcher,
+        "hooks": [{"type": "command", "command": c} for c in our_commands],
+    }
+    hooks[event] = [our_entry, *kept_entries]
 
 
 def _is_ours(command: str) -> bool:

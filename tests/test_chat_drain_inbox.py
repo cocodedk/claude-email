@@ -56,6 +56,18 @@ class TestReadHookEvent:
         monkeypatch.setattr(sys, "stdin", buf)
         assert drain_mod._read_hook_event() == "UserPromptSubmit"
 
+    def test_read_hook_payload_swallows_stdin_errors(
+        self, drain_mod, monkeypatch,
+    ):
+        """Broken stdin (OSError) must not crash — return {}."""
+        class _Broken:
+            def isatty(self):
+                raise OSError("stdin gone")
+            def read(self):
+                return ""
+        monkeypatch.setattr(sys, "stdin", _Broken())
+        assert drain_mod._read_hook_payload() == {}
+
 
 class TestResolvedDbPath:
     def test_relative_resolves_against_repo_root(self, drain_mod, monkeypatch):

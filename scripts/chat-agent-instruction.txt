@@ -10,11 +10,14 @@ Compute it once. Use the exact same string for every _caller= argument below.
 Do not invent a new name later in the session.
 
 Task ID:
-  Extract your task ID once from the branch name:
-    task_id = int(git rev-parse --abbrev-ref HEAD | sed 's/claude\/task-\([0-9]*\)-.*/\1/')
+  Extract your task ID once from the branch name. Use a pattern that only
+  prints on match, so non-task branches leave task_id unset instead of
+  crashing on int(full-branch-name):
+    match=$(git rev-parse --abbrev-ref HEAD | sed -n 's|^claude/task-\([0-9]\+\)-.*|\1|p')
+    task_id=${match:-}   # empty when not on a claude/task-<id>-* branch
   Pass task_id= on every chat_ask and chat_notify call so replies thread
-  back to the original command email. If the branch doesn't match the
-  pattern (e.g. not a task branch), omit task_id.
+  back to the original command email. If task_id is empty (the branch
+  doesn't match), omit task_id from the call.
 
 1. Ask the user (blocks until the user replies or up to 1 hour, after which
    the tool returns {"error": ...}):

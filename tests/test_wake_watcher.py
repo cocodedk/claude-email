@@ -197,7 +197,9 @@ async def test_process_agent_escalates_and_rate_limits(live_db, tmp_path):
     assert "agent-foo" in notifications[0]["body"]
     assert live_db.get_pending_messages_for("agent-foo") == []
 
-    # Immediate 3rd failure — rate-limited, no new notification
+    # Immediate 3rd failure — rate-limited, no new notification, but the
+    # stuck message must still be cleared so the watcher isn't stuck in
+    # a respawn loop until the rate window elapses.
     live_db.insert_message("bar", "agent-foo", "m4", "notify")
     await process_agent(
         "agent-foo", live_db, locks, cache, tracker,
@@ -205,6 +207,7 @@ async def test_process_agent_escalates_and_rate_limits(live_db, tmp_path):
         timeout=300, user_avatar="user",
     )
     assert len(live_db.get_pending_messages_for("user")) == 1
+    assert live_db.get_pending_messages_for("agent-foo") == []
 
     # After rate window elapses, a new failure re-notifies
     t[0] = 3601
@@ -215,6 +218,7 @@ async def test_process_agent_escalates_and_rate_limits(live_db, tmp_path):
         timeout=300, user_avatar="user",
     )
     assert len(live_db.get_pending_messages_for("user")) == 2
+    assert live_db.get_pending_messages_for("agent-foo") == []
 
 
 @pytest.mark.asyncio
@@ -440,6 +444,73 @@ async def test_process_agent_partial_drain_counts_as_success(live_db, tmp_path):
         timeout=300, user_avatar="user",
     )
     assert tracker.count("agent-foo") == 0
+
+
+@pytest.mark.asyncio
+async def test_process_agent_expired_persisted_session_is_discarded(
+    live_db, tmp_path,
+):
+    """A persisted wake_session older than cache.idle_secs must not resume —
+    next turn builds a fresh session_id and the stale row is deleted."""
+    live_db.register_agent("agent-foo", str(tmp_path))
+    # Write a persisted row whose last_turn_at is two hours old.
+    live_db._conn.execute(
+        "INSERT INTO wake_sessions (agent_name, session_id, last_turn_at) "
+        "VALUES ('agent-foo', 'stale-uuid', '2026-01-01T00:00:00+00:00')",
+    )
+    live_db._conn.commit()
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+    locks = _AgentLocks()
+    cache = _SessionCache(idle_secs=60)  # very short window
+    tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)
+    seen_cmds: list[list[str]] = []
+
+    async def fake_spawn(cmd, cwd, timeout):
+        seen_cmds.append(cmd)
+        for m in live_db.get_pending_messages_for("agent-foo"):
+            live_db.mark_message_delivered(m["id"])
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=fake_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    # Fresh session-id (not stale-uuid), --session-id rather than --resume.
+    assert "--session-id" in seen_cmds[0]
+    assert "stale-uuid" not in seen_cmds[0]
+    # Expired persisted row deleted before the new upsert overwrote it.
+    # (The new upsert will have written a NEW session_id; the point is the
+    # spawn didn't reuse the stale one.)
+    row = live_db.get_wake_session("agent-foo")
+    assert row["session_id"] != "stale-uuid"
+
+
+@pytest.mark.asyncio
+async def test_run_wake_watcher_logs_gathered_exception(
+    live_db, tmp_path, caplog,
+):
+    """process_agent raising must surface as a logged error — never silently
+    discarded by asyncio.gather(return_exceptions=True)."""
+    import logging as _logging
+    live_db.register_agent("agent-foo", str(tmp_path))
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+
+    async def exploding_spawn(cmd, cwd, timeout):
+        raise RuntimeError("synthetic spawn crash")
+
+    stop = asyncio.Event()
+    with caplog.at_level(_logging.ERROR):
+        task = asyncio.create_task(
+            run_wake_watcher(live_db, _cfg(), stop, spawn_fn=exploding_spawn),
+        )
+        await asyncio.sleep(0.2)
+        stop.set()
+        await asyncio.wait_for(task, timeout=2)
+    assert any(
+        "process_agent failed for agent-foo" in r.message
+        for r in caplog.records
+    ), f"missing gather-exception log; got: {[r.message for r in caplog.records]}"
 
 
 @pytest.mark.asyncio

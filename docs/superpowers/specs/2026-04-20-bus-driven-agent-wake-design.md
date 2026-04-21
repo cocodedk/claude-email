@@ -87,7 +87,7 @@ Start `run_wake_watcher` as a background task in the Starlette lifespan. Cancel 
    - `await run_wake_turn(cmd, cwd, timeout=300)`.
    - On exit: update `last_turn_at`, release lock. If any message for `foo` is still `pending`, next tick fires another turn.
 
-The SessionStart drain hook (existing) consumes all pending rows atomically via `mark_message_delivered`, injects them into the turn as `additionalContext`, and the agent responds normally.
+The SessionStart drain hook (existing) consumes all pending rows atomically via `claim_pending_messages_for` (the atomic claim+mark API; `mark_message_delivered` is only used for per-row acknowledgements elsewhere), injects them into the turn as `additionalContext`, and the agent responds normally.
 
 ## Error handling
 
@@ -102,7 +102,7 @@ Instead of giving claude-chat its own SMTP client, the watcher writes an error m
 
 Error message body template:
 
-```
+```text
 [wake-watcher] persistent spawn failure
 agent: agent-foo
 project: /home/cocodedk/0-projects/foo

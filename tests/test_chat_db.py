@@ -233,6 +233,79 @@ class TestAgents:
         assert db.get_agent("agent-ghost")["status"] == "disconnected"
 
 
+class TestFindLiveOwner:
+    """Ownership probe used by scripts/chat-register-self.py."""
+
+    def test_no_row_returns_none(self, db):
+        assert db.find_live_owner("agent-ghost", "/nowhere") is None
+
+    def test_dead_owner_returns_none(self, db):
+        db.register_agent("agent-a", "/p", pid=99999999)  # not alive
+        assert db.find_live_owner("agent-a", "/p") is None
+
+    def test_live_name_owner_returned(self, db):
+        import os as _os
+        db.register_agent("agent-a", "/p", pid=_os.getpid())
+        owner = db.find_live_owner("agent-a", "/elsewhere")
+        assert owner == {"name": "agent-a", "pid": _os.getpid()}
+
+    def test_live_project_owner_returned_under_different_name(self, db):
+        import os as _os
+        db.register_agent("agent-a", "/shared", pid=_os.getpid())
+        owner = db.find_live_owner("agent-b", "/shared")
+        assert owner == {"name": "agent-a", "pid": _os.getpid()}
+
+    def test_exclude_pid_filters_name_match(self, db):
+        """exclude_pid lets our own session exempt itself from the probe."""
+        import os as _os
+        db.register_agent("agent-a", "/p", pid=_os.getpid())
+        assert db.find_live_owner(
+            "agent-a", "/p", exclude_pid=_os.getpid(),
+        ) is None
+
+    def test_exclude_pid_filters_project_match(self, db):
+        import os as _os
+        db.register_agent("agent-a", "/shared", pid=_os.getpid())
+        assert db.find_live_owner(
+            "agent-b", "/shared", exclude_pid=_os.getpid(),
+        ) is None
+
+
+class TestRegisterAgentTransactionFallback:
+    """When BEGIN IMMEDIATE fails, register_agent must still work via the
+    non-atomic fallback path — the ON CONFLICT clause serialises the write."""
+
+    def test_begin_immediate_failure_falls_back(self, tmp_path):
+        import os as _os
+        import sqlite3 as _sqlite3
+
+        class _FakeConn:
+            """Proxy that raises on BEGIN IMMEDIATE, delegates everything else."""
+
+            def __init__(self, real):
+                self._real = real
+
+            def __getattr__(self, attr):
+                return getattr(self._real, attr)
+
+            def execute(self, sql, *args, **kwargs):
+                if (
+                    isinstance(sql, str)
+                    and sql.strip().upper().startswith("BEGIN IMMEDIATE")
+                ):
+                    raise _sqlite3.OperationalError(
+                        "cannot start a transaction within a transaction",
+                    )
+                return self._real.execute(sql, *args, **kwargs)
+
+        db = ChatDB(str(tmp_path / "fallback.db"))
+        db._conn = _FakeConn(db._conn)
+        # Should still succeed via the fallback path.
+        result = db.register_agent("agent-x", "/tmp", pid=_os.getpid())
+        assert result["name"] == "agent-x"
+        assert result["pid"] == _os.getpid()
+
+
 class TestMessages:
     def test_insert_message_returns_dict(self, db):
         msg = db.insert_message("alice", "bob", "hello", "ask")

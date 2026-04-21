@@ -131,8 +131,9 @@ class TestAskUser:
             ask_msg = [m for m in pending if m["type"] == "ask"][0]
             db.insert_message("user", "bot", "ok", "reply", in_reply_to=ask_msg["id"])
 
-        asyncio.create_task(quick_reply())
+        task = asyncio.create_task(quick_reply())
         await ask_user(db, "bot", "question?", poll_interval=0.01, task_id=task_id)
+        await task
 
         row = db._conn.execute(
             "SELECT task_id FROM messages WHERE type='ask' AND from_name='bot'"
@@ -243,6 +244,21 @@ class TestMessageAgent:
         db.register_agent("a-sender", "/p")
         result = message_agent(db, "a-sender", "", "hi")
         assert "error" in result
+
+    def test_message_with_task_id_stores_task_id(self, db):
+        """Threads peer-to-peer messages back to the originating task,
+        matching notify_user / ask_user behaviour."""
+        db.register_agent("a-sender", "/p/s")
+        db.register_agent("a-recipient", "/p/r")
+        task_id = db._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("/p/s", "work", "running", "2026-01-01T00:00:00"),
+        ).lastrowid
+        db._conn.commit()
+        message_agent(db, "a-sender", "a-recipient", "ping", task_id=task_id)
+        pending = db.get_pending_messages_for("a-recipient")
+        assert pending[0]["task_id"] == task_id
 
 
 # ── deregister_agent ──────────────────────────────────────────

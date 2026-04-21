@@ -27,6 +27,27 @@ def _parse_task_id(arguments: dict) -> int | None:
         return None
 
 
+def _parse_bool(value, default: bool = False) -> bool:
+    """Coerce an MCP argument to bool.
+
+    ``bool("false")`` is True in Python — so a literal string "false"
+    flowing in from a JSON-RPC client would silently become a truthy
+    flag. Accept common string spellings explicitly and fall back to
+    ``default`` for anything unrecognised.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("true", "1", "yes", "y", "on"):
+            return True
+        if v in ("false", "0", "no", "n", "off", ""):
+            return False
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
 def _sanitize_str(value: str, max_len: int, field: str) -> str:
     """Validate and strip a string parameter."""
     if not isinstance(value, str):
@@ -70,6 +91,7 @@ async def dispatch(
             _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
             _sanitize_str(arguments["to_agent"], _MAX_NAME_LEN, "to_agent"),
             _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
+            task_id=_parse_task_id(arguments),
         )
     if name == "chat_check_messages":
         return tools.check_messages(
@@ -100,14 +122,14 @@ async def dispatch(
             project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
             body=_sanitize_str(arguments["body"], _MAX_MSG_LEN, "body"),
             priority=int(arguments.get("priority", 0)),
-            plan_first=bool(arguments.get("plan_first", False)),
+            plan_first=_parse_bool(arguments.get("plan_first", False)),
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
     if name == "chat_cancel_task":
         return tools.cancel_task_tool(
             queue,
             project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
-            drain_queue=bool(arguments.get("drain_queue", False)),
+            drain_queue=_parse_bool(arguments.get("drain_queue", False)),
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
     if name == "chat_queue_status":

@@ -8,6 +8,26 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from datetime import datetime, timezone
+
+
+def _is_session_fresh(persisted: dict, idle_secs: float) -> bool:
+    """True iff persisted wake-session row is still within idle_expiry_secs.
+
+    Parses last_turn_at (ISO 8601 UTC). Malformed or missing timestamps are
+    treated as expired so we don't resume a broken session.
+    """
+    raw = persisted.get("last_turn_at")
+    if not raw:
+        return False
+    try:
+        last = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return False
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    age = (datetime.now(timezone.utc) - last).total_seconds()
+    return age <= idle_secs
 
 
 class _AgentLocks:
@@ -35,7 +55,7 @@ class _SessionCache:
     def __init__(
         self, idle_secs: float, clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        self._idle = idle_secs
+        self.idle_secs = idle_secs
         self._clock = clock
         self._data: dict[str, tuple[str, float]] = {}
 
@@ -44,7 +64,7 @@ class _SessionCache:
         if entry is None:
             return None
         session_id, ts = entry
-        if self._clock() - ts > self._idle:
+        if self._clock() - ts > self.idle_secs:
             del self._data[name]
             return None
         return session_id

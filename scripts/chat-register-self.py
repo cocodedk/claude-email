@@ -29,7 +29,7 @@ except ImportError:
 
 from src.chat_db import AgentNameTaken, AgentProjectTaken, ChatDB  # noqa: E402
 from src.process_liveness import (  # noqa: E402
-    find_ancestor_pid_matching, is_alive, is_ancestor_or_self,
+    find_ancestor_pid_matching, is_ancestor_or_self,
 )
 
 
@@ -122,20 +122,16 @@ def _master_already_owns(db: ChatDB, name: str, cwd: str) -> bool:
     """True if another live process (not in our PPID chain) already owns
     this agent name or project path. Uses PPID ancestry instead of PID
     equality because hook helpers are short-lived — the hook's os.getpid()
-    is never what's stored in the DB for a properly-registered master."""
-    existing = db.get_agent(name)
-    if existing and existing["pid"] is not None \
-            and not is_ancestor_or_self(existing["pid"]) \
-            and is_alive(existing["pid"]):
-        return True
-    row = db._conn.execute(  # noqa: SLF001
-        "SELECT name, pid FROM agents "
-        "WHERE project_path=? AND name!=? AND pid IS NOT NULL",
-        (cwd, name),
-    ).fetchone()
-    if row and not is_ancestor_or_self(row["pid"]) and is_alive(row["pid"]):
-        return True
-    return False
+    is never what's stored in the DB for a properly-registered master.
+
+    Delegates the DB scan to ChatDB.find_live_owner so all ownership
+    logic lives in one place and the script avoids reaching into
+    db._conn directly.
+    """
+    owner = db.find_live_owner(name, cwd)
+    if owner is None:
+        return False
+    return not is_ancestor_or_self(owner["pid"])
 
 
 if __name__ == "__main__":

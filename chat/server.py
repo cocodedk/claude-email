@@ -98,7 +98,7 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
             stop.set()
             nudge.set()  # unblock watcher sleep so shutdown is prompt
             task.cancel()
-            with contextlib.suppress(BaseException):
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
 
     app = Starlette(

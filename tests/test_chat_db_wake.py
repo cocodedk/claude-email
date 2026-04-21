@@ -11,9 +11,14 @@ from src.chat_db import ChatDB
 def db():
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
+    chat_db = ChatDB(path)
     try:
-        yield ChatDB(path)
+        yield chat_db
     finally:
+        try:
+            chat_db._conn.close()
+        except Exception:
+            pass
         os.unlink(path)
 
 
