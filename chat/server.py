@@ -23,6 +23,7 @@ from src.task_queue import TaskQueue
 from src.wake_spawn import run_wake_turn
 from src.wake_watcher import WakeWatcherConfig, run_wake_watcher
 from src.worker_manager import WorkerManager
+from chat.dashboard import build_routes as build_dashboard_routes
 from chat.dispatch import dispatch
 from chat.tool_definitions import TOOLS
 
@@ -105,8 +106,12 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
         routes=[
             Route("/sse", endpoint=handle_sse),
             Mount("/messages/", app=sse.handle_post_message),
+            *build_dashboard_routes(),
         ],
         lifespan=lifespan,
     )
     app.state.mcp_server = server
+    app.state.dashboard_poll_secs = float(
+        os.environ.get("DASHBOARD_POLL_SECS", "1.0"),
+    )
     return app
