@@ -6,6 +6,7 @@ lives under scripts/ and is invoked directly by Claude Code hooks.
 import importlib.util
 import io
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -54,6 +55,18 @@ class TestReadHookEvent:
         buf = io.StringIO("{}")
         monkeypatch.setattr(sys, "stdin", buf)
         assert drain_mod._read_hook_event() == "UserPromptSubmit"
+
+    def test_read_hook_payload_swallows_stdin_errors(
+        self, drain_mod, monkeypatch,
+    ):
+        """Broken stdin (OSError) must not crash — return {}."""
+        class _Broken:
+            def isatty(self):
+                raise OSError("stdin gone")
+            def read(self):
+                return ""
+        monkeypatch.setattr(sys, "stdin", _Broken())
+        assert drain_mod._read_hook_payload() == {}
 
 
 class TestResolvedDbPath:
@@ -117,6 +130,95 @@ class TestMain:
         out = capsys.readouterr()
         assert out.out == ""
         assert out.err == ""
+
+    def test_skips_drain_when_subagent_indicated_by_agent_id(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        """SessionStart/UserPromptSubmit hook input includes agent_id only
+        inside a subagent — if present, drain must skip."""
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "sub"
+        project.mkdir()
+        db.insert_message("user", "agent-sub", "hello", "command")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        buf = io.StringIO(json.dumps({
+            "hook_event_name": "UserPromptSubmit",
+            "agent_id": "sub-123",
+        }))
+        monkeypatch.setattr(sys, "stdin", buf)
+        rc = drain_mod.main()
+        assert rc == 0
+        assert capsys.readouterr().out == ""
+        assert len(db.get_pending_messages_for("agent-sub")) == 1
+
+    def test_skips_drain_when_another_live_pid_owns_name(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        """A sub-agent or sibling session with the same caller name must
+        not steal messages from the registered master process."""
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "alpha"
+        project.mkdir()
+        master_pid = os.getpid()
+        db.register_agent("agent-alpha", str(project), pid=master_pid)
+        db.insert_message("user", "agent-alpha", "hi there", "command")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        # Pretend to be a subagent with a different pid than the master
+        monkeypatch.setattr(drain_mod.os, "getpid", lambda: master_pid + 1)
+        rc = drain_mod.main()
+        assert rc == 0
+        assert capsys.readouterr().out == ""
+        assert len(db.get_pending_messages_for("agent-alpha")) == 1
+
+    def test_drains_when_we_own_the_name(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        """If the registered pid matches ours, we are the master — drain."""
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "alpha"
+        project.mkdir()
+        db.register_agent("agent-alpha", str(project), pid=os.getpid())
+        db.insert_message("user", "agent-alpha", "hi there", "command")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        rc = drain_mod.main()
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "hi there" in out
+
+    def test_drains_when_stored_pid_is_our_ancestor(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        """Spawned-agent case: agents.pid stores the long-lived Claude
+        session PID (written by src/spawner.py), and this hook is its
+        descendant. Must drain — an earlier version skipped when
+        os.getpid() != stored_pid, breaking hook-based delivery for
+        every spawned agent (caught by codex review)."""
+        import src.process_liveness as pl
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "spawned"
+        project.mkdir()
+        fake_hook_pid = 100
+        claude_session_pid = 555
+        db.register_agent("agent-spawned", str(project), pid=claude_session_pid)
+        db.insert_message("user", "agent-spawned", "welcome back", "command")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        chain = {fake_hook_pid: 200, 200: claude_session_pid, claude_session_pid: 1}
+        monkeypatch.setattr(pl, "_get_ppid", lambda pid: chain.get(pid))
+        monkeypatch.setattr(pl.os, "getpid", lambda: fake_hook_pid)
+        # Stored PID is "alive" — this is the real Claude session.
+        monkeypatch.setattr(drain_mod, "is_alive", lambda pid: True)
+        rc = drain_mod.main()
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "welcome back" in out
 
     def test_drains_pending_and_emits_json(self, drain_mod, tmp_path, monkeypatch, capsys):
         db_file = tmp_path / "bus.db"
@@ -219,10 +321,93 @@ class TestMain:
         monkeypatch.chdir(project)
         monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
         mocker.patch(
-            "src.chat_db.ChatDB.get_pending_messages_for",
+            "src.chat_db.ChatDB.claim_pending_messages_for",
             side_effect=RuntimeError("boom"),
         )
         rc = drain_mod.main()
         assert rc == 0
         err = capsys.readouterr().err
         assert "query failed" in err
+
+
+class TestStopEvent:
+    """Stop hook must emit {decision:block, reason:...} so pending peer
+    messages are reinjected before the session idles. Responsiveness is
+    the whole point — stop_hook_active is ignored because
+    mark_message_delivered is the real loop guard.
+    """
+
+    def _run_with_stdin(self, drain_mod, stdin_payload: dict, capsys):
+        buf = io.StringIO(json.dumps(stdin_payload))
+        import sys as _sys
+        # monkeypatch via direct attribute set inside this helper
+        orig = _sys.stdin
+        _sys.stdin = buf
+        try:
+            rc = drain_mod.main()
+        finally:
+            _sys.stdin = orig
+        return rc, capsys.readouterr()
+
+    def test_stop_with_pending_emits_decision_block(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "gamma"
+        project.mkdir()
+        db.insert_message("agent-peer", "agent-gamma", "peer ping", "notify")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+
+        rc, out = self._run_with_stdin(
+            drain_mod, {"hook_event_name": "Stop"}, capsys,
+        )
+        assert rc == 0
+        payload = json.loads(out.out)
+        assert payload["decision"] == "block"
+        assert "peer ping" in payload["reason"]
+        assert "agent-peer" in payload["reason"]
+        # And messages are marked delivered
+        assert db.get_pending_messages_for("agent-gamma") == []
+
+    def test_stop_empty_inbox_is_silent(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        db_file = tmp_path / "bus.db"
+        ChatDB(str(db_file))
+        project = tmp_path / "delta"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+
+        rc, out = self._run_with_stdin(
+            drain_mod, {"hook_event_name": "Stop"}, capsys,
+        )
+        assert rc == 0
+        assert out.out == ""
+
+    def test_stop_blocks_even_when_stop_hook_active(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        # Design decision: peer responsiveness matters more than the
+        # default stop_hook_active guard. The loop terminates naturally
+        # once mark_message_delivered drains the inbox, so we re-block
+        # to keep the agent conversant.
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "epsilon"
+        project.mkdir()
+        db.insert_message("agent-peer", "agent-epsilon", "still here", "notify")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+
+        rc, out = self._run_with_stdin(
+            drain_mod,
+            {"hook_event_name": "Stop", "stop_hook_active": True},
+            capsys,
+        )
+        assert rc == 0
+        payload = json.loads(out.out)
+        assert payload["decision"] == "block"
+        assert "still here" in payload["reason"]

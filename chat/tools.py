@@ -18,18 +18,23 @@ def register_agent(db: ChatDB, name: str, project_path: str) -> dict:
     return {"status": "registered", "name": name}
 
 
-def notify_user(db: ChatDB, caller: str, message: str) -> dict:
+def notify_user(db: ChatDB, caller: str, message: str, task_id: int | None = None) -> dict:
     """Send a one-way notification from caller to user."""
-    db.insert_message(caller, "user", message, "notify")
+    db.insert_message(caller, "user", message, "notify", task_id=task_id)
     return {"status": "sent"}
 
 
-def message_agent(db: ChatDB, caller: str, to_agent: str, message: str) -> dict:
+def message_agent(
+    db: ChatDB, caller: str, to_agent: str, message: str,
+    task_id: int | None = None,
+) -> dict:
     """Send a one-way notification from caller to another registered agent.
 
     Rejects to_agent=='user' — callers should use notify_user/chat_notify
     for that. Rejects unknown recipients so typos don't silently queue
-    ghost messages that will never be drained.
+    ghost messages that will never be drained. ``task_id`` is forwarded
+    so agent-to-agent replies can thread back to the originating task,
+    matching notify_user/ask_user behaviour.
     """
     if not to_agent:
         return {"error": "to_agent must not be empty"}
@@ -37,7 +42,7 @@ def message_agent(db: ChatDB, caller: str, to_agent: str, message: str) -> dict:
         return {"error": "to_agent='user' is not allowed — use chat_notify to reach the user"}
     if db.get_agent(to_agent) is None:
         return {"error": f"no registered agent named {to_agent!r}"}
-    db.insert_message(caller, to_agent, message, "notify")
+    db.insert_message(caller, to_agent, message, "notify", task_id=task_id)
     return {"status": "sent", "to": to_agent}
 
 
@@ -47,13 +52,14 @@ _ASK_TIMEOUT = 3600  # 1 hour max wait
 async def ask_user(
     db: ChatDB, caller: str, message: str, *,
     poll_interval: float = 2.0, timeout: float = _ASK_TIMEOUT,
+    task_id: int | None = None,
 ) -> dict:
     """Send a question to user and block until user replies.
 
     Creates an ask message, then polls for a reply every poll_interval
     seconds until one appears or timeout is reached.
     """
-    msg = db.insert_message(caller, "user", message, "ask")
+    msg = db.insert_message(caller, "user", message, "ask", task_id=task_id)
     msg_id = msg["id"]
     elapsed = 0.0
     while elapsed < timeout:
@@ -68,9 +74,7 @@ async def ask_user(
 def check_messages(db: ChatDB, caller: str) -> dict:
     """Return pending messages for caller and mark them as delivered."""
     db.touch_agent(caller)
-    pending = db.get_pending_messages_for(caller)
-    for m in pending:
-        db.mark_message_delivered(m["id"])
+    pending = db.claim_pending_messages_for(caller)
     return {
         "messages": [
             {

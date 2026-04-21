@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
 """Drain pending chat messages for this agent and emit them as hook context.
 
-Runs from a Claude Code SessionStart or UserPromptSubmit hook. Reads from the
-shared SQLite bus, marks each message delivered (same consume-with-ack
+Runs from a Claude Code SessionStart, UserPromptSubmit, or Stop hook. Reads
+from the shared SQLite bus, marks each message delivered (same consume-with-ack
 semantics as the chat_check_messages MCP tool), and prints a hook JSON payload
-whose additionalContext lists the drained messages so the model sees them on
-its next turn — instead of depending on the model to call chat_check_messages
-itself.
+so the model sees them on its next turn — instead of depending on the model
+to call chat_check_messages itself.
+
+Shape depends on the triggering event:
+  - SessionStart / UserPromptSubmit → hookSpecificOutput + additionalContext
+  - Stop → {"decision": "block", "reason": ...} so the end-of-turn stop is
+    cancelled and the drained messages become the next thing Claude sees.
+
+Stop is the "push-like" path: it fires when Claude finishes a response, so
+peer messages that arrived mid-response get surfaced before the session idles.
+stop_hook_active is intentionally ignored — mark_message_delivered is the
+real loop guard (same msg can't be re-emitted), so sustained peer chatter is
+allowed to keep the agent conversant.
 
 Emits no stdout when the inbox is empty — quiet turns stay quiet.
 """
@@ -25,6 +35,7 @@ except ImportError:
     pass
 
 from src.chat_db import ChatDB  # noqa: E402
+from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
 
 
 def _resolved_db_path() -> Path:
@@ -41,19 +52,28 @@ def _caller_name() -> str:
     return "agent-" + PurePosixPath(os.getcwd()).name
 
 
-def _read_hook_event() -> str:
-    """Hook runtime passes JSON on stdin with hook_event_name. Fall back to
-    UserPromptSubmit when nothing is piped (standalone / tests)."""
-    if sys.stdin.isatty():
-        return "UserPromptSubmit"
-    data = sys.stdin.read()
-    if not data.strip():
-        return "UserPromptSubmit"
+def _read_hook_payload() -> dict:
+    """Parse the JSON payload that Claude Code pipes on stdin to a hook.
+
+    Returns {} when stdin is a tty, empty, unavailable, or malformed.
+    """
     try:
-        payload = json.loads(data)
-        return payload.get("hook_event_name") or "UserPromptSubmit"
+        if sys.stdin.isatty():
+            return {}
+        data = sys.stdin.read()
+    except (OSError, ValueError):
+        return {}
+    if not data.strip():
+        return {}
+    try:
+        return json.loads(data)
     except json.JSONDecodeError:
-        return "UserPromptSubmit"
+        return {}
+
+
+def _read_hook_event() -> str:
+    """Back-compat wrapper used by existing tests."""
+    return _read_hook_payload().get("hook_event_name") or "UserPromptSubmit"
 
 
 def _format_context(caller: str, msgs: list[dict]) -> str:
@@ -76,7 +96,12 @@ def _format_context(caller: str, msgs: list[dict]) -> str:
 
 
 def main() -> int:
-    event = _read_hook_event()
+    payload = _read_hook_payload()
+    if payload.get("agent_id"):
+        # Claude Code marks subagent hook invocations with agent_id; the
+        # master session owns the bus slot — sub-agents must not drain.
+        return 0
+    event = payload.get("hook_event_name") or "UserPromptSubmit"
     try:
         db_path = _resolved_db_path()
     except RuntimeError as exc:
@@ -95,23 +120,37 @@ def main() -> int:
         return 0
 
     caller = _caller_name()
+    agent = db.get_agent(caller)
+    if (
+        agent is not None
+        and agent["pid"] is not None
+        and not is_ancestor_or_self(agent["pid"])
+        and is_alive(agent["pid"])
+    ):
+        # A different live process owns this agent name and is NOT in our
+        # PPID chain — so it's a sibling Claude session, not the one that
+        # launched this hook. Silent skip so sibling sessions don't steal
+        # each other's messages. (Matching os.getpid() directly was wrong:
+        # hook scripts are short-lived helpers, never the stored PID.)
+        return 0
     try:
-        msgs = db.get_pending_messages_for(caller)
+        msgs = db.claim_pending_messages_for(caller)
     except Exception as exc:  # noqa: BLE001
         print(f"chat-drain-inbox: query failed: {exc}", file=sys.stderr)
         return 0
     if not msgs:
         return 0  # quiet turn
 
-    for m in msgs:
-        db.mark_message_delivered(m["id"])
-
-    payload = {
-        "hookSpecificOutput": {
-            "hookEventName": event,
-            "additionalContext": _format_context(caller, msgs),
-        },
-    }
+    context = _format_context(caller, msgs)
+    if event == "Stop":
+        payload = {"decision": "block", "reason": context}
+    else:
+        payload = {
+            "hookSpecificOutput": {
+                "hookEventName": event,
+                "additionalContext": context,
+            },
+        }
     sys.stdout.write(json.dumps(payload))
     return 0
 

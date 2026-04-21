@@ -38,6 +38,17 @@ class TestBuildUniverseResources:
         assert "t@x" in res
         assert len(res) == 2
 
+    def test_worker_manager_carries_universe_mcp_config(self, tmp_path):
+        u = _universe()
+        u.chat_db_path = str(tmp_path / "a.db")
+        u.allowed_base = str(tmp_path)
+        u.mcp_config = "/repo/.mcp-test.json"
+        _, _, _, wm = build_universe_resources([u])["user@example.com"]
+        assert wm._module_env == {
+            "ROUTER_MCP_CONFIG": "/repo/.mcp-test.json",
+            "CHAT_DB_PATH": str(tmp_path / "a.db"),
+        }
+
 
 class TestDispatchBySender:
     def test_unknown_sender_falls_through(self, mocker):

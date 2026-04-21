@@ -74,7 +74,7 @@ class TestInjectSessionStartHook:
     HOOK = "/opt/claude-email/scripts/chat-session-start-hook.sh"
     DRAIN = "/opt/claude-email/scripts/chat-drain-inbox.py"
 
-    def test_creates_settings_file_with_both_events(self, tmp_path):
+    def test_creates_settings_file_with_all_events(self, tmp_path):
         from src.spawner import inject_session_start_hook
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
@@ -91,8 +91,62 @@ class TestInjectSessionStartHook:
                     "matcher": "",
                     "hooks": [{"type": "command", "command": self.DRAIN}],
                 }],
+                "Stop": [{
+                    "matcher": "",
+                    "hooks": [{"type": "command", "command": self.DRAIN}],
+                }],
             }
         }
+
+    def test_stop_event_wired_to_drain_script(self, tmp_path):
+        """Stop hook closes the gap between 'peer sent message mid-response'
+        and 'next user prompt' — it reinjects pending messages as a block
+        reason before the session idles."""
+        from src.spawner import inject_session_start_hook
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        stop_entries = data["hooks"]["Stop"]
+        assert len(stop_entries) == 1
+        cmds = [h["command"] for h in stop_entries[0]["hooks"]]
+        assert cmds == [self.DRAIN]
+
+    def test_stop_replaces_stale_drain_path_on_reinstall(self, tmp_path):
+        from src.spawner import inject_session_start_hook
+        old_drain = "/old/install/scripts/chat-drain-inbox.py"
+        inject_session_start_hook(str(tmp_path), self.HOOK, old_drain)
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        stop_cmds = [h["command"] for h in data["hooks"]["Stop"][0]["hooks"]]
+        assert stop_cmds == [self.DRAIN]
+        assert old_drain not in stop_cmds
+
+    def test_stop_preserves_third_party_hooks(self, tmp_path):
+        """Third-party Stop hook entries keep their own matcher and hooks —
+        our drain lands as a separate entry, not merged into theirs."""
+        from src.spawner import inject_session_start_hook
+        (tmp_path / ".claude").mkdir()
+        existing = {
+            "hooks": {
+                "Stop": [{"matcher": "my-matcher", "hooks": [
+                    {"type": "command", "command": "/opt/other/notify.sh"},
+                ]}],
+            },
+        }
+        (tmp_path / ".claude" / "settings.json").write_text(json.dumps(existing))
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        stop_entries = data["hooks"]["Stop"]
+        # Our entry is first, third-party entry preserved second with its
+        # original matcher + remaining hooks intact.
+        our_cmds = [h["command"] for h in stop_entries[0]["hooks"]]
+        assert our_cmds == [self.DRAIN]
+        kept = next(
+            (e for e in stop_entries[1:] if e.get("matcher") == "my-matcher"),
+            None,
+        )
+        assert kept is not None
+        kept_cmds = [h["command"] for h in kept["hooks"]]
+        assert kept_cmds == ["/opt/other/notify.sh"]
 
     def test_preserves_third_party_hooks(self, tmp_path):
         from src.spawner import inject_session_start_hook
@@ -100,7 +154,7 @@ class TestInjectSessionStartHook:
         existing = {
             "theme": "dark",
             "hooks": {
-                "UserPromptSubmit": [{"matcher": "", "hooks": [
+                "UserPromptSubmit": [{"matcher": "custom", "hooks": [
                     {"type": "command", "command": "/bin/true"},
                 ]}],
             },
@@ -109,10 +163,15 @@ class TestInjectSessionStartHook:
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         assert data["theme"] == "dark"
-        # Third-party /bin/true hook preserved alongside our drain
-        cmds = [h["command"] for h in data["hooks"]["UserPromptSubmit"][0]["hooks"]]
-        assert self.DRAIN in cmds
-        assert "/bin/true" in cmds
+        ups_entries = data["hooks"]["UserPromptSubmit"]
+        our_cmds = [h["command"] for h in ups_entries[0]["hooks"]]
+        assert self.DRAIN in our_cmds
+        # Third-party entry preserved with its original matcher.
+        kept = next(
+            (e for e in ups_entries[1:] if e.get("matcher") == "custom"), None,
+        )
+        assert kept is not None
+        assert [h["command"] for h in kept["hooks"]] == ["/bin/true"]
 
     def test_is_idempotent(self, tmp_path):
         from src.spawner import inject_session_start_hook
@@ -188,6 +247,33 @@ class TestInjectSessionStartHook:
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         assert isinstance(data["hooks"], dict)
         assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == self.HOOK
+
+    def test_skips_entries_whose_hooks_key_is_not_a_list(self, tmp_path):
+        """Defensively skip malformed entries where 'hooks' is a dict/str —
+        they must not crash the merge."""
+        from src.spawner import inject_session_start_hook
+        (tmp_path / ".claude").mkdir()
+        existing = {
+            "hooks": {
+                "Stop": [
+                    {"matcher": "junk", "hooks": "not-a-list"},
+                    {"matcher": "real", "hooks": [
+                        {"type": "command", "command": "/opt/other/notify.sh"},
+                    ]},
+                ],
+            },
+        }
+        (tmp_path / ".claude" / "settings.json").write_text(json.dumps(existing))
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        stop_entries = data["hooks"]["Stop"]
+        our_cmds = [h["command"] for h in stop_entries[0]["hooks"]]
+        assert our_cmds == [self.DRAIN]
+        # The "junk" entry is dropped; the "real" entry survives with its
+        # matcher and command intact.
+        surviving_matchers = {e.get("matcher") for e in stop_entries[1:]}
+        assert "junk" not in surviving_matchers
+        assert "real" in surviving_matchers
 
 
 class TestValidateProjectPath:

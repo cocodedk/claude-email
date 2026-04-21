@@ -19,10 +19,16 @@ Skips:
 
 Writes two files per project:
   - .mcp.json  — declares the claude-chat MCP SSE server
-  - .claude/settings.json — SessionStart hook telling the agent to register
-    and how to use the bus (script lives in this repo's scripts/)
+  - .claude/settings.json — three Claude Code hooks:
+      * SessionStart: register on the bus + inject the bus guide
+      * UserPromptSubmit: drain pending mail into the next turn
+      * Stop: reinject peer messages that arrived mid-response so the
+        agent keeps the conversation alive without polling
+    (scripts live in this repo's scripts/)
 
-Idempotent: both helpers merge into existing files so re-running is safe.
+Idempotent: both helpers merge into existing files so re-running is safe —
+new hook events (e.g. Stop added after an earlier install) get appended
+without disturbing third-party hook entries.
 """
 import os
 import sys
