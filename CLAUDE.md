@@ -6,7 +6,7 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (743 tests, 100% coverage)
+- **Test runner**: pytest (779 tests, 100% coverage)
 
 ---
 
@@ -93,7 +93,7 @@ claude-email/
 ## Build Commands
 
 ```bash
-.venv/bin/pytest tests/ -q      # Run all 743 tests
+.venv/bin/pytest tests/ -q      # Run all 779 tests
 .venv/bin/pytest tests/ -v      # Verbose
 scripts/check-line-limit.sh     # Enforce 200-line file limit
 ```
@@ -103,5 +103,5 @@ scripts/check-line-limit.sh     # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 743 tests pass
+2. Run `.venv/bin/pytest tests/ -q` — confirm 779 tests pass
 3. Invoke `superpowers:brainstorming` before any feature work
