@@ -60,11 +60,29 @@ def _sanitize_str(value: str, max_len: int, field: str) -> str:
     return value
 
 
+def _heartbeat(db: ChatDB, arguments: dict) -> None:
+    """Refresh last_seen_at for the caller on every tool invocation.
+
+    Before this hook existed, db.touch_agent only fired on
+    chat_check_messages — so an agent that only sent messages (never
+    polled) looked stale to the dashboard. Silent no-op when the caller
+    isn't registered yet (chat_register itself still writes last_seen_at
+    via its INSERT, so we don't need to special-case it).
+    """
+    caller = arguments.get("_caller")
+    if isinstance(caller, str) and caller.strip():
+        try:
+            db.touch_agent(caller.strip())
+        except Exception:
+            pass  # never let telemetry block a real tool call
+
+
 async def dispatch(
     db: ChatDB, queue: TaskQueue, manager: WorkerManager, tokens: TokenStore,
     name: str, arguments: dict,
 ) -> dict:
     """Route a tool call to the appropriate chat.tools function."""
+    _heartbeat(db, arguments)
     if name == "chat_register":
         return tools.register_agent(
             db,

@@ -415,7 +415,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 820 pytest tests (100% coverage)
+├── tests/                 # 842 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -489,7 +489,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (820 tests, 100% coverage)
+# Run all tests (842 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose

@@ -390,9 +390,14 @@ class TestServerWiring:
         app = create_app(str(tmp_path / "t.db"), "127.0.0.1", 0)
         assert app.state.dashboard_poll_secs == 1.0
 
-    def test_dashboard_endpoint_on_full_server(self, tmp_path):
-        from chat.server import create_app
-        app = create_app(str(tmp_path / "t.db"), "127.0.0.1", 0)
+    def test_dashboard_endpoint_on_full_server(self, tmp_path, monkeypatch):
+        # The server now runs reconcile_live_agents at startup; disable it
+        # here so this test is about the HTTP wiring, not /proc state.
+        from chat import server as chat_server
+        monkeypatch.setattr(
+            chat_server, "reconcile_live_agents", lambda db: [],
+        )
+        app = chat_server.create_app(str(tmp_path / "t.db"), "127.0.0.1", 0)
         with TestClient(app) as c:
             r = c.get("/dashboard")
             assert r.status_code == 200
