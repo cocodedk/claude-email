@@ -102,6 +102,30 @@ class TestFlowPanel:
         assert "dashboard.mode" in DASHBOARD_HTML
         assert "show-flow" in DASHBOARD_HTML
 
+    def test_step_cards_carry_data_attrs_for_live_firing(self):
+        """JS targets step cards via [data-lane][data-step] to fire
+        animations when flow events arrive over SSE."""
+        assert 'data-lane="01"' in DASHBOARD_HTML
+        assert 'data-lane="02"' in DASHBOARD_HTML
+        # Both lanes have at least steps 01..05; lane 02 goes to 06.
+        for step in ("01", "02", "03", "04", "05"):
+            assert f'data-step="{step}"' in DASHBOARD_HTML
+        # Lane 02 has one more (the booted-agent terminal card).
+        assert 'data-step="06"' in DASHBOARD_HTML
+
+    def test_flow_event_map_wired(self):
+        """The JS knows how to route each emitted flow event_type to
+        a lane + step sequence. Keep the keys in lock-step with
+        FLOW_EVENT_TYPES from src/dashboard_queries.py."""
+        for event_type in (
+            "wake_spawn_start", "wake_spawn_end",
+            "hook_drain_stop", "hook_drain_session",
+        ):
+            assert event_type in DASHBOARD_HTML, f"missing: {event_type}"
+        assert "FLOW_EVENT_MAP" in DASHBOARD_HTML
+        assert "onFlowEvent" in DASHBOARD_HTML
+        assert "flow-live-indicator" in DASHBOARD_HTML
+
 
 class TestAgentsEndpoint:
     def test_empty(self, client):
@@ -218,6 +242,44 @@ class TestStreamEvents:
         # hello + keepalive (no messages to stream)
         assert len(chunks) == 2
         assert chunks[1].startswith(":")
+
+    def test_streams_flow_events_as_kind_event(self, db):
+        """Flow events land on SSE as kind:"event" so the dashboard flow
+        panel can dispatch on them independently of message pulses."""
+        calls = {"n": 0}
+
+        async def disconnect_second_call():
+            calls["n"] += 1
+            return calls["n"] > 1
+
+        async def run():
+            gen = stream_events(db, disconnect_second_call, 0.001)
+            await gen.__anext__()  # hello
+            db._log_event("bot", "wake_spawn_start", "pending=1")
+            return [c async for c in gen]
+
+        rest = asyncio.run(run())
+        flow_frame = json.loads(rest[0][len("data: "):].strip())
+        assert flow_frame["kind"] == "event"
+        assert flow_frame["event_type"] == "wake_spawn_start"
+        assert flow_frame["participant"] == "bot"
+
+    def test_hello_carries_flow_watermark(self, db):
+        db._log_event("bot", "wake_spawn_start", "x")
+        db._log_event("bot", "hook_drain_stop", "y")
+        expected_flow = db.latest_flow_event_id()
+
+        async def immediately_disconnected():
+            return True
+
+        async def run():
+            return [c async for c in stream_events(
+                db, immediately_disconnected, 0.001,
+            )]
+
+        chunks = asyncio.run(run())
+        hello = json.loads(chunks[0][len("data: "):].strip())
+        assert hello["last_flow_id"] == expected_flow
 
 
 class TestEventsHandler:

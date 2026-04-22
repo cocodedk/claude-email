@@ -51,9 +51,12 @@ def _cells(n: int) -> list[int]:
     return [x0 + i * (CARD_W + gap) for i in range(n)]
 
 
-def _card(x: int, y: int, num: str, actor: str, act: str, detail: str) -> str:
+def _card(
+    x: int, y: int, num: str, actor: str, act: str, detail: str,
+    lane: str,
+) -> str:
     return f'''
-<g class="card" transform="translate({x},{y})">
+<g class="card" data-lane="{lane}" data-step="{num}" transform="translate({x},{y})">
   <rect class="card-bg" width="{CARD_W}" height="{CARD_H}" rx="3"/>
   <rect class="card-bar" x="0" y="0" width="{CARD_W}" height="3"/>
   <g class="step-chip" transform="translate(18,22)">
@@ -90,7 +93,7 @@ def _lane(lane: dict) -> str:
         f'  <text class="lane-sub" x="42" y="{y + 46}">{lane["sub"]}</text>',
     ]
     for x, step in zip(xs, lane["steps"]):
-        parts.append(_card(x, body_y, *step))
+        parts.append(_card(x, body_y, *step, lane=lane["num"]))
     for i in range(len(xs) - 1):
         x1 = xs[i] + CARD_W
         x2 = xs[i + 1]

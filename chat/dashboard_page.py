@@ -73,7 +73,12 @@ _BODY = f"""
       </g>
       <g id="pulses"></g>
     </svg>
-    <div id="flowLayer">{DASHBOARD_FLOW_SVG}</div>
+    <div id="flowLayer">
+      <div class="flow-live-indicator">
+        <span class="dot"></span><span id="flowLiveText">awaiting events</span>
+      </div>
+      {DASHBOARD_FLOW_SVG}
+    </div>
   </section>
   <aside class="feed">
     <div class="feed-head">

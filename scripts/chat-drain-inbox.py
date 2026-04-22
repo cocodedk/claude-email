@@ -144,6 +144,7 @@ def main() -> int:
     context = _format_context(caller, msgs)
     if event == "Stop":
         payload = {"decision": "block", "reason": context}
+        flow_type = "hook_drain_stop"
     else:
         payload = {
             "hookSpecificOutput": {
@@ -151,6 +152,11 @@ def main() -> int:
                 "additionalContext": context,
             },
         }
+        flow_type = "hook_drain_session"
+    try:
+        db._log_event(caller, flow_type, f"drained={len(msgs)} event={event}")
+    except Exception:  # noqa: BLE001
+        pass  # never block the session on telemetry
     sys.stdout.write(json.dumps(payload))
     return 0
 
