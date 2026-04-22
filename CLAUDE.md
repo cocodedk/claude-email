@@ -10,6 +10,12 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 ---
 
+## Companion frontend
+
+The user-facing frontend (aside from the direct email interface) lives in the **Claude-Email-App** project. Its agent on the chat bus is **`agent-Claude-Email-App`**. Any change that affects the frontend contract — envelope schema, routing semantics, MCP tool shape, dashboard feed, auth surface — must be coordinated with `agent-Claude-Email-App` via `chat_message_agent` before moving on. Don't land breaking changes here without an ack from that agent.
+
+---
+
 ## Required Skills — ALWAYS Invoke These
 
 | Situation | Skill |
