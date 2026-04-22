@@ -155,6 +155,7 @@ function bindModeToggle() {
 function bindGlossarySearch() {
   const input = document.getElementById('glossSearch');
   const empty = document.getElementById('glossEmpty');
+  const emptyTerm = document.getElementById('glossTerm');
   if (!input) return;
   input.addEventListener('input', () => {
     const q = input.value.trim().toLowerCase();
@@ -172,6 +173,7 @@ function bindGlossarySearch() {
       });
       cat.hidden = catShown === 0;
     });
+    if (emptyTerm) emptyTerm.textContent = q;
     if (empty) empty.hidden = shown !== 0;
   });
 }

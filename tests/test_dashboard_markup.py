@@ -133,3 +133,10 @@ class TestGlossaryPanel:
         """Entries that auto-expanded during search must collapse again
         after the query is cleared — otherwise the panel stays cluttered."""
         assert "removeAttribute('open')" in DASHBOARD_HTML
+
+    def test_empty_state_shows_searched_term(self):
+        """When no match is found, the empty-state message echoes the
+        query so the user sees exactly what they typed. The JS populates
+        #glossTerm with the lowercased query."""
+        assert 'id="glossTerm"' in DASHBOARD_HTML
+        assert "emptyTerm.textContent = q" in DASHBOARD_HTML

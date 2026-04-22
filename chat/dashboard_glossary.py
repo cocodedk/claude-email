@@ -53,7 +53,8 @@ def _build() -> str:
   </header>
   <div class="gloss-body-wrap">{cats}</div>
   <div id="glossEmpty" class="gloss-empty" hidden>
-    no match — the term may live in CLAUDE.md or the code comments
+    no match for <strong id="glossTerm"></strong> —
+    the term may live in CLAUDE.md or the code comments
   </div>
 </div>'''
 
