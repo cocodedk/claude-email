@@ -138,7 +138,7 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 | `SMTP_PORT` | SMTP server port | `465` |
 | `EMAIL_ADDRESS` | IMAP/SMTP account | `claude@cocode.dk` |
 | `EMAIL_PASSWORD` | Account password | |
-| `AUTHORIZED_SENDER` | Only process emails from this address | `bb@cocode.dk` |
+| `AUTHORIZED_SENDER` | Only process emails from this address. Accepts a comma-separated list when one person has several inboxes that should share creds, project base, and conversation state — the first entry is canonical (the default relay recipient), the rest are aliases. | `bb@cocode.dk` or `bb@cocode.dk,babak@cocode.dk` |
 | `EMAIL_DOMAIN` | Domain for Message-ID generation | `cocode.dk` |
 
 ### Polling & CLI
@@ -415,7 +415,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 842 pytest tests (100% coverage)
+├── tests/                 # 852 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -489,7 +489,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (842 tests, 100% coverage)
+# Run all tests (852 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose

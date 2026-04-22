@@ -34,7 +34,9 @@ def build_config() -> dict:
     universes = build_universes(os.environ, test_env=test_env)
     return {
         "universes": universes,
-        "authorized_senders": [u.sender for u in universes],
+        "authorized_senders": [
+            addr for u in universes for addr in u.all_senders
+        ],
         "imap_host": os.environ["IMAP_HOST"], "imap_port": int(os.environ["IMAP_PORT"]),
         "smtp_host": os.environ["SMTP_HOST"], "smtp_port": int(os.environ["SMTP_PORT"]),
         "username": os.environ["EMAIL_ADDRESS"], "password": os.environ["EMAIL_PASSWORD"],

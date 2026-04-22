@@ -37,10 +37,31 @@ class Universe:
     gpg_fingerprint: str = ""
     gpg_home: str | None = None
     is_test: bool = False
+    aliases: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def auth_prefix(self) -> str:
         return f"AUTH:{self.shared_secret}"
+
+    @property
+    def all_senders(self) -> tuple[str, ...]:
+        """Canonical sender first, then any aliases. Every address in this
+        tuple is authorized against the same creds/DB/project base; used by
+        dispatch to route any matching From back to this universe."""
+        return (self.sender, *self.aliases)
+
+
+def _parse_senders(raw: str) -> tuple[str, tuple[str, ...]]:
+    """Split ``"a@x,b@x,c@x"`` into (canonical, (alias, alias)).
+
+    Strips whitespace, drops empties, preserves order. Raises ValueError
+    when no usable address remains so a mis-set AUTHORIZED_SENDER fails
+    loudly at startup instead of silently producing a no-sender universe.
+    """
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    if not parts:
+        raise ValueError("AUTHORIZED_SENDER must contain at least one address")
+    return parts[0], tuple(parts[1:])
 
 
 def _repo_root() -> str:
@@ -56,8 +77,10 @@ def build_universes(env: dict | None = None, test_env: dict | None = None) -> li
     from leaking into the primary universe.
     """
     src = env if env is not None else os.environ
+    canonical, aliases = _parse_senders(src["AUTHORIZED_SENDER"])
     primary = Universe(
-        sender=src["AUTHORIZED_SENDER"],
+        sender=canonical,
+        aliases=aliases,
         allowed_base=src["CLAUDE_CWD"],
         chat_db_path=src["CHAT_DB_PATH"],
         chat_url=src["CHAT_URL"],

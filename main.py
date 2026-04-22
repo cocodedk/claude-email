@@ -125,7 +125,9 @@ def run_loop(config: dict) -> None:
     global _shutdown
     universes = universes_from_config(config)
     config = {**config, "universes": universes,
-              "authorized_senders": config.get("authorized_senders") or [u.sender for u in universes]}
+              "authorized_senders": config.get("authorized_senders") or [
+                  addr for u in universes for addr in u.all_senders
+              ]}
     resources = build_universe_resources(universes)
     poller = EmailPoller(
         host=config["imap_host"],

@@ -27,7 +27,11 @@ def build_universe_resources(universes) -> dict:
                 "CHAT_DB_PATH": u.chat_db_path,
             },
         )
-        res[u.sender.lower()] = (u, cdb, tq, wm)
+        bundle = (u, cdb, tq, wm)
+        # Aliases share the same universe bundle — an inbound message
+        # from any whitelisted address routes to the canonical universe.
+        for addr in u.all_senders:
+            res[addr.lower()] = bundle
     return res
 
 
@@ -70,5 +74,6 @@ def dispatch_by_sender(msg, config: dict, resources: dict, process_email) -> Non
         "gpg_home": universe.gpg_home,
         "auth_prefix": universe.auth_prefix,
         "authorized_sender": universe.sender,
+        "authorized_senders": list(universe.all_senders),
     }
     process_email(msg, scoped, chat_db=cdb, task_queue=tq, worker_manager=wm)
