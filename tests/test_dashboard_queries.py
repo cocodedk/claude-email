@@ -21,10 +21,12 @@ class TestAgentsSummary:
         assert names == {"a1", "a2"}
 
     def test_includes_status_pid_and_last_seen(self, db):
-        db.register_agent("bot", "/p", pid=1234)
+        import os
+        my_pid = os.getpid()  # a real, alive pid so the liveness filter keeps it
+        db.register_agent("bot", "/p", pid=my_pid)
         [row] = db.get_agents_summary()
         assert row["status"] == "running"
-        assert row["pid"] == 1234
+        assert row["pid"] == my_pid
         assert row["project_path"] == "/p"
         assert "last_seen_at" in row
 
@@ -35,14 +37,11 @@ class TestAgentsSummary:
         # last_seen_at DESC — most recent registration first
         assert names[0] == "second"
 
-    def test_hides_stale_agents(self, db):
-        """Agents whose last_seen_at is older than stale_secs are ghosts —
-        an MCP-registered agent with pid=NULL that crashed will never be
-        picked up by pid-based reaping, so the dashboard filters them by
-        heartbeat instead. The DB row stays (ownership claims still apply);
-        only the visible projection drops them."""
-        db.register_agent("ghost", "/p1")
-        # Backdate ghost's last_seen_at beyond the cutoff.
+    def test_hides_stale_pid_null_agents(self, db):
+        """An MCP-registered agent (pid=NULL) that crashed can't be seen
+        by is_alive-based reaping, so the dashboard filters it by stale
+        heartbeat instead. The DB row stays (ownership logic still works)."""
+        db.register_agent("ghost", "/p1")  # pid defaults to NULL
         db._conn.execute(
             "UPDATE agents SET last_seen_at=? WHERE name=?",
             ("1970-01-01T00:00:00+00:00", "ghost"),
@@ -51,20 +50,55 @@ class TestAgentsSummary:
         db.register_agent("fresh", "/p2")
         names = [r["name"] for r in db.get_agents_summary()]
         assert names == ["fresh"]
-        # But the stored row is still there — ownership logic isn't affected.
         assert db.get_agent("ghost") is not None
 
+    def test_shows_live_pid_agents_even_when_stale(self, db):
+        """A long-running Claude session that doesn't poll its inbox can
+        have an ancient last_seen_at but is very much alive. If its PID is
+        alive, the dashboard must show it — the kernel is the ground truth."""
+        import os
+        db.register_agent("dormant", "/p1", pid=os.getpid())
+        # Backdate the heartbeat far past the default threshold.
+        db._conn.execute(
+            "UPDATE agents SET last_seen_at=? WHERE name=?",
+            ("1970-01-01T00:00:00+00:00", "dormant"),
+        )
+        db._conn.commit()
+        [row] = db.get_agents_summary()
+        assert row["name"] == "dormant"
+        # Status reconciles to 'running' regardless of what the column says.
+        assert row["status"] == "running"
+
+    def test_hides_agents_whose_pid_is_dead(self, db):
+        """When is_alive(pid) is False, the agent is definitely gone —
+        hide immediately, don't wait for reap_dead_agents to flip status."""
+        db.register_agent("crashed", "/p1", pid=99999999)  # definitely dead
+        assert db.get_agents_summary() == []
+
+    def test_status_column_ignored_when_pid_is_live(self, db):
+        """A stale 'disconnected' label on a row whose pid is alive means
+        the reaper ran during a brief hang; trust the kernel, not the label."""
+        import os
+        db.register_agent("revived", "/p1", pid=os.getpid())
+        db.update_agent_status("revived", "disconnected")
+        [row] = db.get_agents_summary()
+        assert row["status"] == "running"
+
+    def test_hides_disconnected_when_pid_is_null(self, db):
+        """Without a PID we can't overrule the status column."""
+        db.register_agent("goneforgood", "/p1")  # pid=NULL
+        db.update_agent_status("goneforgood", "disconnected")
+        assert db.get_agents_summary() == []
+
     def test_stale_threshold_is_configurable(self, db):
-        """A caller that wants the full picture (e.g. chat_list_agents)
-        can pass a huge threshold to disable filtering."""
-        db.register_agent("anyone", "/p1")
+        """Callers that want the full picture can pass a huge threshold."""
+        db.register_agent("anyone", "/p1")  # pid=NULL so threshold applies
         db._conn.execute(
             "UPDATE agents SET last_seen_at=? WHERE name=?",
             ("1970-01-01T00:00:00+00:00", "anyone"),
         )
         db._conn.commit()
         assert db.get_agents_summary() == []
-        # 100 years of slack — agent from 1970 is "fresh enough"
         assert db.get_agents_summary(stale_secs=3600 * 24 * 365 * 100) != []
 
 

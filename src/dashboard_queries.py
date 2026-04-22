@@ -5,11 +5,13 @@ because these methods are monitoring-only (no writes, no side effects).
 """
 from datetime import datetime, timedelta, timezone
 
-# Agents with last_seen_at older than this are considered ghosts and
-# hidden from the dashboard. MCP chat_register leaves pid=NULL, so we
-# can't rely on is_alive alone for liveness; a stale heartbeat is the
-# only signal that survives process crashes that happen before the
-# next touch_agent call.
+from src.process_liveness import is_alive
+
+# Staleness threshold for agents that registered without a PID (MCP
+# chat_register leaves pid=NULL). For those rows only a heartbeat is
+# available, so we err on the side of "probably gone" after this.
+# Agents with a PID get an authoritative is_alive() check instead and
+# ignore this threshold.
 DEFAULT_AGENT_STALE_SECS = 1800  # 30 minutes
 
 FLOW_EVENT_TYPES = (
@@ -26,15 +28,38 @@ class DashboardQueriesMixin:
     def get_agents_summary(
         self, stale_secs: int = DEFAULT_AGENT_STALE_SECS,
     ) -> list[dict]:
+        """Return visible agents. Liveness is a two-signal check:
+
+          - pid set → is_alive(pid) decides (authoritative; ignores
+            last_seen_at and the status column, since a live process is
+            more truthful than either. The status flips back to 'running'
+            in the returned row.)
+          - pid NULL → no kernel signal available; fall back to a
+            last_seen_at heartbeat younger than stale_secs.
+
+        Rows marked 'disconnected' whose pid is NULL are hidden outright.
+        """
         cutoff = (
             datetime.now(timezone.utc) - timedelta(seconds=stale_secs)
         ).isoformat()
         rows = self._conn.execute(
             "SELECT name, project_path, status, pid, last_seen_at, registered_at "
-            "FROM agents WHERE last_seen_at >= ? ORDER BY last_seen_at DESC",
-            (cutoff,),
+            "FROM agents ORDER BY last_seen_at DESC"
         ).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            pid = d["pid"]
+            if pid is not None:
+                if is_alive(pid):
+                    d["status"] = "running"
+                    out.append(d)
+                continue
+            if d["status"] == "disconnected":
+                continue
+            if (d.get("last_seen_at") or "") >= cutoff:
+                out.append(d)
+        return out
 
     def get_messages_summary(self, limit: int = 100) -> list[dict]:
         rows = self._conn.execute(
