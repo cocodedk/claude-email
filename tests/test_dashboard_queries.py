@@ -35,6 +35,38 @@ class TestAgentsSummary:
         # last_seen_at DESC — most recent registration first
         assert names[0] == "second"
 
+    def test_hides_stale_agents(self, db):
+        """Agents whose last_seen_at is older than stale_secs are ghosts —
+        an MCP-registered agent with pid=NULL that crashed will never be
+        picked up by pid-based reaping, so the dashboard filters them by
+        heartbeat instead. The DB row stays (ownership claims still apply);
+        only the visible projection drops them."""
+        db.register_agent("ghost", "/p1")
+        # Backdate ghost's last_seen_at beyond the cutoff.
+        db._conn.execute(
+            "UPDATE agents SET last_seen_at=? WHERE name=?",
+            ("1970-01-01T00:00:00+00:00", "ghost"),
+        )
+        db._conn.commit()
+        db.register_agent("fresh", "/p2")
+        names = [r["name"] for r in db.get_agents_summary()]
+        assert names == ["fresh"]
+        # But the stored row is still there — ownership logic isn't affected.
+        assert db.get_agent("ghost") is not None
+
+    def test_stale_threshold_is_configurable(self, db):
+        """A caller that wants the full picture (e.g. chat_list_agents)
+        can pass a huge threshold to disable filtering."""
+        db.register_agent("anyone", "/p1")
+        db._conn.execute(
+            "UPDATE agents SET last_seen_at=? WHERE name=?",
+            ("1970-01-01T00:00:00+00:00", "anyone"),
+        )
+        db._conn.commit()
+        assert db.get_agents_summary() == []
+        # 100 years of slack — agent from 1970 is "fresh enough"
+        assert db.get_agents_summary(stale_secs=3600 * 24 * 365 * 100) != []
+
 
 class TestMessagesSummary:
     def test_empty(self, db):

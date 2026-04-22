@@ -415,7 +415,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 797 pytest tests (100% coverage)
+├── tests/                 # 820 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -437,7 +437,9 @@ real time as a node-graph, not a text timeline.
 - **Filter by click** — clicking an agent node narrows the feed to that agent's traffic and dims the other nodes.
 - **Live stream** — `EventSource` on `/events` pushes new messages the instant they land in SQLite; the page auto-reconnects on disconnect.
 - **Top bar** — UTC clock, operator count, running event counter, and a `LINK LIVE` LED. Typography: `Major Mono Display` for headers, `IBM Plex Mono` for body.
-- **Flow view** — a topbar toggle flips the stage from the live observatory to a static technical-flow diagram that traces how a peer message reaches an idle agent through the two internal code paths: the Stop-hook self-poll (the agent drains its own inbox at end-of-turn) and the wake_watcher cold-spawn (a fresh CLI is booted so its `SessionStart` hook can drain). The mode preference is remembered in `localStorage`.
+- **Flow view** — a topbar toggle flips the stage from the live observatory to a technical-flow diagram that traces how a peer message reaches an idle agent through the two internal code paths: the Stop-hook self-poll (the agent drains its own inbox at end-of-turn) and the wake_watcher cold-spawn (a fresh CLI is booted so its `SessionStart` hook can drain). The panel is **live**: `wake_spawn_start`/`wake_spawn_end` emit from `wake_watcher`, `hook_drain_stop`/`hook_drain_session` emit from `chat-drain-inbox.py`, and each event lights up the matching step card on the diagram.
+- **Glossary view** — a third topbar toggle opens a searchable, click-to-expand index of every acronym and term the project uses (MCP, SSE, WAL, IMAP, PPID, Stop hook, nudge Event, …). The search input filters entries in-place across categories.
+- **Ghost filter** — agents whose `last_seen_at` is older than 30 minutes are dropped from the dashboard projection. Keeps stale pid=NULL MCP registrations (that `reap_dead_agents` can't see) off the radar.
 
 The page is composed from nine ~100-line modules
 (`dashboard_page.py`, `dashboard_css{_shell,_graph}.py`,
@@ -487,7 +489,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (797 tests, 100% coverage — 791 core + 6 flow-panel)
+# Run all tests (820 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose

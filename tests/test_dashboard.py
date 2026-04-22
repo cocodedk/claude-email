@@ -127,6 +127,56 @@ class TestFlowPanel:
         assert "flow-live-indicator" in DASHBOARD_HTML
 
 
+class TestGlossaryPanel:
+    """Third face of /dashboard: a click-to-expand glossary indexing every
+    acronym and term used in the project. The renderer flattens two data
+    halves (GLOSSARY_A + GLOSSARY_B) into collapsible <details> entries
+    with a live search input at the top."""
+
+    def test_mode_toggle_has_glossary_button(self):
+        assert 'id="modeGlossary"' in DASHBOARD_HTML
+        assert ">glossary<" in DASHBOARD_HTML
+
+    def test_glossary_layer_embedded(self):
+        assert 'id="glossaryLayer"' in DASHBOARD_HTML
+        assert 'id="glossSearch"' in DASHBOARD_HTML
+        assert 'id="glossEmpty"' in DASHBOARD_HTML
+
+    def test_core_acronyms_all_present(self):
+        """Don't spare anything — every acronym the user might click
+        for should be in the panel. A failure here means a term got
+        removed from dashboard_glossary_[ab].py without a replacement."""
+        for term in (
+            "MCP", "SSE", "IMAP", "SMTP", "GPG", "SQLite", "WAL",
+            "PID", "PPID", "TDD", "shell=False",
+            "SessionStart hook", "UserPromptSubmit hook", "Stop hook",
+            "wake_watcher", "nudge Event",
+            "chat_ask", "chat_notify", "chat_check_messages",
+            "chat_message_agent", "chat_register",
+            "FLOW_EVENT_TYPES", "zombie process",
+        ):
+            assert term in DASHBOARD_HTML, f"glossary missing: {term}"
+
+    def test_categories_are_stable(self):
+        for title in (
+            "protocols · email", "protocols · chat bus", "storage",
+            "process model", "claude code internals",
+            "chat system — actors", "chat system — wake + deliver",
+            "chat system — mcp tools", "chat system — lifecycle",
+            "dashboard internals", "quality gates",
+        ):
+            assert title in DASHBOARD_HTML, f"category missing: {title}"
+
+    def test_search_js_binding_shipped(self):
+        assert "bindGlossarySearch" in DASHBOARD_HTML
+        assert "show-glossary" in DASHBOARD_HTML
+
+    def test_entries_have_data_term_attr(self):
+        """Search walks entries via [data-term] and .textContent."""
+        assert 'data-term="mcp"' in DASHBOARD_HTML
+        assert 'data-term="wal"' in DASHBOARD_HTML
+
+
 class TestAgentsEndpoint:
     def test_empty(self, client):
         assert client.get("/api/agents").json() == {"agents": []}

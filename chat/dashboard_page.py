@@ -6,6 +6,7 @@ and dashboard_js.py (client logic) so every file stays under the
 """
 from chat.dashboard_css import DASHBOARD_CSS
 from chat.dashboard_flow_svg import DASHBOARD_FLOW_SVG
+from chat.dashboard_glossary import DASHBOARD_GLOSSARY_HTML
 from chat.dashboard_js import DASHBOARD_JS
 
 _FONTS_HREF = (
@@ -33,6 +34,7 @@ _BODY = f"""
     <div class="mode-toggle" role="group" aria-label="view mode">
       <button id="modeObs" type="button" aria-pressed="true">observatory</button>
       <button id="modeFlow" type="button" aria-pressed="false">flow</button>
+      <button id="modeGlossary" type="button" aria-pressed="false">glossary</button>
     </div>
     <div id="status" class="link-state">
       <span class="led"></span><span id="statusText">connecting</span>
@@ -79,6 +81,7 @@ _BODY = f"""
       </div>
       {DASHBOARD_FLOW_SVG}
     </div>
+    {DASHBOARD_GLOSSARY_HTML}
   </section>
   <aside class="feed">
     <div class="feed-head">

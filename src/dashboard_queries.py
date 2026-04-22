@@ -3,6 +3,14 @@
 Kept separate from chat_db.py to preserve its 200-line headroom and
 because these methods are monitoring-only (no writes, no side effects).
 """
+from datetime import datetime, timedelta, timezone
+
+# Agents with last_seen_at older than this are considered ghosts and
+# hidden from the dashboard. MCP chat_register leaves pid=NULL, so we
+# can't rely on is_alive alone for liveness; a stale heartbeat is the
+# only signal that survives process crashes that happen before the
+# next touch_agent call.
+DEFAULT_AGENT_STALE_SECS = 1800  # 30 minutes
 
 FLOW_EVENT_TYPES = (
     "hook_drain_stop",       # Stop hook drained peer messages — lane 01
@@ -15,10 +23,16 @@ FLOW_EVENT_TYPES = (
 class DashboardQueriesMixin:
     """Read-only projections used by the live dashboard."""
 
-    def get_agents_summary(self) -> list[dict]:
+    def get_agents_summary(
+        self, stale_secs: int = DEFAULT_AGENT_STALE_SECS,
+    ) -> list[dict]:
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(seconds=stale_secs)
+        ).isoformat()
         rows = self._conn.execute(
             "SELECT name, project_path, status, pid, last_seen_at, registered_at "
-            "FROM agents ORDER BY last_seen_at DESC"
+            "FROM agents WHERE last_seen_at >= ? ORDER BY last_seen_at DESC",
+            (cutoff,),
         ).fetchall()
         return [dict(r) for r in rows]
 

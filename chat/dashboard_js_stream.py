@@ -131,24 +131,52 @@ function tick() {
   setTimeout(() => requestAnimationFrame(tick), 250);
 }
 function bindModeToggle() {
-  const obs = document.getElementById('modeObs');
-  const flow = document.getElementById('modeFlow');
-  if (!obs || !flow) return;
-  const set = (mode) => {
-    const isFlow = mode === 'flow';
-    document.body.classList.toggle('show-flow', isFlow);
-    obs.setAttribute('aria-pressed', String(!isFlow));
-    flow.setAttribute('aria-pressed', String(isFlow));
+  const buttons = {
+    obs:      document.getElementById('modeObs'),
+    flow:     document.getElementById('modeFlow'),
+    glossary: document.getElementById('modeGlossary'),
+  };
+  if (!buttons.obs || !buttons.flow || !buttons.glossary) return;
+  const apply = (mode) => {
+    document.body.classList.toggle('show-flow', mode === 'flow');
+    document.body.classList.toggle('show-glossary', mode === 'glossary');
+    for (const [k, el] of Object.entries(buttons)) {
+      el.setAttribute('aria-pressed', String(k === mode));
+    }
     try { localStorage.setItem('dashboard.mode', mode); } catch (e) { /*ignore*/ }
   };
-  obs.addEventListener('click', () => set('obs'));
-  flow.addEventListener('click', () => set('flow'));
+  for (const [k, el] of Object.entries(buttons)) {
+    el.addEventListener('click', () => apply(k));
+  }
   let saved = null;
   try { saved = localStorage.getItem('dashboard.mode'); } catch (e) { /*ignore*/ }
-  if (saved === 'flow') set('flow');
+  if (saved === 'flow' || saved === 'glossary') apply(saved);
+}
+function bindGlossarySearch() {
+  const input = document.getElementById('glossSearch');
+  const empty = document.getElementById('glossEmpty');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    let shown = 0;
+    document.querySelectorAll('.gloss-cat').forEach(cat => {
+      let catShown = 0;
+      cat.querySelectorAll('.gloss-entry').forEach(e => {
+        const term = e.getAttribute('data-term') || '';
+        const body = e.textContent.toLowerCase();
+        const hit = !q || term.includes(q) || body.includes(q);
+        e.hidden = !hit;
+        if (hit) { catShown++; shown++; }
+        if (q && hit) e.setAttribute('open', '');
+      });
+      cat.hidden = catShown === 0;
+    });
+    if (empty) empty.hidden = shown !== 0;
+  });
 }
 FILTER_BTN.addEventListener('click', () => setFilter(filter));
 bindModeToggle();
+bindGlossarySearch();
 loadAgents().then(loadMessages).then(connectStream);
 setInterval(loadAgents, 8000);
 tick();
