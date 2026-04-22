@@ -5,6 +5,7 @@ and dashboard_js.py (client logic) so every file stays under the
 200-line cap.
 """
 from chat.dashboard_css import DASHBOARD_CSS
+from chat.dashboard_flow_svg import DASHBOARD_FLOW_SVG
 from chat.dashboard_js import DASHBOARD_JS
 
 _FONTS_HREF = (
@@ -14,7 +15,7 @@ _FONTS_HREF = (
     "&display=swap"
 )
 
-_BODY = """
+_BODY = f"""
 <header class="topbar">
   <div class="brand">
     <span class="mark">CLAUDE.CHAT</span>
@@ -28,8 +29,14 @@ _BODY = """
     <div class="tel"><span class="k">EVENTS</span>
       <span class="v" id="count">0000</span></div>
   </div>
-  <div id="status" class="link-state">
-    <span class="led"></span><span id="statusText">connecting</span>
+  <div class="topbar-right">
+    <div class="mode-toggle" role="group" aria-label="view mode">
+      <button id="modeObs" type="button" aria-pressed="true">observatory</button>
+      <button id="modeFlow" type="button" aria-pressed="false">flow</button>
+    </div>
+    <div id="status" class="link-state">
+      <span class="led"></span><span id="statusText">connecting</span>
+    </div>
   </div>
 </header>
 <div class="wrap">
@@ -66,6 +73,7 @@ _BODY = """
       </g>
       <g id="pulses"></g>
     </svg>
+    <div id="flowLayer">{DASHBOARD_FLOW_SVG}</div>
   </section>
   <aside class="feed">
     <div class="feed-head">

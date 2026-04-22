@@ -85,7 +85,25 @@ function tick() {
   CLOCK.textContent = fmtClock(new Date());
   setTimeout(() => requestAnimationFrame(tick), 250);
 }
+function bindModeToggle() {
+  const obs = document.getElementById('modeObs');
+  const flow = document.getElementById('modeFlow');
+  if (!obs || !flow) return;
+  const set = (mode) => {
+    const isFlow = mode === 'flow';
+    document.body.classList.toggle('show-flow', isFlow);
+    obs.setAttribute('aria-pressed', String(!isFlow));
+    flow.setAttribute('aria-pressed', String(isFlow));
+    try { localStorage.setItem('dashboard.mode', mode); } catch (e) { /*ignore*/ }
+  };
+  obs.addEventListener('click', () => set('obs'));
+  flow.addEventListener('click', () => set('flow'));
+  let saved = null;
+  try { saved = localStorage.getItem('dashboard.mode'); } catch (e) { /*ignore*/ }
+  if (saved === 'flow') set('flow');
+}
 FILTER_BTN.addEventListener('click', () => setFilter(filter));
+bindModeToggle();
 loadAgents().then(loadMessages).then(connectStream);
 setInterval(loadAgents, 8000);
 tick();

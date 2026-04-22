@@ -54,6 +54,55 @@ class TestDashboardPage:
         assert 'id="graph"' in DASHBOARD_HTML
 
 
+class TestFlowPanel:
+    """The /dashboard has a second face: a technical-flow illustration
+    toggled from the topbar (observatory ↔ flow). It's pure SVG/CSS with
+    no backend data — these checks confirm the markup is present and the
+    two code paths (Stop-hook self-poll, wake_watcher spawn) are labelled."""
+
+    def test_mode_toggle_buttons_present(self):
+        assert 'id="modeObs"' in DASHBOARD_HTML
+        assert 'id="modeFlow"' in DASHBOARD_HTML
+        assert "observatory" in DASHBOARD_HTML
+        # Default mode is observatory; flow button starts unpressed.
+        assert 'id="modeObs" type="button" aria-pressed="true"' in DASHBOARD_HTML
+        assert 'id="modeFlow" type="button" aria-pressed="false"' in DASHBOARD_HTML
+
+    def test_flow_layer_embedded(self):
+        assert 'id="flowLayer"' in DASHBOARD_HTML
+        assert 'id="flow"' in DASHBOARD_HTML  # the inner flow <svg>
+        assert "flow-title" in DASHBOARD_HTML
+
+    def test_both_paths_labelled(self):
+        assert "STOP-HOOK SELF-POLL" in DASHBOARD_HTML
+        assert "SPAWN DORMANT AGENT" in DASHBOARD_HTML
+
+    def test_stop_hook_lane_names_key_actors(self):
+        # Every actor in the prose explainer must appear somewhere.
+        for needle in (
+            "chat_message_agent",
+            "claude-chat.db",
+            "Stop hook fires",
+            "chat-drain-inbox.py",
+            'decision: &quot;block&quot;',  # rendered by the f-string escape
+        ):
+            assert needle in DASHBOARD_HTML, f"missing: {needle}"
+
+    def test_wake_lane_names_key_actors(self):
+        for needle in (
+            "wake_watcher",
+            "SessionStart hook",
+            "claude --print",
+            "--resume &lt;session&gt;",
+        ):
+            assert needle in DASHBOARD_HTML, f"missing: {needle}"
+
+    def test_mode_toggle_js_binds_localstorage(self):
+        assert "bindModeToggle" in DASHBOARD_HTML
+        assert "dashboard.mode" in DASHBOARD_HTML
+        assert "show-flow" in DASHBOARD_HTML
+
+
 class TestAgentsEndpoint:
     def test_empty(self, client):
         assert client.get("/api/agents").json() == {"agents": []}
