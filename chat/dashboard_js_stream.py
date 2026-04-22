@@ -168,6 +168,7 @@ function bindGlossarySearch() {
         e.hidden = !hit;
         if (hit) { catShown++; shown++; }
         if (q && hit) e.setAttribute('open', '');
+        else if (!q) e.removeAttribute('open');
       });
       cat.hidden = catShown === 0;
     });

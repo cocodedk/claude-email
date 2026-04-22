@@ -40,7 +40,10 @@ def build_config() -> dict:
         "imap_host": os.environ["IMAP_HOST"], "imap_port": int(os.environ["IMAP_PORT"]),
         "smtp_host": os.environ["SMTP_HOST"], "smtp_port": int(os.environ["SMTP_PORT"]),
         "username": os.environ["EMAIL_ADDRESS"], "password": os.environ["EMAIL_PASSWORD"],
-        "authorized_sender": os.environ["AUTHORIZED_SENDER"],
+        # Canonical primary — never the raw comma-list — so legacy relay
+        # code that reads this as a single recipient can't end up emailing
+        # "a@x,b@x" to one actual addressee.
+        "authorized_sender": universes[0].sender,
         "shared_secret": shared_secret,
         "gpg_fingerprint": os.environ.get("GPG_FINGERPRINT", ""),
         "gpg_home": os.environ.get("GPG_HOME"),

@@ -82,9 +82,9 @@ GLOSSARY_B: list[tuple[str, list[tuple[str, str]]]] = [
     ]),
     ("chat system — lifecycle", [
         ("touch_agent",
-         "Updates last_seen_at for an agent. Currently called on "
-         "chat_check_messages — so an agent that only sends (never drains) "
-         "can appear stale even while alive."),
+         "Updates last_seen_at for an agent. Runs up-front on every MCP "
+         "tool invocation via dispatch._heartbeat, so active agents stay "
+         "visible even when they're only sending rather than draining."),
         ("reap_dead_agents",
          "Mark agents whose PID is no longer alive as disconnected. Runs "
          "every claude-email tick. Zombie children are reaped via waitpid "

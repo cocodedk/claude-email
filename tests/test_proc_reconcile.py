@@ -137,6 +137,52 @@ class TestReconcileLiveAgents:
         monkeypatch.setattr(proc_reconcile, "_iter_claude_pids", lambda marker=None: [])
         assert reconcile_live_agents(db) == []
 
+    def test_basename_collision_falls_back_to_parent_qualified(
+        self, db, monkeypatch,
+    ):
+        """/home/u/work/app and /home/u/backup/app both derive agent-app.
+        The second session must not be silently dropped; retry with a
+        parent-qualified name so both live sessions stay visible.
+
+        Both PIDs must report alive so the second register_agent raises
+        AgentNameTaken / AgentProjectTaken instead of silently taking over
+        a stale slot.
+        """
+        from src import proc_reconcile
+        import src.agent_registry
+        monkeypatch.setattr(
+            proc_reconcile, "_iter_claude_pids", lambda marker=None: [100, 200],
+        )
+        cwd_map = {100: "/home/u/work/app", 200: "/home/u/backup/app"}
+        monkeypatch.setattr(proc_reconcile, "_cwd_of", lambda pid: cwd_map.get(pid))
+        monkeypatch.setattr(src.agent_registry, "is_alive", lambda pid: True)
+        touched = reconcile_live_agents(db)
+        assert "agent-app" in touched
+        # Second session reconciled under the parent-qualified name.
+        assert "agent-backup-app" in touched
+        assert db.get_agent("agent-app")["pid"] == 100
+        assert db.get_agent("agent-backup-app")["pid"] == 200
+
+    def test_fallback_upsert_failure_logged(self, db, monkeypatch, caplog):
+        """If even the parent-qualified retry fails, log and move on."""
+        from src import proc_reconcile
+        from src.chat_errors import AgentNameTaken
+        monkeypatch.setattr(
+            proc_reconcile, "_iter_claude_pids", lambda marker=None: [1],
+        )
+        monkeypatch.setattr(proc_reconcile, "_cwd_of", lambda pid: "/a/b")
+        calls = {"n": 0}
+
+        def always_raise(name, path, pid=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise AgentNameTaken(name, 999)
+            raise RuntimeError("fallback failed too")
+        monkeypatch.setattr(db, "register_agent", always_raise)
+        touched = reconcile_live_agents(db)
+        assert touched == []
+        assert "fallback upsert failed" in caplog.text
+
 
 class TestWiredIntoServerLifespan:
     """The reconciler must run when the MCP server starts so the radar

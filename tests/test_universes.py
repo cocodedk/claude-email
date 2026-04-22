@@ -115,6 +115,16 @@ class TestParseSenders:
         with pytest.raises(ValueError, match="AUTHORIZED_SENDER"):
             _parse_senders("   ,  ,  ")
 
+    def test_duplicate_raises(self):
+        """An address that's both canonical and alias would make routing
+        ambiguous and confuse bundle dedupe — reject at parse time."""
+        with pytest.raises(ValueError, match="duplicate"):
+            _parse_senders("a@x,a@x")
+
+    def test_duplicate_case_insensitive(self):
+        with pytest.raises(ValueError, match="duplicate"):
+            _parse_senders("A@X,a@x")
+
 
 class TestUniverseAliases:
     def test_all_senders_includes_aliases(self):
@@ -147,3 +157,18 @@ class TestUniverseAliases:
         # Both share the same creds — only the canonical owns the slot.
         assert primary.all_senders == ("bb@cocode.dk", "babak@cocode.dk")
         assert primary.shared_secret == "s"
+
+    def test_test_sender_colliding_with_primary_raises(self):
+        """Isolation boundary: a .env.test SENDER that's also a primary
+        alias would route prod email to the test universe (or vice versa)
+        depending on which bundle registered first. Refuse at build time."""
+        env = _base_env(AUTHORIZED_SENDER="bb@cocode.dk, babak@cocode.dk")
+        test_env = {"SENDER": "babak@cocode.dk"}
+        with pytest.raises(ValueError, match="duplicates a primary"):
+            build_universes(env, test_env=test_env)
+
+    def test_test_sender_collision_case_insensitive(self):
+        env = _base_env(AUTHORIZED_SENDER="bb@cocode.dk, babak@cocode.dk")
+        test_env = {"SENDER": "BABAK@Cocode.DK"}
+        with pytest.raises(ValueError, match="duplicates a primary"):
+            build_universes(env, test_env=test_env)

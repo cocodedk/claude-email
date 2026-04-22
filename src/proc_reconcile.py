@@ -15,6 +15,8 @@ import logging
 import os
 from pathlib import PurePosixPath
 
+from src.chat_errors import AgentNameTaken, AgentProjectTaken
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MARKER = "claude"
@@ -51,11 +53,28 @@ def _cwd_of(pid: int) -> str | None:
         return None
 
 
+def _fallback_name(cwd: str, pid: int) -> str:
+    """Disambiguator for basename collisions across projects.
+
+    `/home/u/work/app` and `/home/u/backup/app` both derive ``agent-app``
+    — the second registration would raise AgentNameTaken and the hostile
+    project would stay invisible. Fall back to ``agent-<parent>-<basename>``
+    so both distinct projects can share the radar. pid is appended only
+    if the parent-qualified name still collides (e.g. two checkouts of
+    the same repo under the same parent directory)."""
+    path = PurePosixPath(cwd)
+    parent = path.parent.name or "root"
+    return f"agent-{parent}-{path.name}"
+
+
 def reconcile_live_agents(db, *, marker: str = _DEFAULT_MARKER) -> list[str]:
     """Scan /proc for running Claude CLIs and upsert their agent rows.
 
-    Returns the list of agent names that were refreshed. Failed upserts
-    are logged and skipped so one hostile row never blocks the others.
+    Returns the list of agent names that were refreshed. On basename
+    collision (``AgentNameTaken`` / ``AgentProjectTaken`` from another
+    project sharing the same cwd tail), retry once with a parent-qualified
+    name so both live sessions end up visible. Any other failure is
+    logged and skipped so one hostile row can't block the others.
     """
     touched: list[str] = []
     for pid in _iter_claude_pids(marker):
@@ -65,6 +84,21 @@ def reconcile_live_agents(db, *, marker: str = _DEFAULT_MARKER) -> list[str]:
         name = "agent-" + PurePosixPath(cwd).name
         try:
             db.register_agent(name, cwd, pid=pid)
+        except (AgentNameTaken, AgentProjectTaken):
+            fallback = _fallback_name(cwd, pid)
+            logger.info(
+                "reconcile: %s slot held elsewhere — retrying as %s",
+                name, fallback,
+            )
+            try:
+                db.register_agent(fallback, cwd, pid=pid)
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "reconcile: fallback upsert failed for %s (pid %d)",
+                    fallback, pid,
+                )
+                continue
+            name = fallback
         except Exception:  # noqa: BLE001
             logger.exception(
                 "reconcile: failed to upsert %s (pid %d)", name, pid,

@@ -88,9 +88,12 @@ class DashboardQueriesMixin:
     def get_flow_events_since(
         self, last_id: int, limit: int = 200,
     ) -> list[dict]:
+        # The f-string only interpolates a fixed ?,?,?,? placeholder list
+        # built from FLOW_EVENT_TYPES (a module-level tuple of constants);
+        # no untrusted input touches the SQL. Ruff S608 is false-positive.
         placeholders = ",".join("?" * len(FLOW_EVENT_TYPES))
         rows = self._conn.execute(
-            f"SELECT id, event_type, participant, summary, created_at "
+            f"SELECT id, event_type, participant, summary, created_at "  # noqa: S608
             f"FROM events WHERE id > ? AND event_type IN ({placeholders}) "
             f"ORDER BY id ASC LIMIT ?",
             (last_id, *FLOW_EVENT_TYPES, limit),
@@ -100,7 +103,7 @@ class DashboardQueriesMixin:
     def latest_flow_event_id(self) -> int:
         placeholders = ",".join("?" * len(FLOW_EVENT_TYPES))
         row = self._conn.execute(
-            f"SELECT COALESCE(MAX(id), 0) AS mx FROM events "
+            f"SELECT COALESCE(MAX(id), 0) AS mx FROM events "  # noqa: S608
             f"WHERE event_type IN ({placeholders})",
             FLOW_EVENT_TYPES,
         ).fetchone()

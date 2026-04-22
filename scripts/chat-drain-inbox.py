@@ -155,8 +155,13 @@ def main() -> int:
         flow_type = "hook_drain_session"
     try:
         db._log_event(caller, flow_type, f"drained={len(msgs)} event={event}")
-    except Exception:  # noqa: BLE001
-        pass  # never block the session on telemetry
+    except Exception as exc:  # noqa: BLE001
+        # Never block the session on telemetry, but leave a diagnostic trail
+        # so a broken events insert doesn't turn the flow panel silent.
+        print(
+            f"chat-drain-inbox: flow event log failed ({flow_type}): {exc}",
+            file=sys.stderr,
+        )
     sys.stdout.write(json.dumps(payload))
     return 0
 

@@ -162,7 +162,14 @@ def run_loop(config: dict) -> None:
         except Exception:
             logger.exception("IMAP error — retrying after %ds", config["poll_interval"])
 
+        # Alias senders point at the same (universe, cdb, tq, wm) bundle,
+        # so resources.values() can list the same tuple twice. Dedupe by
+        # ChatDB identity so relay / reap / cleanup runs once per universe.
+        seen: set[int] = set()
         for _, cdb, tq, _ in resources.values():
+            if id(cdb) in seen:
+                continue
+            seen.add(id(cdb))
             _tick_housekeeping(config, cdb, tq)
 
         for _ in range(config["poll_interval"]):
