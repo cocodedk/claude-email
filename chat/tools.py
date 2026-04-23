@@ -20,6 +20,7 @@ def register_agent(db: ChatDB, name: str, project_path: str) -> dict:
 
 def notify_user(db: ChatDB, caller: str, message: str, task_id: int | None = None) -> dict:
     """Send a one-way notification from caller to user."""
+    db.touch_agent(caller)
     db.insert_message(caller, "user", message, "notify", task_id=task_id)
     return {"status": "sent"}
 
@@ -36,6 +37,7 @@ def message_agent(
     so agent-to-agent replies can thread back to the originating task,
     matching notify_user/ask_user behaviour.
     """
+    db.touch_agent(caller)
     if not to_agent:
         return {"error": "to_agent must not be empty"}
     if to_agent == "user":
@@ -59,6 +61,7 @@ async def ask_user(
     Creates an ask message, then polls for a reply every poll_interval
     seconds until one appears or timeout is reached.
     """
+    db.touch_agent(caller)
     msg = db.insert_message(caller, "user", message, "ask", task_id=task_id)
     msg_id = msg["id"]
     elapsed = 0.0
