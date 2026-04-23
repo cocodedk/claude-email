@@ -51,6 +51,15 @@ class TestNotifyUser:
         assert msgs[0]["body"] == "Build done!"
         assert msgs[0]["type"] == "notify"
 
+    def test_touches_agent_last_seen(self, db):
+        db.register_agent("bot", "/p")
+        first = db.get_agent("bot")["last_seen_at"]
+        import time
+        time.sleep(0.01)
+        notify_user(db, "bot", "Build done!")
+        second = db.get_agent("bot")["last_seen_at"]
+        assert second > first
+
     def test_notify_with_task_id_stores_task_id(self, db):
         db.register_agent("bot", "/p")
         task_id = db._conn.execute(
@@ -115,6 +124,19 @@ class TestAskUser:
             "SELECT * FROM messages WHERE type='ask' AND from_name='bot'"
         ).fetchall()
         assert len(msgs) == 1
+
+    @pytest.mark.asyncio
+    async def test_touches_agent_last_seen(self, db):
+        db.register_agent("bot", "/p")
+        first = db.get_agent("bot")["last_seen_at"]
+        import time
+        time.sleep(0.01)
+        # Timeout fast; we only care that ask touched last_seen before blocking.
+        await ask_user(
+            db, "bot", "question?", poll_interval=0.005, timeout=0.02,
+        )
+        second = db.get_agent("bot")["last_seen_at"]
+        assert second > first
 
     @pytest.mark.asyncio
     async def test_ask_with_task_id_stores_task_id(self, db):
@@ -244,6 +266,26 @@ class TestMessageAgent:
         db.register_agent("a-sender", "/p")
         result = message_agent(db, "a-sender", "", "hi")
         assert "error" in result
+
+    def test_touches_agent_last_seen(self, db):
+        db.register_agent("a-sender", "/p/s")
+        db.register_agent("a-recipient", "/p/r")
+        first = db.get_agent("a-sender")["last_seen_at"]
+        import time
+        time.sleep(0.01)
+        message_agent(db, "a-sender", "a-recipient", "ping")
+        second = db.get_agent("a-sender")["last_seen_at"]
+        assert second > first
+
+    def test_touches_agent_even_on_rejected_recipient(self, db):
+        """Caller is alive regardless of typos — heartbeat still refreshes."""
+        db.register_agent("a-sender", "/p/s")
+        first = db.get_agent("a-sender")["last_seen_at"]
+        import time
+        time.sleep(0.01)
+        message_agent(db, "a-sender", "agent-typo", "hi")
+        second = db.get_agent("a-sender")["last_seen_at"]
+        assert second > first
 
     def test_message_with_task_id_stores_task_id(self, db):
         """Threads peer-to-peer messages back to the originating task,
