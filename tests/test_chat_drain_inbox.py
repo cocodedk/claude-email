@@ -617,7 +617,9 @@ class TestPidReclaim:
         and we swallow it. The existing sibling-ownership gate then
         correctly refuses to drain."""
         import subprocess
-        sibling = subprocess.Popen(["sleep", "5"])
+        sibling = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(5)"],
+        )
         try:
             assert sibling.pid != os.getpid()
             fake_claude_pid = 424_242  # doesn't matter, register_agent
