@@ -135,9 +135,13 @@ def inject_session_start_hook(
 ) -> None:
     """Write .claude/settings.json wiring the chat-bus hooks for this project.
 
-    SessionStart (startup|resume): runs hook_script_path (pre-register + bus
-    instruction) then drain_script_path (drains pre-existing queue into
-    additionalContext).
+    SessionStart (all sources — empty matcher): runs hook_script_path
+    (pre-register + bus instruction) then drain_script_path (drains
+    pre-existing queue into additionalContext). Empty matcher catches
+    every session source (startup, resume, clear, compact, continue) so
+    the hook fires uniformly — the earlier ``startup|resume`` regex
+    silently skipped ``compact``/``continue`` sessions, leaving the agent
+    row stale until the next drain repaired it.
 
     UserPromptSubmit: runs drain_script_path so every user turn auto-drains
     messages that arrived mid-session.
@@ -168,7 +172,7 @@ def inject_session_start_hook(
     if not isinstance(hooks, dict):
         hooks = data["hooks"] = {}
     _merge_hook_event(
-        hooks, "SessionStart", "startup|resume",
+        hooks, "SessionStart", "",
         [hook_script_path, drain_script_path],
     )
     _merge_hook_event(

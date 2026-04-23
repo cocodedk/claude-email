@@ -81,7 +81,7 @@ class TestInjectSessionStartHook:
         assert data == {
             "hooks": {
                 "SessionStart": [{
-                    "matcher": "startup|resume",
+                    "matcher": "",
                     "hooks": [
                         {"type": "command", "command": self.HOOK},
                         {"type": "command", "command": self.DRAIN},
