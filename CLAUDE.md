@@ -6,15 +6,13 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (871 tests, 100% coverage)
+- **Test runner**: pytest (874 tests, 100% coverage)
 
 ---
 
-## Peer on the bus
+## Companion frontend
 
-Your peer is **`agent-Claude-Email-App`**, running in `/home/cocodedk/0-projects/Claude-Email-App` — the native Android companion repo. It's the user-facing frontend aside from the direct email interface. Talk to it with `chat_message_agent(to_agent="agent-Claude-Email-App", _caller="agent-claude-email", message="…")`.
-
-Any change that affects the frontend contract — envelope schema, routing semantics, MCP tool shape, dashboard feed, auth surface — must be coordinated with that peer before moving on. Don't land breaking changes here without an ack.
+The user-facing frontend (aside from the direct email interface) lives in the **Claude-Email-App** project. Its agent on the chat bus is **`agent-Claude-Email-App`**. Any change that affects the frontend contract — envelope schema, routing semantics, MCP tool shape, dashboard feed, auth surface — must be coordinated with `agent-Claude-Email-App` via `chat_message_agent` before moving on. Don't land breaking changes here without an ack from that agent.
 
 ---
 
@@ -56,7 +54,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 743 pytest tests (100% coverage)
+├── tests/                 # 874 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -110,7 +108,7 @@ claude-email/
 ## Build Commands
 
 ```bash
-.venv/bin/pytest tests/ -q      # Run all 871 tests
+.venv/bin/pytest tests/ -q      # Run all 874 tests
 .venv/bin/pytest tests/ -v      # Verbose
 scripts/check-line-limit.sh     # Enforce 200-line file limit
 ```
@@ -120,5 +118,5 @@ scripts/check-line-limit.sh     # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 871 tests pass
+2. Run `.venv/bin/pytest tests/ -q` — confirm 874 tests pass
 3. Invoke `superpowers:brainstorming` before any feature work
