@@ -415,7 +415,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 864 pytest tests (100% coverage)
+├── tests/                 # 867 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -489,7 +489,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (864 tests, 100% coverage)
+# Run all tests (867 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -507,7 +507,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **864 tests** with **100% code coverage** across all modules
+- **867 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
