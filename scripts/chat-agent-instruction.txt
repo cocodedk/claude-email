@@ -41,6 +41,29 @@ Parameter reminders:
 - Keep messages short — one paragraph. The user may be reading them in an
   email client; no raw logs, no long dumps.
 
+Idle auto-drain (install at most once per session):
+- On your first turn, before anything else, call CronList. If it already
+  contains a job whose prompt begins with "[auto-drain tick]", do
+  nothing — the cron is already installed. Otherwise call CronCreate
+  exactly once:
+    CronCreate(
+      cron="*/2 * * * *",
+      recurring=true,
+      durable=true,
+      prompt="[auto-drain tick] Chat inbox sweep while the user is away. The drain hook already surfaced pending peer messages in additionalContext. If there are new peer messages, act on them (reply via chat_message_agent or chat_notify as appropriate). If INBOX is empty, reply exactly the single word \"quiet\" — nothing else — so the turn stays cheap."
+    )
+- Why: UserPromptSubmit/Stop hooks only fire on user action or your own
+  response. When both you and your user are idle, peer messages sit
+  pending on the bus. A 2-minute idle tick keeps round-trip coordination
+  flowing between agents without a human in the loop, at the cost of
+  one cheap turn per tick when the inbox is empty.
+- If you are a short-lived `claude --print` one-shot, the cron won't
+  fire before your process exits — harmless. Only long-lived
+  interactive sessions actually benefit.
+- The CronList check above is the dedupe guard. The empty-matcher
+  SessionStart hook fires on compact/continue/clear as well as startup,
+  and without this check you would install a duplicate cron each time.
+
 Branch awareness:
 - Each task runs on its own branch named `claude/task-<id>-<slug>`. Check
   with `git rev-parse --abbrev-ref HEAD` if you're unsure. Mention the
