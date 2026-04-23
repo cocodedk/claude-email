@@ -14,7 +14,8 @@ from dataclasses import dataclass
 
 from src.chat_db import ChatDB
 from src.wake_helpers import (
-    _AgentLocks, _FailureTracker, _SessionCache, _is_session_fresh,
+    _AgentLocks, _FailureTracker, _SessionCache,
+    _has_live_owner, _is_session_fresh,
 )
 from src.wake_spawn import WakeTurnResult, build_wake_cmd
 
@@ -22,12 +23,8 @@ logger = logging.getLogger(__name__)
 
 # re-exports for tests and external callers
 __all__ = [
-    "WakeWatcherConfig",
-    "_AgentLocks",
-    "_FailureTracker",
-    "_SessionCache",
-    "process_agent",
-    "run_wake_watcher",
+    "WakeWatcherConfig", "_AgentLocks", "_FailureTracker", "_SessionCache",
+    "process_agent", "run_wake_watcher",
 ]
 
 
@@ -62,6 +59,9 @@ async def process_agent(
         if not pre_ids:
             # Drained by another consumer between recipient scan and entry.
             return
+
+        if _has_live_owner(agent):
+            return  # live session's own hook drain wins; don't race it
 
         cached = cache.get(agent_name)
         if cached is None:

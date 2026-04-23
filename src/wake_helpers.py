@@ -10,6 +10,19 @@ import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 
+from src.process_liveness import is_alive
+
+
+def _has_live_owner(agent: dict) -> bool:
+    """True iff a long-lived Claude session owns this agent row.
+
+    When present, that session's own Stop / UserPromptSubmit hooks drain
+    the inbox; a transient wake-spawn would race and answer from divergent
+    context. Idle-owner messages sit pending until its next turn;
+    live-but-stuck is an alert, not a failover."""
+    pid = agent.get("pid")
+    return bool(pid) and is_alive(pid)
+
 
 def _is_session_fresh(persisted: dict, idle_secs: float) -> bool:
     """True iff persisted wake-session row is still within idle_expiry_secs.
