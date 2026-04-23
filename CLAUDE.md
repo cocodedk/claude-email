@@ -6,7 +6,13 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (791 tests, 100% coverage)
+- **Test runner**: pytest (861 tests, 100% coverage)
+
+---
+
+## Companion frontend
+
+The user-facing frontend (aside from the direct email interface) lives in the **Claude-Email-App** project. Its agent on the chat bus is **`agent-Claude-Email-App`**. Any change that affects the frontend contract — envelope schema, routing semantics, MCP tool shape, dashboard feed, auth surface — must be coordinated with `agent-Claude-Email-App` via `chat_message_agent` before moving on. Don't land breaking changes here without an ack from that agent.
 
 ---
 
@@ -87,6 +93,15 @@ claude-email/
 - **No secrets in logs** — never log passwords, secrets, or raw command output
 - **100% coverage on production code** — `.coveragerc` omits `tests/`, the entry-shim, and standard pragma patterns; every merged change must keep the report at 100%
 - **Docs follow code** — whenever a change alters user-visible behavior, configuration surface, or the test count, update `README.md` and the website (`website/index.html`, `website/fa/index.html` in lockstep) in the same PR
+
+---
+
+## Operational notes
+
+- **Restarting claude-chat severs every live MCP session.** The MCP SSE protocol has no re-handshake on the client side for this project's tools, so after `systemctl --user restart claude-chat` existing agents will return `-32602 Invalid request parameters` on their next `chat_register` / `chat_list_agents` call. That's not a parameter bug; it's the MCP router falling through to the user-scope mem0 server (which has no `chat_*` tools). Resolution: restart those Claude sessions, or wait for the startup proc-scan reconciliation to refresh their rows.
+- **Blank radar after a restart is almost always stale PIDs**, not a bus outage. Compare `ps -ef | awk '$8=="claude"'` against the `agents` table before assuming the server is unhealthy.
+- **Don't restart claude-chat to "fix" the blank radar** — each restart re-creates the problem. Touch the DB rows or rely on the proc-scan instead.
+- **`CLAUDE_PROCESS_MARKER` defaults to `"claude"`, not `"bin/claude"`.** Interactive Claude CLIs have `claude …` in `/proc/<pid>/cmdline` with no path prefix; the stricter default stored ephemeral hook-helper PIDs for months and left live sessions invisible on the dashboard.
 
 ---
 

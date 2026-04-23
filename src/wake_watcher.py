@@ -76,7 +76,16 @@ async def process_agent(
         session_id = cached or str(uuid.uuid4())
 
         cmd = build_wake_cmd(claude_bin, session_id, is_resume, prompt)
+        db._log_event(
+            agent_name, "wake_spawn_start",
+            f"resume={is_resume} pending={len(pre_ids)}",
+        )
         result = await spawn_fn(cmd, cwd=project_path, timeout=timeout)
+        exit_code = getattr(result, "exit_code", None)
+        db._log_event(
+            agent_name, "wake_spawn_end",
+            f"exit={exit_code} timeout={getattr(result, 'timed_out', '?')}",
+        )
 
         if isinstance(result, WakeTurnResult) and result.exit_code == 0:
             # Cache the session even on stall — if the user fixes the drain

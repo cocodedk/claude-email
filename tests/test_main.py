@@ -287,6 +287,57 @@ class TestConfig:
         warn_msgs = [c.args[0] for c in mock_logger.warning.call_args_list]
         assert any("Ghost reaper" in m for m in warn_msgs)
 
+    def test_run_loop_dedupes_alias_bundles_in_housekeeping(
+        self, mocker, tmp_path,
+    ):
+        """When a universe has aliases, build_universe_resources registers
+        every address against the same (universe, cdb, tq, wm) tuple.
+        run_loop must call _tick_housekeeping once per unique bundle, not
+        once per alias — otherwise relay/reap/cleanup runs twice on a
+        dual-sender primary."""
+        import main
+        shared_cdb = MagicMock(name="cdb")
+        shared_tq = MagicMock(name="tq")
+        shared_wm = MagicMock(name="wm")
+        universe = MagicMock(name="universe")
+        duplicated = (universe, shared_cdb, shared_tq, shared_wm)
+        resources = {"bb@x": duplicated, "babak@x": duplicated}
+        mocker.patch(
+            "main.build_universe_resources", return_value=resources,
+        )
+        mocker.patch("main.universes_from_config", return_value=[universe])
+        tick = mocker.patch("main._tick_housekeeping")
+        mock_poller_cls = mocker.patch("main.EmailPoller")
+        mock_poller = MagicMock()
+        mock_poller.fetch_unseen.return_value = []
+        mock_poller_cls.return_value = mock_poller
+
+        # One iteration then exit.
+        def fake_sleep(_n):
+            main._shutdown = True
+        mocker.patch("main.time.sleep", side_effect=fake_sleep)
+
+        config = {
+            "imap_host": "h", "imap_port": 993,
+            "username": "u", "password": "p",
+            "state_file": str(tmp_path / "ids.json"),
+            "poll_interval": 1,
+            "authorized_sender": "bb@x",
+            "authorized_senders": ["bb@x", "babak@x"],
+        }
+        original = main._shutdown
+        try:
+            main._shutdown = False
+            main.run_loop(config)
+        finally:
+            main._shutdown = original
+
+        # Housekeeping fired once for the shared bundle, not twice.
+        assert tick.call_count == 1
+        (_, cdb_arg, tq_arg) = tick.call_args.args
+        assert cdb_arg is shared_cdb
+        assert tq_arg is shared_tq
+
     def test_config_unset_effort_is_none(self, monkeypatch):
         self._base_env(monkeypatch)
         monkeypatch.delenv("CLAUDE_EFFORT", raising=False)

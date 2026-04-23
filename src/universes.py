@@ -37,10 +37,44 @@ class Universe:
     gpg_fingerprint: str = ""
     gpg_home: str | None = None
     is_test: bool = False
+    aliases: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def auth_prefix(self) -> str:
         return f"AUTH:{self.shared_secret}"
+
+    @property
+    def all_senders(self) -> tuple[str, ...]:
+        """Canonical sender first, then any aliases. Every address in this
+        tuple is authorized against the same creds/DB/project base; used by
+        dispatch to route any matching From back to this universe."""
+        return (self.sender, *self.aliases)
+
+
+def _parse_senders(raw: str) -> tuple[str, tuple[str, ...]]:
+    """Split ``"a@x,b@x,c@x"`` into (canonical, (alias, alias)).
+
+    Strips whitespace, drops empties, preserves order. Raises ValueError
+    when no usable address remains (silent no-sender universe would
+    authorize nothing and hide the misconfiguration) or when the list
+    has duplicates (one address as both canonical and alias would make
+    alias-routing ambiguous and dedupe fragile).
+    """
+    parts: list[str] = []
+    seen: set[str] = set()
+    for part in (p.strip() for p in raw.split(",")):
+        if not part:
+            continue
+        key = part.lower()
+        if key in seen:
+            raise ValueError(
+                f"AUTHORIZED_SENDER contains duplicate address: {part!r}",
+            )
+        seen.add(key)
+        parts.append(part)
+    if not parts:
+        raise ValueError("AUTHORIZED_SENDER must contain at least one address")
+    return parts[0], tuple(parts[1:])
 
 
 def _repo_root() -> str:
@@ -56,8 +90,10 @@ def build_universes(env: dict | None = None, test_env: dict | None = None) -> li
     from leaking into the primary universe.
     """
     src = env if env is not None else os.environ
+    canonical, aliases = _parse_senders(src["AUTHORIZED_SENDER"])
     primary = Universe(
-        sender=src["AUTHORIZED_SENDER"],
+        sender=canonical,
+        aliases=aliases,
         allowed_base=src["CLAUDE_CWD"],
         chat_db_path=src["CHAT_DB_PATH"],
         chat_url=src["CHAT_URL"],
@@ -71,8 +107,17 @@ def build_universes(env: dict | None = None, test_env: dict | None = None) -> li
     out = [primary]
 
     if test_env and test_env.get("SENDER", "").strip():
+        test_sender = test_env["SENDER"].strip()
+        # Isolation boundary: a test sender that also appears in the
+        # primary universe would let test-sender email hit prod creds
+        # (whichever bundle registered first under that lowercased key).
+        if test_sender.lower() in {s.lower() for s in primary.all_senders}:
+            raise ValueError(
+                f".env.test SENDER {test_sender!r} duplicates a primary "
+                "AUTHORIZED_SENDER address",
+            )
         out.append(Universe(
-            sender=test_env["SENDER"].strip(),
+            sender=test_sender,
             allowed_base=test_env.get("CLAUDE_CWD") or src["CLAUDE_CWD"],
             chat_db_path=test_env.get("CHAT_DB_PATH", _DEFAULT_TEST_CHAT_DB),
             chat_url=test_env.get("CHAT_URL", _DEFAULT_TEST_CHAT_URL),

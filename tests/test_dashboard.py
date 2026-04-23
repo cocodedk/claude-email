@@ -1,6 +1,10 @@
-"""Tests for the live dashboard — HTTP routes and SSE stream."""
+"""Tests for the live dashboard — HTTP routes and handler wiring.
+
+Counterparts:
+  - tests/test_dashboard_sse.py — stream_events generator tests
+  - tests/test_dashboard_markup.py — flow panel + glossary markup tests
+"""
 import asyncio
-import json
 
 import pytest
 from starlette.applications import Starlette
@@ -10,7 +14,6 @@ from chat.dashboard import (
     DEFAULT_MESSAGES_LIMIT,
     MAX_MESSAGES_LIMIT,
     build_routes,
-    stream_events,
 )
 from chat.dashboard_page import DASHBOARD_HTML
 from src.chat_db import ChatDB
@@ -95,82 +98,6 @@ class TestMessagesEndpoint:
         assert len(r.json()["messages"]) == DEFAULT_MESSAGES_LIMIT
 
 
-class TestStreamEvents:
-    """Drive the async generator directly with a synthetic is_disconnected."""
-
-    def test_emits_hello_and_exits_when_disconnected(self, db):
-        async def always_disconnected():
-            return True
-
-        async def run():
-            return [c async for c in stream_events(db, always_disconnected, 0.001)]
-
-        chunks = asyncio.run(run())
-        assert len(chunks) == 1
-        assert "hello" in chunks[0]
-        assert "last_id" in chunks[0]
-
-    def test_emits_new_messages_then_keepalive(self, db):
-        calls = {"n": 0}
-
-        async def disconnect_second_call():
-            calls["n"] += 1
-            return calls["n"] > 1
-
-        async def run():
-            gen = stream_events(db, disconnect_second_call, 0.001)
-            # Pull hello — the watermark is now captured.
-            hello_chunk = await gen.__anext__()
-            # Insert a message AFTER the watermark so it appears in the stream.
-            m = db.insert_message("alice", "bob", "heya", "notify")
-            rest = [c async for c in gen]
-            return hello_chunk, m, rest
-
-        hello_chunk, m, rest = asyncio.run(run())
-        hello = json.loads(hello_chunk[len("data: "):].strip())
-        assert hello["kind"] == "hello"
-        msg = json.loads(rest[0][len("data: "):].strip())
-        assert msg["kind"] == "message"
-        assert msg["from_name"] == "alice"
-        assert msg["to_name"] == "bob"
-        assert msg["body"] == "heya"
-        assert msg["id"] == m["id"]
-        assert rest[1].startswith(":")  # keepalive
-
-    def test_hello_carries_current_watermark(self, db):
-        db.insert_message("a", "b", "one", "notify")
-        last = db.insert_message("a", "b", "two", "notify")
-
-        async def immediately_disconnected():
-            return True
-
-        async def run():
-            return [c async for c in stream_events(
-                db, immediately_disconnected, 0.001,
-            )]
-
-        chunks = asyncio.run(run())
-        hello = json.loads(chunks[0][len("data: "):].strip())
-        assert hello["last_id"] == last["id"]
-
-    def test_no_messages_yields_keepalive_only_per_tick(self, db):
-        calls = {"n": 0}
-
-        async def disconnect_after_one_tick():
-            calls["n"] += 1
-            return calls["n"] > 1
-
-        async def run():
-            return [c async for c in stream_events(
-                db, disconnect_after_one_tick, 0.001,
-            )]
-
-        chunks = asyncio.run(run())
-        # hello + keepalive (no messages to stream)
-        assert len(chunks) == 2
-        assert chunks[1].startswith(":")
-
-
 class TestEventsHandler:
     """Unit-test the HTTP handler wrapping stream_events (lines 65-71)."""
 
@@ -229,9 +156,14 @@ class TestServerWiring:
         app = create_app(str(tmp_path / "t.db"), "127.0.0.1", 0)
         assert app.state.dashboard_poll_secs == 1.0
 
-    def test_dashboard_endpoint_on_full_server(self, tmp_path):
-        from chat.server import create_app
-        app = create_app(str(tmp_path / "t.db"), "127.0.0.1", 0)
+    def test_dashboard_endpoint_on_full_server(self, tmp_path, monkeypatch):
+        # The server now runs reconcile_live_agents at startup; disable it
+        # here so this test is about the HTTP wiring, not /proc state.
+        from chat import server as chat_server
+        monkeypatch.setattr(
+            chat_server, "reconcile_live_agents", lambda db: [],
+        )
+        app = chat_server.create_app(str(tmp_path / "t.db"), "127.0.0.1", 0)
         with TestClient(app) as c:
             r = c.get("/dashboard")
             assert r.status_code == 200

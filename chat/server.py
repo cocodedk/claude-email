@@ -18,6 +18,7 @@ from starlette.routing import Mount, Route
 
 from src.chat_db import ChatDB
 from src.llm_router import ROUTER_MCP_CONFIG_PATH
+from src.proc_reconcile import reconcile_live_agents
 from src.reset_control import TokenStore
 from src.task_queue import TaskQueue
 from src.wake_spawn import run_wake_turn
@@ -81,6 +82,13 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
 
     @contextlib.asynccontextmanager
     async def lifespan(app_):
+        # Walk /proc on boot and refresh rows for any Claude CLI that's
+        # already running — so a claude-chat restart doesn't leave the
+        # dashboard blank until every session gets retriggered.
+        try:
+            reconcile_live_agents(db)
+        except Exception:
+            logger.exception("startup reconcile failed")
         stop = asyncio.Event()
         nudge = asyncio.Event()
         db.set_wake_nudge(nudge)

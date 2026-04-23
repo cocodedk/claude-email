@@ -125,7 +125,9 @@ def run_loop(config: dict) -> None:
     global _shutdown
     universes = universes_from_config(config)
     config = {**config, "universes": universes,
-              "authorized_senders": config.get("authorized_senders") or [u.sender for u in universes]}
+              "authorized_senders": config.get("authorized_senders") or [
+                  addr for u in universes for addr in u.all_senders
+              ]}
     resources = build_universe_resources(universes)
     poller = EmailPoller(
         host=config["imap_host"],
@@ -160,7 +162,14 @@ def run_loop(config: dict) -> None:
         except Exception:
             logger.exception("IMAP error — retrying after %ds", config["poll_interval"])
 
+        # Alias senders point at the same (universe, cdb, tq, wm) bundle,
+        # so resources.values() can list the same tuple twice. Dedupe by
+        # ChatDB identity so relay / reap / cleanup runs once per universe.
+        seen: set[int] = set()
         for _, cdb, tq, _ in resources.values():
+            if id(cdb) in seen:
+                continue
+            seen.add(id(cdb))
             _tick_housekeeping(config, cdb, tq)
 
         for _ in range(config["poll_interval"]):
