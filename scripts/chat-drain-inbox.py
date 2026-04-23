@@ -35,6 +35,7 @@ except ImportError:
     pass
 
 from src.chat_db import ChatDB  # noqa: E402
+from src.chat_pid_reclaim import reclaim_pid_best_effort  # noqa: E402
 from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
 
 
@@ -120,6 +121,7 @@ def main() -> int:
         return 0
 
     caller = _caller_name()
+    reclaim_pid_best_effort(db, caller, os.getcwd())
     agent = db.get_agent(caller)
     if (
         agent is not None
