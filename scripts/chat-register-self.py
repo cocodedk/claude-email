@@ -42,16 +42,15 @@ def _durable_session_pid() -> int:
     Hook helpers are short-lived — os.getpid() here dies when this script
     exits. To make ownership checks meaningful across subsequent hooks we
     store the long-lived Claude session PID instead, found by walking up
-    the PPID chain for a process whose cmdline contains ``claude``. Falls
-    back to os.getpid() when no Claude ancestor is visible (e.g. ad-hoc
-    CLI runs, CI, tests) so existing standalone paths still work.
+    the PPID chain for an ancestor whose argv[0] basename equals
+    ``claude``. Falls back to os.getpid() when no Claude ancestor is
+    visible (e.g. ad-hoc CLI runs, CI, tests) so existing standalone
+    paths still work.
 
-    The marker is "claude" (not "bin/claude") because /proc/<pid>/cmdline
-    for an interactive Claude CLI is just ``claude --flags…`` — the full
-    path isn't recorded in argv[0] when the binary is invoked via PATH.
-    Using the looser match fixes the pid=NULL / pid-dead rows that
-    appeared in the agents table and made live sessions invisible on
-    the dashboard."""
+    Basename-equality (not substring) because the SessionStart hook
+    wrapper itself lives under a path containing the word ``claude`` —
+    substring matching would return the wrapper's short-lived PID and
+    leave the dashboard blank once the hook exits."""
     return find_ancestor_pid_matching(_CLAUDE_CMDLINE_MARKER) or os.getpid()
 
 
