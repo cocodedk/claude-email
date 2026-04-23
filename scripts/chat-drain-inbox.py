@@ -115,8 +115,12 @@ def _reclaim_pid_best_effort(db: ChatDB, caller: str, cwd: str) -> None:
     No-op when: walker finds no claude ancestor; row does not exist
     (registration is chat-register-self.py's job); stored pid already
     matches. Swallows ``AgentNameTaken`` / ``AgentProjectTaken`` so a
-    live sibling session keeps its slot. Never raises — a broken bus
-    must not block drain.
+    live sibling session keeps its slot — the downstream sibling-
+    ownership gate (``is_ancestor_or_self``) distinguishes sibling from
+    self/ancestor and is the authoritative skip decision; returning
+    early here would throw away that intelligence and wrongly skip
+    drain when the conflict is with our own ancestor pid. Never raises
+    — a broken bus must not block drain.
     """
     try:
         claude_pid = find_ancestor_pid_matching(_CLAUDE_CMDLINE_MARKER)
