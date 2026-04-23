@@ -139,6 +139,43 @@ class TestProcessEmailAgentCommand:
         mock_reply.assert_called_once()
 
 
+    def test_unknown_agent_rejected_not_silently_queued(self, mocker, chat_db):
+        """@<agent> with no matching row must bounce back to the user, not
+        queue a message for a nonexistent inbox. Typos would otherwise
+        leave undeliverable rows that the wake-watcher polls forever and
+        the user gets an empty 'Dispatched' ack despite the target never
+        existing."""
+        from main import process_email
+
+        # Register a different agent so we can assert the error reply
+        # lists known agents to help the user correct their typo.
+        chat_db.register_agent("agent-known", "/tmp/known")
+
+        mocker.patch("main.is_authorized", return_value=True)
+        mock_reply = mocker.patch("src.chat_handlers.send_threaded_reply")
+        mock_execute = mocker.patch("main.execute_command")
+
+        msg = _make_msg(
+            subject="AUTH:testsecret @agent-typo",
+            body="run the tests",
+        )
+        config = _make_config()
+        process_email(msg, config, chat_db=chat_db)
+
+        # No pending message queued for the phantom agent
+        assert chat_db.get_pending_messages_for("agent-typo") == []
+        # Not treated as a CLI fallback either — it's still a chat-routed
+        # @agent command, just a rejected one.
+        mock_execute.assert_not_called()
+        mock_reply.assert_called_once()
+        body = mock_reply.call_args[0][2]
+        tag = mock_reply.call_args.kwargs.get("tag", "")
+        assert "unknown" in body.lower() or "no such" in body.lower()
+        assert "agent-typo" in body
+        assert "agent-known" in body  # hint at valid targets
+        assert tag != "Dispatched"
+
+
 class TestProcessEmailCLIFallback:
     def test_process_email_cli_fallback(self, mocker, chat_db):
         """Normal CLI command still works when chat_db is provided."""
@@ -323,7 +360,7 @@ class TestRelayOutboundMessages:
         """Pending agent messages get sent as emails and marked delivered."""
         from src.chat_handlers import relay_outbound_messages
 
-        mock_reply = mocker.patch("src.chat_handlers.send_reply", return_value="<test@cocode.dk>")
+        mock_reply = mocker.patch("src.chat_relay.send_reply", return_value="<test@cocode.dk>")
 
         # Agent sends a message to user
         chat_db.insert_message("agent-foo", "user", "Build succeeded!", "chat")
@@ -342,7 +379,7 @@ class TestRelayOutboundMessages:
         from src.chat_handlers import relay_outbound_messages
 
         mocker.patch(
-            "src.chat_handlers.send_reply",
+            "src.chat_relay.send_reply",
             side_effect=smtplib.SMTPRecipientsRefused({"x@y": (550, b"no such user")}),
         )
 
@@ -363,7 +400,7 @@ class TestRelayOutboundMessages:
         from src.chat_handlers import relay_outbound_messages
 
         mocker.patch(
-            "src.chat_handlers.send_reply",
+            "src.chat_relay.send_reply",
             side_effect=smtplib.SMTPServerDisconnected("connection lost"),
         )
 
@@ -382,7 +419,7 @@ class TestRelayOutboundMessages:
         from src.chat_handlers import relay_outbound_messages
 
         mock_reply = mocker.patch(
-            "src.chat_handlers.send_reply",
+            "src.chat_relay.send_reply",
             side_effect=smtplib.SMTPServerDisconnected("connection lost"),
         )
 

@@ -168,7 +168,7 @@ class TestStatusMetaQuery:
 # ── Test 5: Relay Stores Email Message-ID ────────────────────
 
 class TestRelayStoresEmailMessageId:
-    @patch("src.chat_handlers.send_reply")
+    @patch("src.chat_relay.send_reply")
     def test_relay_stores_message_id_in_db(self, mock_send, db):
         """Relay sends email and stores returned Message-ID in DB."""
         fake_msg_id = "<relay-456@example.com>"
@@ -195,7 +195,7 @@ class TestRelayStoresEmailMessageId:
 # ── Test 6: Full Round Trip ─────────────────────────────────
 
 class TestFullRoundTrip:
-    @patch("src.chat_handlers.send_reply")
+    @patch("src.chat_relay.send_reply")
     def test_agent_asks_email_sent_user_replies_agent_gets_answer(
         self, mock_send, db,
     ):

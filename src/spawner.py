@@ -77,6 +77,20 @@ def spawn_agent(
     """
     project_dir = validate_project_path(project_dir, allowed_base)
     name = build_agent_name(project_dir)
+
+    # Basename collision guard: two dirs sharing a basename (/work/app and
+    # /backup/app) both resolve to agent-app. Without this check, the second
+    # spawn would silently UPDATE the existing row's project_path (ON
+    # CONFLICT DO UPDATE) once the first agent died, so every consumer keyed
+    # on agent-app would start misrouting. Fail loud instead.
+    existing = db.get_agent(name)
+    if existing and existing.get("project_path") and existing["project_path"] != project_dir:
+        raise ValueError(
+            f"Agent name {name!r} is already registered for "
+            f"{existing['project_path']!r}. Basename collision — rename one "
+            f"of the directories so each project gets a distinct agent name."
+        )
+
     inject_mcp_config(project_dir, chat_url)
     inject_session_start_hook(project_dir, HOOK_SCRIPT)
 
