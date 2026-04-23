@@ -12,6 +12,7 @@ can't rely on their own PID — they're short-lived helpers — so ownership
 is expressed as ancestry instead of identity.
 """
 import os
+from pathlib import PurePosixPath
 
 
 _PPID_WALK_MAX_DEPTH = 64
@@ -58,20 +59,32 @@ def is_ancestor_or_self(target_pid: int) -> bool:
     return False
 
 
-def find_ancestor_pid_matching(substr: str) -> int | None:
-    """Walk up the PPID chain starting from our parent and return the
-    first ancestor whose /proc/<pid>/cmdline contains ``substr``.
-    Returns None if no ancestor matches or /proc is unreadable.
+def _argv0_basename(pid: int) -> str:
+    """Return the basename of argv[0] for ``pid``, or empty string on
+    failure. /proc/<pid>/cmdline is NUL-separated; the first token is
+    argv[0] (may be a bare name or an absolute path)."""
+    raw = _read_cmdline(pid)
+    if not raw:
+        return ""
+    argv0 = raw.split("\x00", 1)[0]
+    return PurePosixPath(argv0).name
 
-    Used to locate the long-lived Claude session PID from inside a
-    hook helper — so we store the durable session PID in the agents
-    table instead of the short-lived hook PID that's already dead by
-    the next hook invocation."""
+
+def find_ancestor_pid_matching(argv0_basename: str) -> int | None:
+    """Walk up the PPID chain from our parent and return the first
+    ancestor whose argv[0] basename equals ``argv0_basename``. Returns
+    None if no ancestor matches or /proc is unreadable.
+
+    Matching is basename-equality, not substring search: a shell wrapper
+    whose script path contains the marker (e.g. the SessionStart hook at
+    .../claude-email/scripts/chat-session-start-hook.sh) would otherwise
+    false-match before the walker reaches the long-lived CLI, and its
+    short-lived PID would end up in the agents table."""
     pid = _get_ppid(os.getpid())
     for _ in range(_PPID_WALK_MAX_DEPTH):
         if pid is None or pid <= 1:
             return None
-        if substr in _read_cmdline(pid):
+        if _argv0_basename(pid) == argv0_basename:
             return pid
         pid = _get_ppid(pid)
     return None
