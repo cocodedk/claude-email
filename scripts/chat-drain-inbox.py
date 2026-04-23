@@ -144,6 +144,7 @@ def main() -> int:
     context = _format_context(caller, msgs)
     if event == "Stop":
         payload = {"decision": "block", "reason": context}
+        flow_type = "hook_drain_stop"
     else:
         payload = {
             "hookSpecificOutput": {
@@ -151,6 +152,16 @@ def main() -> int:
                 "additionalContext": context,
             },
         }
+        flow_type = "hook_drain_session"
+    try:
+        db._log_event(caller, flow_type, f"drained={len(msgs)} event={event}")
+    except Exception as exc:  # noqa: BLE001
+        # Never block the session on telemetry, but leave a diagnostic trail
+        # so a broken events insert doesn't turn the flow panel silent.
+        print(
+            f"chat-drain-inbox: flow event log failed ({flow_type}): {exc}",
+            file=sys.stderr,
+        )
     sys.stdout.write(json.dumps(payload))
     return 0
 

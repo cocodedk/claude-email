@@ -138,7 +138,7 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 | `SMTP_PORT` | SMTP server port | `465` |
 | `EMAIL_ADDRESS` | IMAP/SMTP account | `claude@cocode.dk` |
 | `EMAIL_PASSWORD` | Account password | |
-| `AUTHORIZED_SENDER` | Only process emails from this address | `bb@cocode.dk` |
+| `AUTHORIZED_SENDER` | Only process emails from this address. Accepts a comma-separated list when one person has several inboxes that should share creds, project base, and conversation state — the first entry is canonical (the default relay recipient), the rest are aliases. | `bb@cocode.dk` or `bb@cocode.dk,babak@cocode.dk` |
 | `EMAIL_DOMAIN` | Domain for Message-ID generation | `cocode.dk` |
 
 ### Polling & CLI
@@ -415,7 +415,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 791 pytest tests (100% coverage)
+├── tests/                 # 861 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -437,11 +437,14 @@ real time as a node-graph, not a text timeline.
 - **Filter by click** — clicking an agent node narrows the feed to that agent's traffic and dims the other nodes.
 - **Live stream** — `EventSource` on `/events` pushes new messages the instant they land in SQLite; the page auto-reconnects on disconnect.
 - **Top bar** — UTC clock, operator count, running event counter, and a `LINK LIVE` LED. Typography: `Major Mono Display` for headers, `IBM Plex Mono` for body.
+- **Flow view** — a topbar toggle flips the stage from the live observatory to a technical-flow diagram that traces how a peer message reaches an idle agent through the two internal code paths: the Stop-hook self-poll (the agent drains its own inbox at end-of-turn) and the wake_watcher cold-spawn (a fresh CLI is booted so its `SessionStart` hook can drain). The panel is **live**: `wake_spawn_start`/`wake_spawn_end` emit from `wake_watcher`, `hook_drain_stop`/`hook_drain_session` emit from `chat-drain-inbox.py`, and each event lights up the matching step card on the diagram.
+- **Glossary view** — a third topbar toggle opens a searchable, click-to-expand index of every acronym and term the project uses (MCP, SSE, WAL, IMAP, PPID, Stop hook, nudge Event, …). The search input filters entries in-place across categories.
+- **Ghost filter** — agents whose `last_seen_at` is older than 30 minutes are dropped from the dashboard projection. Keeps stale pid=NULL MCP registrations (that `reap_dead_agents` can't see) off the radar.
 
-The page is composed from seven ~100-line modules
+The page is composed from nine ~100-line modules
 (`dashboard_page.py`, `dashboard_css{_shell,_graph}.py`,
-`dashboard_js{_graph,_stream}.py`, plus two concatenators) so every file
-stays under the 200-line cap.
+`dashboard_flow_{svg,css}.py`, `dashboard_js{_graph,_stream}.py`, plus two
+concatenators) so every file stays under the 200-line cap.
 
 All routes are read-only and bind to the same host/port as the MCP server —
 127.0.0.1 by default, so access stays local. Tune the poll cadence with
@@ -486,7 +489,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (791 tests, 100% coverage)
+# Run all tests (861 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
