@@ -558,6 +558,46 @@ class TestSpawnAgent:
                 allowed_base=str(base),
             )
 
+    def test_spawn_rejects_basename_collision_with_different_path(
+        self, db, tmp_path, mocker,
+    ):
+        """build_agent_name collapses path→name as 'agent-' + basename, so
+        /work/app and /backup/app both resolve to agent-app. If the first
+        process died, the DB's ON CONFLICT DO UPDATE silently rewrites the
+        project_path on the second spawn, and every downstream consumer
+        that keyed on agent-app suddenly misroutes. Refuse the second
+        spawn explicitly so the operator renames one of the dirs."""
+        from src.spawner import spawn_agent
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 999_998
+        mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+        mocker.patch("src.spawner.inject_session_start_hook")
+        mocker.patch("src.spawner.approve_mcp_server_for_project")
+
+        work_app = tmp_path / "work" / "app"
+        backup_app = tmp_path / "backup" / "app"
+        work_app.mkdir(parents=True)
+        backup_app.mkdir(parents=True)
+
+        # First spawn — registers agent-app for /work/app
+        name1, _ = spawn_agent(db, str(work_app), "http://chat")
+        assert name1 == "agent-app"
+
+        # Simulate that process dying (clear the pid so AgentNameTaken
+        # won't fire on liveness; the bug is what happens *after* that).
+        db.update_agent_pid(name1, None)
+
+        # Second spawn in /backup/app — must refuse, not silently rewrite
+        with pytest.raises(ValueError, match="agent-app"):
+            spawn_agent(db, str(backup_app), "http://chat")
+
+        # First spawn's slot must still point at /work/app
+        row = db.get_agent("agent-app")
+        assert row is not None
+        assert row["project_path"] == str(work_app.resolve())
+
     def test_spawn_agent_yolo_adds_skip_permissions(self, db, tmp_path, mocker):
         from src.spawner import spawn_agent
 
