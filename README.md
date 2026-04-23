@@ -489,7 +489,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (867 tests, 100% coverage)
+# Run all tests (871 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -507,7 +507,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **867 tests** with **100% code coverage** across all modules
+- **871 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
