@@ -534,8 +534,9 @@ class TestPidReclaim:
         project.mkdir()
         monkeypatch.chdir(project)
         monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        from src import chat_pid_reclaim
         monkeypatch.setattr(
-            drain_mod, "find_ancestor_pid_matching",
+            chat_pid_reclaim, "find_ancestor_pid_matching",
             lambda _marker: ancestor_pid,
         )
         return db, project

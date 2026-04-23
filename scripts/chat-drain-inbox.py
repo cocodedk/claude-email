@@ -35,12 +35,8 @@ except ImportError:
     pass
 
 from src.chat_db import ChatDB  # noqa: E402
-from src.chat_errors import AgentNameTaken, AgentProjectTaken  # noqa: E402
-from src.process_liveness import (  # noqa: E402
-    find_ancestor_pid_matching, is_alive, is_ancestor_or_self,
-)
-
-_CLAUDE_CMDLINE_MARKER = os.environ.get("CLAUDE_PROCESS_MARKER", "claude")
+from src.chat_pid_reclaim import reclaim_pid_best_effort  # noqa: E402
+from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
 
 
 def _resolved_db_path() -> Path:
@@ -100,45 +96,6 @@ def _format_context(caller: str, msgs: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _reclaim_pid_best_effort(db: ChatDB, caller: str, cwd: str) -> None:
-    """Ensure the agent row stores the current Claude session pid.
-
-    Heals rows left stale by two earlier paths:
-      - SessionStart's hook didn't register this session (older configs
-        used a ``startup|resume`` matcher that skipped ``compact`` /
-        ``continue`` sources; newer configs use an empty matcher but the
-        belt-and-braces repair is still worth running on every drain).
-      - chat-register-self.py fell back to ``os.getpid()`` because the
-        PPID walker found no ``claude`` ancestor (hook-helper spawn
-        layout varies), stamping a short-lived helper pid.
-
-    No-op when: walker finds no claude ancestor; row does not exist
-    (registration is chat-register-self.py's job); stored pid already
-    matches. Swallows ``AgentNameTaken`` / ``AgentProjectTaken`` so a
-    live sibling session keeps its slot — the downstream sibling-
-    ownership gate (``is_ancestor_or_self``) distinguishes sibling from
-    self/ancestor and is the authoritative skip decision; returning
-    early here would throw away that intelligence and wrongly skip
-    drain when the conflict is with our own ancestor pid. Never raises
-    — a broken bus must not block drain.
-    """
-    try:
-        claude_pid = find_ancestor_pid_matching(_CLAUDE_CMDLINE_MARKER)
-        if claude_pid is None:
-            return
-        agent = db.get_agent(caller)
-        if agent is None:
-            return
-        if agent.get("pid") == claude_pid:
-            return
-        try:
-            db.register_agent(caller, cwd, pid=claude_pid)
-        except (AgentNameTaken, AgentProjectTaken):
-            return
-    except Exception as exc:  # noqa: BLE001
-        print(f"chat-drain-inbox: pid reclaim failed: {exc}", file=sys.stderr)
-
-
 def main() -> int:
     payload = _read_hook_payload()
     if payload.get("agent_id"):
@@ -164,7 +121,7 @@ def main() -> int:
         return 0
 
     caller = _caller_name()
-    _reclaim_pid_best_effort(db, caller, os.getcwd())
+    reclaim_pid_best_effort(db, caller, os.getcwd())
     agent = db.get_agent(caller)
     if (
         agent is not None
