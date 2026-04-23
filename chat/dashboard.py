@@ -49,15 +49,23 @@ async def stream_events(db, is_disconnected, poll: float):
 
     Extracted so tests can drive it with a synthetic `is_disconnected`
     without booting the whole Starlette app.
+
+    Ships two kinds of frames:
+      - kind:"message" — a new row in the messages table (drives the radar)
+      - kind:"event"   — a flow-event (drives the technical-flow panel)
     """
-    last_id = db.latest_message_id()
-    yield _sse({"kind": "hello", "last_id": last_id})
+    last_msg = db.latest_message_id()
+    last_flow = db.latest_flow_event_id()
+    yield _sse({"kind": "hello", "last_id": last_msg, "last_flow_id": last_flow})
     while True:
         if await is_disconnected():
             return
-        for row in db.get_messages_since(last_id):
-            last_id = row["id"]
+        for row in db.get_messages_since(last_msg):
+            last_msg = row["id"]
             yield _sse({"kind": "message", **row})
+        for row in db.get_flow_events_since(last_flow):
+            last_flow = row["id"]
+            yield _sse({"kind": "event", **row})
         yield ": keepalive\n\n"
         await asyncio.sleep(poll)
 

@@ -24,6 +24,7 @@ claude-chat-test.db
 claude-chat-test.db-shm
 claude-chat-test.db-wal
 claude-email.log*
+.claude/scheduled_tasks.lock
 
 # Per-host Claude Code settings — settings.json embeds an absolute path to
 # scripts/chat-session-start-hook.sh and so depends on where this repo is

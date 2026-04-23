@@ -105,3 +105,56 @@ class TestUniversesFromConfig:
         result = universes_from_config({})
         assert len(result) == 1
         assert result[0].sender == ""
+
+
+class TestAliasRouting:
+    """When a universe has aliases (multiple AUTHORIZED_SENDER entries),
+    a message from any alias routes to the same resource bundle. Critical:
+    the canonical sender and every alias end up calling process_email with
+    the same chat_db / task_queue / worker_manager triple, so the
+    conversation state is shared across the person's addresses."""
+
+    def test_alias_resolves_to_canonical_universe(self, tmp_path):
+        u = Universe(
+            sender="user@example.com",
+            aliases=("alias@example.com",),
+            allowed_base=str(tmp_path),
+            chat_db_path=str(tmp_path / "c.db"),
+            chat_url="", mcp_config="", service_name_chat="",
+        )
+        resources = build_universe_resources([u])
+        # Both addresses map to THE SAME bundle (same ChatDB, same TaskQueue).
+        primary_bundle = resources["user@example.com"]
+        alias_bundle = resources["alias@example.com"]
+        assert primary_bundle is alias_bundle
+
+    def test_dispatch_routes_alias_to_canonical_bundle(self):
+        received = {}
+        def fake_process(msg, config, chat_db=None, **_):
+            received["cdb"] = chat_db
+            received["sender_in_scoped_config"] = config["authorized_sender"]
+            received["all_senders"] = config["authorized_senders"]
+        u = Universe(
+            sender="user@example.com",
+            aliases=("alias@example.com",),
+            allowed_base="/", chat_db_path="", chat_url="",
+            mcp_config="", service_name_chat="",
+        )
+        cdb, tq, wm = object(), object(), object()
+        resources = {
+            "user@example.com": (u, cdb, tq, wm),
+            "alias@example.com": (u, cdb, tq, wm),  # same tuple
+        }
+        # Inbound message comes from the ALIAS, not the canonical.
+        msg = _make_msg("alias@example.com")
+        dispatch_by_sender(
+            msg,
+            {"authorized_senders": ["user@example.com", "alias@example.com"]},
+            resources, fake_process,
+        )
+        # Routed to the canonical universe's bundle — both are authorized.
+        assert received["cdb"] is cdb
+        # The scoped config still reports the canonical as the primary
+        # sender (for relay/reply defaults), but exposes all aliases too.
+        assert received["sender_in_scoped_config"] == "user@example.com"
+        assert received["all_senders"] == ["user@example.com", "alias@example.com"]
