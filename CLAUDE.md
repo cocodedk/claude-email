@@ -54,7 +54,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 743 pytest tests (100% coverage)
+├── tests/                 # 876 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
