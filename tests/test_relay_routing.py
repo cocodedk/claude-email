@@ -1,7 +1,9 @@
 """Tests for src/relay_routing.py — thread + recipient resolution."""
 import pytest
 from src.chat_db import ChatDB
-from src.relay_routing import recipient_for_message, thread_id_for_message
+from src.relay_routing import (
+    recipient_for_message, subject_base_for_message, thread_id_for_message,
+)
 from src.task_queue import TaskQueue
 from src.universes import Universe
 
@@ -88,3 +90,33 @@ class TestRecipient:
         tid = queue.enqueue("/somewhere/else", "x")
         cfg = self._cfg([prod])
         assert recipient_for_message(chat_db, {"task_id": tid}, cfg) == "bb@prod"
+
+
+class TestSubjectBase:
+    """RESULT subject-tag symmetry: task-linked outbound messages reuse
+    the inbound Subject so the client's identifier tag survives the
+    round-trip. Mirrors how the ACK path reuses original_message.Subject
+    in send_threaded_reply."""
+
+    def test_task_with_origin_subject_reuses_it(self, chat_db, queue):
+        tid = queue.enqueue(
+            "/p", "x", origin_subject="[test-0042] hello",
+        )
+        msg = {"from_name": "agent-p", "task_id": tid}
+        assert subject_base_for_message(chat_db, msg) == "[test-0042] hello"
+
+    def test_task_without_origin_subject_falls_back_to_template(self, chat_db, queue):
+        tid = queue.enqueue("/p", "x")
+        msg = {"from_name": "agent-p", "task_id": tid}
+        assert subject_base_for_message(chat_db, msg) == "[agent-p] message"
+
+    def test_non_task_message_falls_back_to_template(self, chat_db):
+        msg = {"from_name": "agent-solo", "task_id": None}
+        assert subject_base_for_message(chat_db, msg) == "[agent-solo] message"
+
+    def test_empty_origin_subject_falls_back(self, chat_db, queue):
+        """Empty-string origin_subject (distinct from NULL) still falls
+        back — no sense in sending a subjectless email."""
+        tid = queue.enqueue("/p", "x", origin_subject="")
+        msg = {"from_name": "agent-p", "task_id": tid}
+        assert subject_base_for_message(chat_db, msg) == "[agent-p] message"

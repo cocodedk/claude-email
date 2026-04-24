@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     retry_of INTEGER,
     plan_first INTEGER NOT NULL DEFAULT 0,
     origin_content_type TEXT,
-    origin_message_id TEXT
+    origin_message_id TEXT,
+    origin_subject TEXT
 );
 CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project_path, status);
 
@@ -72,6 +73,7 @@ MIGRATIONS = [
     "ALTER TABLE tasks ADD COLUMN plan_first INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE tasks ADD COLUMN origin_content_type TEXT",
     "ALTER TABLE tasks ADD COLUMN origin_message_id TEXT",
+    "ALTER TABLE tasks ADD COLUMN origin_subject TEXT",
     "ALTER TABLE messages ADD COLUMN content_type TEXT",
     "ALTER TABLE messages ADD COLUMN task_id INTEGER",
 ]

@@ -342,6 +342,21 @@ class TestHandleJsonEmail:
         assert body["error"]["code"] == "internal"
         assert body["error"]["retryable"] is True
 
+    def test_inbound_subject_persisted_as_origin_subject(self, resources, tmp_path, mocker):
+        """JSON command path threads inbound Subject into tasks.origin_subject
+        so the outbound RESULT email can reuse it (symmetric with ACK)."""
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mocker.patch("src.json_handler.send_reply", return_value="<reply@x>")
+        msg = _json_email({
+            "v": 1, "kind": "command", "project": "p", "body": "add tests",
+            "meta": {"auth": "s3cret"},
+        })
+        msg.replace_header("Subject", "[test-0042] add tests")
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        running = tq.get(1)
+        assert running["origin_subject"] == "[test-0042] add tests"
+
     def test_no_auth_required_when_universe_secret_empty(self, resources, tmp_path, mocker):
         cdb, tq, wm = resources
         cfg = _base_config(tmp_path, secret="")
