@@ -56,14 +56,18 @@ def emit_status(
         "status", body=f"Task #{task_id} {status}",
         task_id=task_id, data=data,
     )
-    db.insert_message(
-        from_name, "user", body, "notify",
-        content_type="application/json", task_id=task_id,
-    )
+    # Persist dedup mark BEFORE the envelope inserts. If insert_message
+    # raises (locked DB, disk full) after the mark is committed, the
+    # next tick dedups into a silent skip — strictly better than a
+    # double-emit the client would render as a glyph flicker.
     db._conn.execute(  # noqa: SLF001
         "UPDATE tasks SET last_sent_status=? WHERE id=?", (status, task_id),
     )
     db._conn.commit()
+    db.insert_message(
+        from_name, "user", body, "notify",
+        content_type="application/json", task_id=task_id,
+    )
     return True
 
 

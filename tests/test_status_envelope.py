@@ -120,6 +120,24 @@ class TestEmitStatus:
         ).fetchone()
         assert row["last_sent_status"] == "stalled"
 
+    def test_dedup_mark_persists_even_if_insert_raises(self, cdb, tq, mocker):
+        """If insert_message raises after the dedup UPDATE commits, the
+        next call must dedup into a silent no-op rather than double-emit
+        on the next tick."""
+        tid = tq.enqueue("/p", "x")
+        mocker.patch.object(cdb, "insert_message", side_effect=RuntimeError("smtp-like blip"))
+        with pytest.raises(RuntimeError):
+            emit_status(cdb, tid, "stalled")
+        # dedup mark survived the insert failure
+        row = cdb._conn.execute(
+            "SELECT last_sent_status FROM tasks WHERE id=?", (tid,)
+        ).fetchone()
+        assert row["last_sent_status"] == "stalled"
+        # next call dedupes silently — no second insert attempt, no re-raise
+        mocker.stopall()
+        assert emit_status(cdb, tid, "stalled") is False
+        assert cdb.get_pending_messages_for("user") == []
+
 
 class TestEmitStalledForProject:
     def test_emits_on_running_task(self, cdb, tq):
