@@ -10,6 +10,7 @@ import asyncio
 
 from src.chat_db import ChatDB
 from src.spawner import spawn_agent
+from src.status_envelope import emit_status
 
 
 def register_agent(db: ChatDB, name: str, project_path: str) -> dict:
@@ -64,6 +65,8 @@ async def ask_user(
     db.touch_agent(caller)
     msg = db.insert_message(caller, "user", message, "ask", task_id=task_id)
     msg_id = msg["id"]
+    if task_id is not None:
+        emit_status(db, task_id, "waiting-on-peer", reason="awaiting user answer")
     elapsed = 0.0
     while elapsed < timeout:
         reply = db.get_reply_to_message(msg_id)

@@ -162,6 +162,60 @@ class TestAskUser:
         ).fetchone()
         assert row["task_id"] == task_id
 
+    @pytest.mark.asyncio
+    async def test_ask_with_task_id_emits_waiting_on_peer_status(self, db):
+        """When chat_ask fires on a task-linked call, the server emits a
+        kind=status envelope (data.status=waiting-on-peer) so the client
+        can light up a 'waiting for input' glyph on the pending task."""
+        import json
+        db.register_agent("bot", "/p")
+        task_id = db._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, created_at) VALUES (?, ?, ?, ?)",
+            ("/p", "work", "running", "2026-01-01T00:00:00"),
+        ).lastrowid
+        db._conn.commit()
+
+        async def quick_reply():
+            await asyncio.sleep(0.02)
+            pending = db.get_pending_messages_for("user")
+            ask_msg = [m for m in pending if m["type"] == "ask"][0]
+            db.insert_message("user", "bot", "ok", "reply", in_reply_to=ask_msg["id"])
+
+        task = asyncio.create_task(quick_reply())
+        await ask_user(db, "bot", "question?", poll_interval=0.01, task_id=task_id)
+        await task
+
+        status_rows = db._conn.execute(
+            "SELECT body FROM messages WHERE content_type='application/json' "
+            "AND task_id=? ORDER BY id", (task_id,),
+        ).fetchall()
+        assert len(status_rows) == 1
+        env = json.loads(status_rows[0]["body"])
+        assert env["kind"] == "status"
+        assert env["data"]["status"] == "waiting-on-peer"
+        assert env["data"]["reason"] == "awaiting user answer"
+
+    @pytest.mark.asyncio
+    async def test_ask_without_task_id_no_status_emitted(self, db):
+        """Un-threaded chat_ask (no task context) does not emit a status
+        envelope — there's no task to attach it to."""
+        db.register_agent("bot", "/p")
+
+        async def quick_reply():
+            await asyncio.sleep(0.02)
+            pending = db.get_pending_messages_for("user")
+            ask_msg = [m for m in pending if m["type"] == "ask"][0]
+            db.insert_message("user", "bot", "ok", "reply", in_reply_to=ask_msg["id"])
+
+        task = asyncio.create_task(quick_reply())
+        await ask_user(db, "bot", "question?", poll_interval=0.01)
+        await task
+
+        status_count = db._conn.execute(
+            "SELECT COUNT(*) c FROM messages WHERE content_type='application/json'"
+        ).fetchone()["c"]
+        assert status_count == 0
+
 
 # ── check_messages ────────────────────────────────────────────
 

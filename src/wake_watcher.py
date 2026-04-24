@@ -13,6 +13,7 @@ import uuid
 from dataclasses import dataclass
 
 from src.chat_db import ChatDB
+from src.status_envelope import emit_stalled_for_project
 from src.wake_helpers import (
     _AgentLocks, _FailureTracker, _SessionCache,
     _has_live_owner, _is_session_fresh,
@@ -121,11 +122,12 @@ def _handle_failure(
 ) -> None:
     tracker.record_failure(agent_name)
     logger.warning(
-        "wake: turn failed for %s (exit=%s timeout=%s error=%s)",
-        agent_name,
-        getattr(result, "exit_code", "?"),
-        getattr(result, "timed_out", "?"),
+        "wake: turn failed for %s (exit=%s timeout=%s error=%s)", agent_name,
+        getattr(result, "exit_code", "?"), getattr(result, "timed_out", "?"),
         getattr(result, "error", None),
+    )
+    emit_stalled_for_project(
+        db, project_path, reason=f"wake turn failed ({tracker.count(agent_name)}x)",
     )
     if not tracker.should_escalate(agent_name):
         return
