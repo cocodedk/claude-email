@@ -8,6 +8,9 @@ outside CLAUDE_CWD.
 import os
 from pathlib import Path
 
+from src.error_codes import (
+    ProjectNotFound, ProjectOutsideBase, error_result_from_exc,
+)
 from src.git_ops import commit_all, task_branch_name
 from src.reset_control import TokenStore, perform_reset
 from src.task_control import cancel_running_task, queue_status
@@ -28,10 +31,10 @@ def _resolve_project(project: str, allowed_base: str) -> str:
     candidate = project if os.path.isabs(project) else os.path.join(allowed_base, project)
     resolved = str(Path(candidate).resolve())
     if not os.path.isdir(resolved):
-        raise ValueError(f"Project path does not exist: {resolved}")
+        raise ProjectNotFound(f"Project path does not exist: {resolved}")
     base = str(Path(allowed_base).resolve())
     if not resolved.startswith(base + os.sep) and resolved != base:
-        raise ValueError(f"Project path {resolved} is outside allowed base {base}")
+        raise ProjectOutsideBase(f"Project path {resolved} is outside allowed base {base}")
     return resolved
 
 
@@ -44,11 +47,11 @@ def enqueue_task_tool(
     try:
         resolved = _resolve_project(project, allowed_base)
     except ValueError as exc:
-        return {"error": str(exc)}
+        return error_result_from_exc(exc)
     try:
         worker_pid = manager.ensure_worker(resolved)
     except ValueError as exc:
-        return {"error": str(exc)}
+        return error_result_from_exc(exc)
     task_id = queue.enqueue(
         resolved, body, priority=_clamp_priority(priority),
         plan_first=plan_first,
