@@ -2,6 +2,7 @@
 import asyncio
 import pytest
 from src.chat_db import ChatDB
+from src.task_queue import TaskQueue
 from chat.tools import (
     register_agent,
     notify_user,
@@ -16,6 +17,16 @@ from chat.tools import (
 @pytest.fixture
 def db(tmp_path):
     return ChatDB(str(tmp_path / "test.db"))
+
+
+def _running_json_task(db, project="/p", body="work"):
+    """Create a task in the running state with a JSON-origin marker.
+    Used by the new status-envelope tests so they hit the JSON branch
+    without hand-crafting INSERT INTO tasks."""
+    tq = TaskQueue(db.path)
+    task_id = tq.enqueue(project, body, origin_content_type="application/json")
+    tq.claim_next(project)
+    return task_id
 
 
 # ── register_agent ────────────────────────────────────────────
@@ -169,12 +180,7 @@ class TestAskUser:
         can light up a 'waiting for input' glyph on the pending task."""
         import json
         db.register_agent("bot", "/p")
-        task_id = db._conn.execute(
-            "INSERT INTO tasks (project_path, body, status, created_at, "
-            "origin_content_type) VALUES (?, ?, ?, ?, ?)",
-            ("/p", "work", "running", "2026-01-01T00:00:00", "application/json"),
-        ).lastrowid
-        db._conn.commit()
+        task_id = _running_json_task(db)
 
         async def quick_reply():
             await asyncio.sleep(0.02)
@@ -202,12 +208,7 @@ class TestAskUser:
         chat_ask after the agent gives up would silently dedupe its own
         waiting-on-peer envelope and the frontend wouldn't relight."""
         db.register_agent("bot", "/p")
-        task_id = db._conn.execute(
-            "INSERT INTO tasks (project_path, body, status, created_at, "
-            "origin_content_type) VALUES (?, ?, ?, ?, ?)",
-            ("/p", "work", "running", "2026-01-01T00:00:00", "application/json"),
-        ).lastrowid
-        db._conn.commit()
+        task_id = _running_json_task(db)
         result = await ask_user(
             db, "bot", "q?", poll_interval=0.005, timeout=0.02, task_id=task_id,
         )
@@ -224,12 +225,7 @@ class TestAskUser:
         twice, otherwise the frontend's waiting glyph goes stale on the
         second wait."""
         db.register_agent("bot", "/p")
-        task_id = db._conn.execute(
-            "INSERT INTO tasks (project_path, body, status, created_at, "
-            "origin_content_type) VALUES (?, ?, ?, ?, ?)",
-            ("/p", "work", "running", "2026-01-01T00:00:00", "application/json"),
-        ).lastrowid
-        db._conn.commit()
+        task_id = _running_json_task(db)
 
         async def reply_once():
             await asyncio.sleep(0.02)
@@ -256,12 +252,7 @@ class TestAskUser:
         the reply would target the notify and classify_reply would skip
         the ask route, leaving the blocking chat_ask to time out."""
         db.register_agent("bot", "/p")
-        task_id = db._conn.execute(
-            "INSERT INTO tasks (project_path, body, status, created_at, "
-            "origin_content_type) VALUES (?, ?, ?, ?, ?)",
-            ("/p", "work", "running", "2026-01-01T00:00:00", "application/json"),
-        ).lastrowid
-        db._conn.commit()
+        task_id = _running_json_task(db)
 
         async def quick_reply():
             await asyncio.sleep(0.02)

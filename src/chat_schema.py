@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS messages (
     content_type TEXT,
     task_id INTEGER
 );
+CREATE INDEX IF NOT EXISTS messages_in_reply_to_idx
+    ON messages(in_reply_to) WHERE in_reply_to IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,4 +80,6 @@ MIGRATIONS = [
     "ALTER TABLE tasks ADD COLUMN last_sent_status TEXT",
     "ALTER TABLE messages ADD COLUMN content_type TEXT",
     "ALTER TABLE messages ADD COLUMN task_id INTEGER",
+    "CREATE INDEX IF NOT EXISTS messages_in_reply_to_idx "
+    "ON messages(in_reply_to) WHERE in_reply_to IS NOT NULL",
 ]
