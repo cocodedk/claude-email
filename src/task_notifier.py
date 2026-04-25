@@ -15,6 +15,7 @@ from pathlib import Path
 
 from src.chat_db import ChatDB
 from src.json_envelope import CONTENT_TYPE as _JSON_CT, build_envelope
+from src.spawner import build_agent_name
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +66,7 @@ def _json_body(task_row: dict) -> str:
 
 
 def _from_name(task_row: dict) -> str:
-    path = task_row.get("project_path") or ""
-    return "agent-" + (Path(path).name or "unknown")
+    return build_agent_name(task_row.get("project_path") or "")
 
 
 _EXCERPT_LIMIT = 600

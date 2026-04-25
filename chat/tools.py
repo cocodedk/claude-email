@@ -63,21 +63,18 @@ async def ask_user(
     seconds until one appears or timeout is reached.
     """
     db.touch_agent(caller)
-    if task_id is not None:
-        emit_status(db, task_id, "waiting-on-peer", reason="awaiting user answer")
+    emit_status(db, task_id, "waiting-on-peer", reason="awaiting user answer")
     msg = db.insert_message(caller, "user", message, "ask", task_id=task_id)
     msg_id = msg["id"]
     elapsed = 0.0
     while elapsed < timeout:
         reply = db.get_reply_to_message(msg_id)
         if reply is not None:
-            if task_id is not None:
-                clear_status_dedup(db, task_id)
+            clear_status_dedup(db, task_id)
             return {"reply": reply["body"]}
         await asyncio.sleep(poll_interval)
         elapsed += poll_interval
-    if task_id is not None:
-        clear_status_dedup(db, task_id)
+    clear_status_dedup(db, task_id)
     return {"error": f"No reply received within {int(timeout)}s"}
 
 
