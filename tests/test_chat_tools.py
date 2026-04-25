@@ -170,8 +170,9 @@ class TestAskUser:
         import json
         db.register_agent("bot", "/p")
         task_id = db._conn.execute(
-            "INSERT INTO tasks (project_path, body, status, created_at) VALUES (?, ?, ?, ?)",
-            ("/p", "work", "running", "2026-01-01T00:00:00"),
+            "INSERT INTO tasks (project_path, body, status, created_at, "
+            "origin_content_type) VALUES (?, ?, ?, ?, ?)",
+            ("/p", "work", "running", "2026-01-01T00:00:00", "application/json"),
         ).lastrowid
         db._conn.commit()
 
@@ -194,6 +195,70 @@ class TestAskUser:
         assert env["kind"] == "status"
         assert env["data"]["status"] == "waiting-on-peer"
         assert env["data"]["reason"] == "awaiting user answer"
+
+    @pytest.mark.asyncio
+    async def test_ask_clears_status_dedup_so_repeat_asks_re_emit(self, db):
+        """After a chat_ask resolves, last_sent_status must clear — a
+        long-running task that asks twice should fire waiting-on-peer
+        twice, otherwise the frontend's waiting glyph goes stale on the
+        second wait."""
+        db.register_agent("bot", "/p")
+        task_id = db._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, created_at, "
+            "origin_content_type) VALUES (?, ?, ?, ?, ?)",
+            ("/p", "work", "running", "2026-01-01T00:00:00", "application/json"),
+        ).lastrowid
+        db._conn.commit()
+
+        async def reply_once():
+            await asyncio.sleep(0.02)
+            asks = [m for m in db.get_pending_messages_for("user") if m["type"] == "ask"]
+            db.insert_message("user", "bot", "ok", "reply", in_reply_to=asks[-1]["id"])
+
+        for _ in range(2):
+            t = asyncio.create_task(reply_once())
+            await ask_user(db, "bot", "q?", poll_interval=0.005, task_id=task_id)
+            await t
+
+        notify_count = db._conn.execute(
+            "SELECT COUNT(*) AS n FROM messages "
+            "WHERE type='notify' AND content_type='application/json' AND task_id=?",
+            (task_id,),
+        ).fetchone()["n"]
+        assert notify_count == 2
+
+    @pytest.mark.asyncio
+    async def test_ask_inserts_status_before_ask_so_reply_threads_to_ask(self, db):
+        """The ask message must have a higher id than the waiting-on-peer
+        status notify. Mail clients thread by In-Reply-To and users reply
+        to the latest visible message — if the status notify came last,
+        the reply would target the notify and classify_reply would skip
+        the ask route, leaving the blocking chat_ask to time out."""
+        db.register_agent("bot", "/p")
+        task_id = db._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, created_at, "
+            "origin_content_type) VALUES (?, ?, ?, ?, ?)",
+            ("/p", "work", "running", "2026-01-01T00:00:00", "application/json"),
+        ).lastrowid
+        db._conn.commit()
+
+        async def quick_reply():
+            await asyncio.sleep(0.02)
+            pending = db.get_pending_messages_for("user")
+            ask_msg = [m for m in pending if m["type"] == "ask"][0]
+            db.insert_message("user", "bot", "ok", "reply", in_reply_to=ask_msg["id"])
+
+        task = asyncio.create_task(quick_reply())
+        await ask_user(db, "bot", "q?", poll_interval=0.01, task_id=task_id)
+        await task
+
+        rows = db._conn.execute(
+            "SELECT id, type FROM messages WHERE to_name='user' "
+            "AND task_id=? ORDER BY id",
+            (task_id,),
+        ).fetchall()
+        assert [r["type"] for r in rows] == ["notify", "ask"]
+        assert rows[0]["id"] < rows[1]["id"]
 
     @pytest.mark.asyncio
     async def test_ask_without_task_id_no_status_emitted(self, db):

@@ -463,8 +463,9 @@ async def test_stalled_wake_emits_status_for_running_task(live_db, tmp_path):
     live_db.register_agent("agent-foo", str(tmp_path))
     live_db.insert_message("bar", "agent-foo", "hi", "notify")
     task_id = live_db._conn.execute(
-        "INSERT INTO tasks (project_path, body, status, created_at) VALUES (?, ?, ?, ?)",
-        (str(tmp_path), "work", "running", "2026-01-01T00:00:00"),
+        "INSERT INTO tasks (project_path, body, status, created_at, "
+        "origin_content_type) VALUES (?, ?, ?, ?, ?)",
+        (str(tmp_path), "work", "running", "2026-01-01T00:00:00", "application/json"),
     ).lastrowid
     live_db._conn.commit()
     locks = _AgentLocks()

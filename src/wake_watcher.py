@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass
 
 from src.chat_db import ChatDB
-from src.status_envelope import emit_stalled_for_project
+from src.status_envelope import clear_status_dedup_for_project, emit_stalled_for_project
 from src.wake_helpers import (
     _AgentLocks, _FailureTracker, _SessionCache,
     _has_live_owner, _is_session_fresh,
@@ -77,10 +77,7 @@ async def process_agent(
         session_id = cached or str(uuid.uuid4())
 
         cmd = build_wake_cmd(claude_bin, session_id, is_resume, prompt)
-        db._log_event(
-            agent_name, "wake_spawn_start",
-            f"resume={is_resume} pending={len(pre_ids)}",
-        )
+        db._log_event(agent_name, "wake_spawn_start", f"resume={is_resume} pending={len(pre_ids)}")
         result = await spawn_fn(cmd, cwd=project_path, timeout=timeout)
         exit_code = getattr(result, "exit_code", None)
         db._log_event(
@@ -108,6 +105,7 @@ async def process_agent(
                 )
             else:
                 tracker.record_success(agent_name)
+                clear_status_dedup_for_project(db, project_path)
         else:
             _handle_failure(
                 db, tracker, agent_name, project_path, result, user_avatar,

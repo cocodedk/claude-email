@@ -29,7 +29,7 @@ class TestStatusCodes:
         assert STATUS_CODES == {"stalled", "waiting-on-peer"}
 
     def test_unknown_code_raises(self, cdb, tq):
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         with pytest.raises(ValueError, match="unknown status"):
             emit_status(cdb, tid, "working")
 
@@ -42,7 +42,7 @@ class TestEmitStatus:
         return json.loads(row["body"])
 
     def test_first_emission_inserts_message(self, cdb, tq):
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         assert emit_status(cdb, tid, "waiting-on-peer") is True
         pending = cdb.get_pending_messages_for("user")
         assert len(pending) == 1
@@ -55,27 +55,30 @@ class TestEmitStatus:
         assert body["data"]["status"] == "waiting-on-peer"
 
     def test_from_name_derived_from_project_basename(self, cdb, tq):
-        tid = tq.enqueue("/home/u/projects/my-proj", "x")
+        tid = tq.enqueue(
+            "/home/u/projects/my-proj", "x",
+            origin_content_type="application/json",
+        )
         emit_status(cdb, tid, "stalled")
         pending = cdb.get_pending_messages_for("user")
         assert pending[0]["from_name"] == "agent-my-proj"
 
     def test_dedup_same_status_second_call_returns_false(self, cdb, tq):
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         emit_status(cdb, tid, "stalled")
         assert emit_status(cdb, tid, "stalled") is False
         pending = cdb.get_pending_messages_for("user")
         assert len(pending) == 1  # not duplicated
 
     def test_transition_emits_again(self, cdb, tq):
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         emit_status(cdb, tid, "stalled")
         assert emit_status(cdb, tid, "waiting-on-peer") is True
         pending = cdb.get_pending_messages_for("user")
         assert len(pending) == 2
 
     def test_reason_threaded_through_when_set(self, cdb, tq):
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         emit_status(
             cdb, tid, "waiting-on-peer", reason="plan awaiting approval",
         )
@@ -83,13 +86,13 @@ class TestEmitStatus:
         assert body["data"]["reason"] == "plan awaiting approval"
 
     def test_reason_omitted_when_empty(self, cdb, tq):
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         emit_status(cdb, tid, "stalled")
         body = self._last_msg_body(cdb)
         assert "reason" not in body["data"]
 
     def test_retry_after_seconds_on_stalled(self, cdb, tq):
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         emit_status(cdb, tid, "stalled", retry_after_seconds=42)
         body = self._last_msg_body(cdb)
         assert body["data"]["retry_after_seconds"] == 42
@@ -97,13 +100,13 @@ class TestEmitStatus:
     def test_retry_after_seconds_ignored_on_waiting_on_peer(self, cdb, tq):
         """retry_after_seconds is stalled-only per spec — silently dropped
         on other states to keep the envelope clean."""
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         emit_status(cdb, tid, "waiting-on-peer", retry_after_seconds=42)
         body = self._last_msg_body(cdb)
         assert "retry_after_seconds" not in body["data"]
 
     def test_last_activity_at_threaded_when_set(self, cdb, tq):
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         emit_status(cdb, tid, "stalled", last_activity_at="2026-04-24T08:00:00+00:00")
         body = self._last_msg_body(cdb)
         assert body["data"]["last_activity_at"] == "2026-04-24T08:00:00+00:00"
@@ -113,7 +116,7 @@ class TestEmitStatus:
         assert cdb.get_pending_messages_for("user") == []
 
     def test_last_sent_status_persisted(self, cdb, tq):
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         emit_status(cdb, tid, "stalled")
         row = cdb._conn.execute(
             "SELECT last_sent_status FROM tasks WHERE id=?", (tid,)
@@ -124,7 +127,7 @@ class TestEmitStatus:
         """If insert_message raises after the dedup UPDATE commits, the
         next call must dedup into a silent no-op rather than double-emit
         on the next tick."""
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         mocker.patch.object(cdb, "insert_message", side_effect=RuntimeError("smtp-like blip"))
         with pytest.raises(RuntimeError):
             emit_status(cdb, tid, "stalled")
@@ -139,9 +142,87 @@ class TestEmitStatus:
         assert cdb.get_pending_messages_for("user") == []
 
 
+class TestPlainTextOrigin:
+    """Tasks that originated from plain-text email must NOT receive a JSON
+    envelope status — that would arrive as raw JSON in a generic mail
+    client. Mirrors notify_task_done's content-type handling."""
+
+    def test_plain_origin_skips_json_envelope(self, cdb, tq):
+        tid = tq.enqueue("/p", "x")  # default origin → text/plain
+        assert emit_status(cdb, tid, "stalled", reason="no heartbeat") is True
+        pending = cdb.get_pending_messages_for("user")
+        assert len(pending) == 1
+        assert pending[0]["content_type"] in (None, "")
+        assert pending[0]["body"].startswith("Task #")
+        assert "stalled" in pending[0]["body"]
+        assert "Reason: no heartbeat" in pending[0]["body"]
+
+    def test_plain_origin_includes_retry_after(self, cdb, tq):
+        tid = tq.enqueue("/p", "x")
+        emit_status(cdb, tid, "stalled", retry_after_seconds=42)
+        pending = cdb.get_pending_messages_for("user")
+        assert "Retry after: 42s" in pending[0]["body"]
+
+    def test_plain_origin_dedup_still_works(self, cdb, tq):
+        tid = tq.enqueue("/p", "x")
+        emit_status(cdb, tid, "stalled")
+        assert emit_status(cdb, tid, "stalled") is False
+        assert len(cdb.get_pending_messages_for("user")) == 1
+
+    def test_plain_origin_includes_last_activity_at(self, cdb, tq):
+        tid = tq.enqueue("/p", "x")
+        emit_status(cdb, tid, "stalled", last_activity_at="2026-04-25T07:00:00+00:00")
+        pending = cdb.get_pending_messages_for("user")
+        assert "2026-04-25T07:00:00+00:00" in pending[0]["body"]
+
+
+class TestClearStatusDedup:
+    """Episode-scoped dedup: once a state ends (ask got reply, wake
+    delivered progress), the marker must clear so the next entry into
+    that state emits a fresh envelope. Otherwise repeated chat_ask calls
+    or recovered-then-stalled tasks go silent on the bus."""
+
+    def test_clear_lets_same_status_re_emit(self, cdb, tq):
+        from src.status_envelope import clear_status_dedup
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
+        emit_status(cdb, tid, "waiting-on-peer")
+        clear_status_dedup(cdb, tid)
+        assert emit_status(cdb, tid, "waiting-on-peer") is True
+        assert len(cdb.get_pending_messages_for("user")) == 2
+
+    def test_clear_unknown_task_silent_no_op(self, cdb):
+        from src.status_envelope import clear_status_dedup
+        clear_status_dedup(cdb, 999_999)  # must not raise
+
+    def test_clear_for_project_targets_running_task(self, cdb, tq):
+        from src.status_envelope import clear_status_dedup_for_project
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
+        tq.claim_next("/p")
+        emit_status(cdb, tid, "stalled")
+        clear_status_dedup_for_project(cdb, "/p")
+        row = cdb._conn.execute(
+            "SELECT last_sent_status FROM tasks WHERE id=?", (tid,)
+        ).fetchone()
+        assert row["last_sent_status"] is None
+
+    def test_clear_for_project_skips_terminal_tasks(self, cdb, tq):
+        """Only the running task gets cleared — done/failed tasks keep
+        their final marker (they're not coming back)."""
+        from src.status_envelope import clear_status_dedup_for_project
+        terminal = tq.enqueue("/p", "x", origin_content_type="application/json")
+        tq.claim_next("/p")
+        emit_status(cdb, terminal, "stalled")
+        tq.mark_done(terminal)
+        clear_status_dedup_for_project(cdb, "/p")
+        row = cdb._conn.execute(
+            "SELECT last_sent_status FROM tasks WHERE id=?", (terminal,)
+        ).fetchone()
+        assert row["last_sent_status"] == "stalled"
+
+
 class TestEmitStalledForProject:
     def test_emits_on_running_task(self, cdb, tq):
-        tid = tq.enqueue("/p", "x")
+        tid = tq.enqueue("/p", "x", origin_content_type="application/json")
         tq.claim_next("/p")  # flip to running
         from src.status_envelope import emit_stalled_for_project
         assert emit_stalled_for_project(cdb, "/p", reason="boom") is True
