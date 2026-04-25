@@ -455,6 +455,79 @@ async def test_process_agent_stalled_spawn_records_failure(live_db, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_stalled_wake_emits_status_for_running_task(live_db, tmp_path):
+    """When an agent's wake spawn stalls and it has a task running in its
+    project, emit a kind=status envelope (data.status=stalled) so the
+    client can light up a 'stuck' glyph. Deduped via last_sent_status."""
+    import json
+    live_db.register_agent("agent-foo", str(tmp_path))
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+    task_id = live_db._conn.execute(
+        "INSERT INTO tasks (project_path, body, status, created_at, "
+        "origin_content_type) VALUES (?, ?, ?, ?, ?)",
+        (str(tmp_path), "work", "running", "2026-01-01T00:00:00", "application/json"),
+    ).lastrowid
+    live_db._conn.commit()
+    locks = _AgentLocks()
+    cache = _SessionCache(idle_secs=900)
+    tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)
+
+    async def stalled_spawn(cmd, cwd, timeout):
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=stalled_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    rows = live_db._conn.execute(
+        "SELECT body FROM messages WHERE content_type='application/json' "
+        "AND task_id=? ORDER BY id", (task_id,),
+    ).fetchall()
+    assert len(rows) == 1
+    env = json.loads(rows[0]["body"])
+    assert env["kind"] == "status"
+    assert env["data"]["status"] == "stalled"
+    assert "reason" in env["data"]
+
+    # Second stall must NOT re-emit — dedup via last_sent_status.
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=stalled_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    rows2 = live_db._conn.execute(
+        "SELECT body FROM messages WHERE content_type='application/json' "
+        "AND task_id=?", (task_id,),
+    ).fetchall()
+    assert len(rows2) == 1
+
+
+@pytest.mark.asyncio
+async def test_stalled_wake_without_running_task_no_status(live_db, tmp_path):
+    """No running task = no status envelope. Agent-level stall is still
+    tracked, but there's nothing task-linked to surface to the client."""
+    live_db.register_agent("agent-foo", str(tmp_path))
+    live_db.insert_message("bar", "agent-foo", "hi", "notify")
+    locks = _AgentLocks()
+    cache = _SessionCache(idle_secs=900)
+    tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)
+
+    async def stalled_spawn(cmd, cwd, timeout):
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=stalled_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    status_count = live_db._conn.execute(
+        "SELECT COUNT(*) c FROM messages WHERE content_type='application/json'"
+    ).fetchone()["c"]
+    assert status_count == 0
+
+
+@pytest.mark.asyncio
 async def test_process_agent_partial_drain_counts_as_success(live_db, tmp_path):
     """Agent that drains 1 of N pending messages is making progress — must
     reset the failure counter, not escalate."""
