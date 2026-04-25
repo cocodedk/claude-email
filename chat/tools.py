@@ -76,6 +76,8 @@ async def ask_user(
             return {"reply": reply["body"]}
         await asyncio.sleep(poll_interval)
         elapsed += poll_interval
+    if task_id is not None:
+        clear_status_dedup(db, task_id)
     return {"error": f"No reply received within {int(timeout)}s"}
 
 

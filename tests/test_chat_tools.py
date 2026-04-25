@@ -197,6 +197,27 @@ class TestAskUser:
         assert env["data"]["reason"] == "awaiting user answer"
 
     @pytest.mark.asyncio
+    async def test_ask_timeout_also_clears_status_dedup(self, db):
+        """Timeout is a state-end too — without clearing here, a retried
+        chat_ask after the agent gives up would silently dedupe its own
+        waiting-on-peer envelope and the frontend wouldn't relight."""
+        db.register_agent("bot", "/p")
+        task_id = db._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, created_at, "
+            "origin_content_type) VALUES (?, ?, ?, ?, ?)",
+            ("/p", "work", "running", "2026-01-01T00:00:00", "application/json"),
+        ).lastrowid
+        db._conn.commit()
+        result = await ask_user(
+            db, "bot", "q?", poll_interval=0.005, timeout=0.02, task_id=task_id,
+        )
+        assert "error" in result
+        row = db._conn.execute(
+            "SELECT last_sent_status FROM tasks WHERE id=?", (task_id,)
+        ).fetchone()
+        assert row["last_sent_status"] is None
+
+    @pytest.mark.asyncio
     async def test_ask_clears_status_dedup_so_repeat_asks_re_emit(self, db):
         """After a chat_ask resolves, last_sent_status must clear — a
         long-running task that asks twice should fire waiting-on-peer
