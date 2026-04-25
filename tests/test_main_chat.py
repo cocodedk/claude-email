@@ -355,6 +355,66 @@ class TestHandleMetaRestart:
         assert "Unknown restart target" in str(body_arg)
 
 
+class TestRelaySubjectSymmetry:
+    """RESULT subject must carry the inbound identifier tag so the client
+    canary (ack.subject contains X ⇒ result.subject contains X) passes.
+    Symmetric with the ACK path, which reuses original_message.Subject
+    via send_threaded_reply."""
+
+    def test_relay_uses_origin_subject_for_task_linked_json(self, mocker, tmp_path):
+        """JSON-origin RESULT email: subject = task.origin_subject verbatim,
+        no [from_name] template, no extra tag prepend."""
+        from src.chat_handlers import relay_outbound_messages
+        from src.task_queue import TaskQueue
+
+        db_path = str(tmp_path / "sym.db")
+        cdb = ChatDB(db_path)
+        tq = TaskQueue(db_path)
+        tid = tq.enqueue(
+            "/p", "do it", origin_content_type="application/json",
+            origin_subject="[test-0042] do it",
+        )
+        cdb.insert_message(
+            "agent-p", "user", '{"v":1,"kind":"result"}', "notify",
+            content_type="application/json", task_id=tid,
+        )
+        mock_send = mocker.patch("src.chat_relay.send_reply", return_value="<r@x>")
+        relay_outbound_messages(_make_config(), cdb)
+        subject = mock_send.call_args.kwargs["subject"]
+        assert subject == "[test-0042] do it"
+
+    def test_relay_uses_origin_subject_with_tag_for_plain_text(self, mocker, tmp_path):
+        """Plain-text RESULT email: subject = [Update] <origin_subject>
+        so the identifier survives but the type-tag still hints at intent."""
+        from src.chat_handlers import relay_outbound_messages
+        from src.task_queue import TaskQueue
+
+        db_path = str(tmp_path / "sym.db")
+        cdb = ChatDB(db_path)
+        tq = TaskQueue(db_path)
+        tid = tq.enqueue("/p", "do it", origin_subject="[task-7] do it")
+        cdb.insert_message(
+            "agent-p", "user", "done!", "notify", task_id=tid,
+        )
+        mock_send = mocker.patch("src.chat_relay.send_reply", return_value="<r@x>")
+        relay_outbound_messages(_make_config(), cdb)
+        subject = mock_send.call_args.kwargs["subject"]
+        assert "[task-7]" in subject
+        assert "[Update]" in subject
+
+    def test_relay_falls_back_to_template_when_no_origin_subject(self, mocker, chat_db):
+        """Backward-compat: old task rows without origin_subject still get
+        the [from_name] message subject template."""
+        from src.chat_handlers import relay_outbound_messages
+
+        chat_db.insert_message("agent-solo", "user", "hi", "notify")
+        mock_send = mocker.patch("src.chat_relay.send_reply", return_value="<r@x>")
+        relay_outbound_messages(_make_config(), chat_db)
+        subject = mock_send.call_args.kwargs["subject"]
+        assert "agent-solo" in subject
+        assert "message" in subject
+
+
 class TestRelayOutboundMessages:
     def test_relay_outbound_messages(self, mocker, chat_db):
         """Pending agent messages get sent as emails and marked delivered."""

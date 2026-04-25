@@ -24,6 +24,27 @@ def thread_id_for_message(chat_db, msg: dict) -> str:
     return chat_db.get_last_email_message_id_for_agent(msg["from_name"]) or ""
 
 
+def subject_base_for_message(chat_db, msg: dict) -> str:
+    """Subject base for an outbound task-linked message.
+
+    Returns ``tasks.origin_subject`` when set so the inbound identifier
+    tag survives the round-trip (symmetric with the ACK path which
+    reuses ``original_message.Subject`` in ``send_threaded_reply``).
+    Falls back to the legacy ``[from_name] message`` template for
+    non-task messages or pre-migration rows with no stored subject.
+    """
+    fallback = f"[{msg.get('from_name') or 'agent'}] message"
+    task_id = msg.get("task_id")
+    if not task_id:
+        return fallback
+    row = chat_db._conn.execute(  # noqa: SLF001 — same-package coupling
+        "SELECT origin_subject FROM tasks WHERE id=?", (task_id,),
+    ).fetchone()
+    if row and row["origin_subject"]:
+        return row["origin_subject"]
+    return fallback
+
+
 def recipient_for_message(chat_db, msg: dict, config: dict) -> str:
     """Return the email address to send this outbound to.
 

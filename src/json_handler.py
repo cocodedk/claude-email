@@ -59,16 +59,26 @@ def handle_json_email(
 
     logger.info("JSON envelope accepted: kind=%s project=%s", env.kind, env.project)
     inbound_msg_id = message.get("Message-ID", "")
-    reply = _dispatch(env, config, chat_db, task_queue, worker_manager, inbound_msg_id)
+    inbound_subject = message.get("Subject", "")
+    reply = _dispatch(
+        env, config, chat_db, task_queue, worker_manager,
+        inbound_msg_id, inbound_subject,
+    )
     _send_json_reply(config, message, reply)
     return True
 
 
-def _dispatch(env: Envelope, config, chat_db, task_queue, worker_manager, inbound_msg_id: str = "") -> str:
+def _dispatch(
+    env: Envelope, config, chat_db, task_queue, worker_manager,
+    inbound_msg_id: str = "", inbound_subject: str = "",
+) -> str:
     universe = config.get("_universe")
     allowed_base = universe.allowed_base if universe else config.get("claude_cwd", "")
     if env.kind == "command":
-        return _handle_command(env, task_queue, worker_manager, allowed_base, inbound_msg_id)
+        return _handle_command(
+            env, task_queue, worker_manager, allowed_base,
+            inbound_msg_id, inbound_subject,
+        )
     msg = f"kind {env.kind!r} comes online in a later phase"
     return build_envelope(
         "error", body=f"kind {env.kind!r} not yet implemented",
@@ -77,7 +87,10 @@ def _dispatch(env: Envelope, config, chat_db, task_queue, worker_manager, inboun
     )
 
 
-def _handle_command(env, task_queue, worker_manager, allowed_base, inbound_msg_id="") -> str:
+def _handle_command(
+    env, task_queue, worker_manager, allowed_base,
+    inbound_msg_id="", inbound_subject="",
+) -> str:
     if not env.project or not env.body:
         return build_envelope(
             "error", body="command requires project + body",
@@ -97,6 +110,7 @@ def _handle_command(env, task_queue, worker_manager, allowed_base, inbound_msg_i
         allowed_base=allowed_base,
         origin_content_type="application/json",
         origin_message_id=inbound_msg_id,
+        origin_subject=inbound_subject,
     )
     if "error" in result:
         code = result.get("error_code", "invalid_state")
