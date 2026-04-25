@@ -19,6 +19,7 @@ class ChatDB(AgentRegistryMixin, DashboardQueriesMixin, WakeSessionStoreMixin):
     """Single entry-point for all chat DB operations."""
 
     def __init__(self, path: str):
+        self.path = path
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
