@@ -10,6 +10,7 @@ import json as _json
 import logging
 
 from src.chat_db import ChatDB
+from src.error_codes import make_error
 from src.json_envelope import Envelope, EnvelopeError, build_envelope, parse_envelope
 from src.mailer import send_reply
 from src.task_queue import TaskQueue
@@ -34,7 +35,7 @@ def handle_json_email(
         logger.warning("JSON envelope parse failed: %s", exc.code)
         _send_json_reply(config, message, build_envelope(
             "error", body=exc.message,
-            error={"code": exc.code, "message": exc.message},
+            error=make_error(exc.code, exc.message),
             ask_id=exc.ask_id,
         ))
         return True
@@ -48,7 +49,10 @@ def handle_json_email(
         )
         _send_json_reply(config, message, build_envelope(
             "error", body="auth failed",
-            error={"code": "unauthorized", "message": "meta.auth does not match"},
+            error=make_error(
+                "unauthorized", "meta.auth does not match",
+                hint="Open Settings and re-enter the shared secret.",
+            ),
             ask_id=env.ask_id,
         ))
         return True
@@ -65,10 +69,10 @@ def _dispatch(env: Envelope, config, chat_db, task_queue, worker_manager, inboun
     allowed_base = universe.allowed_base if universe else config.get("claude_cwd", "")
     if env.kind == "command":
         return _handle_command(env, task_queue, worker_manager, allowed_base, inbound_msg_id)
-    # reply / status / cancel / retry / commit / reset / confirm_reset not wired yet
+    msg = f"kind {env.kind!r} comes online in a later phase"
     return build_envelope(
-        "error", body=f"kind {env.kind!r} not yet implemented in Phase 8a",
-        error={"code": "invalid_state", "message": f"kind {env.kind!r} comes online in a later phase"},
+        "error", body=f"kind {env.kind!r} not yet implemented",
+        error=make_error("not_implemented", msg),
         ask_id=env.ask_id,
     )
 
@@ -77,13 +81,13 @@ def _handle_command(env, task_queue, worker_manager, allowed_base, inbound_msg_i
     if not env.project or not env.body:
         return build_envelope(
             "error", body="command requires project + body",
-            error={"code": "bad_envelope", "message": "missing project or body"},
+            error=make_error("bad_envelope", "missing project or body"),
             ask_id=env.ask_id,
         )
     if enqueue_task_tool is None:  # pragma: no cover
         return build_envelope(
             "error", body="server not fully initialized",
-            error={"code": "internal", "message": "enqueue_task_tool unavailable"},
+            error=make_error("internal", "enqueue_task_tool unavailable"),
             ask_id=env.ask_id,
         )
     result = enqueue_task_tool(
@@ -95,10 +99,14 @@ def _handle_command(env, task_queue, worker_manager, allowed_base, inbound_msg_i
         origin_message_id=inbound_msg_id,
     )
     if "error" in result:
-        code = "project_not_found" if "does not exist" in result["error"] else "invalid_state"
+        code = result.get("error_code", "invalid_state")
+        hint = (
+            "Check the project name in Settings."
+            if code == "project_not_found" else None
+        )
         return build_envelope(
             "error", body=result["error"],
-            error={"code": code, "message": result["error"]},
+            error=make_error(code, result["error"], hint=hint),
             ask_id=env.ask_id,
         )
     return build_envelope(

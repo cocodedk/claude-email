@@ -127,7 +127,10 @@ class TestHandleJsonEmail:
         body = json.loads(mock_send.call_args.kwargs["body"])
         assert body["error"]["code"] == "project_not_found"
 
-    def test_unimplemented_kind_returns_invalid_state(self, resources, tmp_path, mocker):
+    def test_unimplemented_kind_returns_not_implemented(self, resources, tmp_path, mocker):
+        """Unwired INBOUND kinds get `not_implemented`, distinct from
+        `invalid_state` so the client can render 'not available yet' copy
+        instead of a generic state error."""
         cdb, tq, wm = resources
         cfg = _base_config(tmp_path)
         mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
@@ -137,7 +140,8 @@ class TestHandleJsonEmail:
         })
         handle_json_email(msg, cfg, cdb, tq, wm)
         body = json.loads(mock_send.call_args.kwargs["body"])
-        assert body["error"]["code"] == "invalid_state"
+        assert body["error"]["code"] == "not_implemented"
+        assert body["error"]["retryable"] is False
 
     def test_send_failure_logged_not_raised(self, resources, tmp_path, mocker):
         cdb, tq, wm = resources
@@ -175,7 +179,7 @@ class TestHandleJsonEmail:
         assert body["error"]["code"] == "unauthorized"
         assert body["meta"]["ask_id"] == 13
 
-    def test_invalid_state_error_echoes_meta_ask_id(self, resources, tmp_path, mocker):
+    def test_not_implemented_error_echoes_meta_ask_id(self, resources, tmp_path, mocker):
         cdb, tq, wm = resources
         cfg = _base_config(tmp_path)
         mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
@@ -185,7 +189,7 @@ class TestHandleJsonEmail:
         })
         handle_json_email(msg, cfg, cdb, tq, wm)
         body = json.loads(mock_send.call_args.kwargs["body"])
-        assert body["error"]["code"] == "invalid_state"
+        assert body["error"]["code"] == "not_implemented"
         assert body["meta"]["ask_id"] == 4
 
     def test_command_missing_body_error_echoes_meta_ask_id(self, resources, tmp_path, mocker):
@@ -250,6 +254,93 @@ class TestHandleJsonEmail:
         body = json.loads(mock_send.call_args.kwargs["body"])
         assert body["error"]["code"] == "bad_envelope"
         assert "ask_id" not in body["meta"]
+
+    def test_bad_envelope_is_not_retryable(self, resources, tmp_path, mocker):
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        handle_json_email(_json_email({"v": 99, "kind": "command"}), cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["retryable"] is False
+
+    def test_unknown_kind_is_not_retryable(self, resources, tmp_path, mocker):
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        handle_json_email(_json_email({"v": 1, "kind": "dance"}), cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "unknown_kind"
+        assert body["error"]["retryable"] is False
+
+    def test_unauthorized_carries_hint(self, resources, tmp_path, mocker):
+        """Unauthorized → `Open Settings` affordance on the client; we
+        ship a hint string it can render verbatim as the secondary line."""
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path, secret="correct")
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({
+            "v": 1, "kind": "command", "project": "p", "body": "x",
+            "meta": {"auth": "WRONG"},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["retryable"] is False
+        assert "hint" in body["error"]
+        assert body["error"]["hint"]
+
+    def test_project_not_found_carries_hint(self, resources, tmp_path, mocker):
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({
+            "v": 1, "kind": "command", "project": "never-made", "body": "x",
+            "meta": {"auth": "s3cret"},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "project_not_found"
+        assert body["error"]["retryable"] is False
+        assert "hint" in body["error"]
+
+    def test_project_not_found_without_legacy_substring(self, resources, tmp_path, mocker):
+        """Regression: json_handler must not rely on substring-matching the
+        error prose to pick a code — the code flows through
+        result['error_code'] from the tool layer."""
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        # Monkey-patch enqueue_task_tool to return a `project_not_found`
+        # error *without* the legacy 'does not exist' substring.
+        mocker.patch(
+            "src.json_handler.enqueue_task_tool",
+            return_value={"error": "arbitrary prose", "error_code": "project_not_found"},
+        )
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({
+            "v": 1, "kind": "command", "project": "p", "body": "x",
+            "meta": {"auth": "s3cret"},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "project_not_found"
+
+    def test_tool_layer_internal_error_maps_to_invalid_state(self, resources, tmp_path, mocker):
+        """When enqueue_task_tool returns an error without a known code,
+        json_handler defaults to `invalid_state` — never blindly retryable."""
+        cdb, tq, wm = resources
+        cfg = _base_config(tmp_path)
+        mocker.patch(
+            "src.json_handler.enqueue_task_tool",
+            return_value={"error": "weird", "error_code": "internal"},
+        )
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = _json_email({
+            "v": 1, "kind": "command", "project": "p", "body": "x",
+            "meta": {"auth": "s3cret"},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["error"]["code"] == "internal"
+        assert body["error"]["retryable"] is True
 
     def test_no_auth_required_when_universe_secret_empty(self, resources, tmp_path, mocker):
         cdb, tq, wm = resources

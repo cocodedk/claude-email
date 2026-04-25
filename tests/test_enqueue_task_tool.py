@@ -92,7 +92,7 @@ class TestEnqueueTaskTool:
             tq, mgr, project="p", body="x",
             allowed_base=str(tmp_path),
         )
-        assert result == {"error": "boom"}
+        assert result == {"error": "boom", "error_code": "internal"}
 
     def test_priority_preserved(self, tq, mgr, tmp_path, mocker):
         (tmp_path / "p").mkdir()
