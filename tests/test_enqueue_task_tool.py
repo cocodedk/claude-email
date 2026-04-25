@@ -130,6 +130,20 @@ class TestPriorityBounds:
         assert tq.get(result["task_id"])["priority"] == 0
 
 
+class TestOriginSubject:
+    def test_origin_subject_persisted_on_row(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        result = enqueue_task_tool(
+            tq, mgr, project="p", body="x",
+            allowed_base=str(tmp_path),
+            origin_subject="[test-0042] hello",
+        )
+        assert tq.get(result["task_id"])["origin_subject"] == "[test-0042] hello"
+
+
 class TestPlanFirst:
     def test_plan_first_flag_persisted_on_row(self, tq, mgr, tmp_path, mocker):
         (tmp_path / "p").mkdir()

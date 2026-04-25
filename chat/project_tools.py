@@ -43,6 +43,7 @@ def enqueue_task_tool(
     project: str, body: str, priority: int = 0,
     allowed_base: str, plan_first: bool = False,
     origin_content_type: str = "", origin_message_id: str = "",
+    origin_subject: str = "",
 ) -> dict:
     try:
         resolved = _resolve_project(project, allowed_base)
@@ -53,10 +54,9 @@ def enqueue_task_tool(
     except ValueError as exc:
         return error_result_from_exc(exc)
     task_id = queue.enqueue(
-        resolved, body, priority=_clamp_priority(priority),
-        plan_first=plan_first,
+        resolved, body, priority=_clamp_priority(priority), plan_first=plan_first,
         origin_content_type=origin_content_type,
-        origin_message_id=origin_message_id,
+        origin_message_id=origin_message_id, origin_subject=origin_subject,
     )
     return {
         "status": "enqueued",

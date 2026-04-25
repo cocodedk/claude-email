@@ -29,6 +29,16 @@ class TestEnqueue:
         tid = tq.enqueue("/proj/a", "urgent", priority=10)
         assert tq.get(tid)["priority"] == 10
 
+    def test_enqueue_persists_origin_subject(self, tq):
+        tid = tq.enqueue(
+            "/proj/a", "do thing", origin_subject="[task-01] do thing",
+        )
+        assert tq.get(tid)["origin_subject"] == "[task-01] do thing"
+
+    def test_enqueue_origin_subject_defaults_to_null(self, tq):
+        tid = tq.enqueue("/proj/a", "do thing")
+        assert tq.get(tid)["origin_subject"] is None
+
 
 class TestClaimNext:
     def test_claim_next_returns_oldest_pending(self, tq):

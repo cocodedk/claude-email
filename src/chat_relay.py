@@ -13,7 +13,9 @@ import time
 from src.chat_db import ChatDB
 from src.email_format import prepend_tag, tag_for_message_type
 from src.mailer import send_reply
-from src.relay_routing import recipient_for_message, thread_id_for_message
+from src.relay_routing import (
+    recipient_for_message, subject_base_for_message, thread_id_for_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
     pending = chat_db.get_pending_messages_for("user")
     for msg in pending:
         content_type = msg.get("content_type") or "text/plain"
-        subj_base = f"[{msg['from_name']}] message"
+        subj_base = subject_base_for_message(chat_db, msg)
         subject = subj_base if content_type == "application/json" else prepend_tag(
             subj_base, tag_for_message_type(msg.get("type") or ""),
         )
