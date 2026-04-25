@@ -15,6 +15,14 @@ class TestBuildAgentName:
         from src.spawner import build_agent_name
         assert build_agent_name("/home/user/0-projects/fits/") == "agent-fits"
 
+    def test_build_agent_name_empty_path_falls_back(self):
+        """Degenerate path → 'agent-unknown' so the bus identifier is
+        never just 'agent-'. Lets task_notifier and status_envelope
+        share this helper without re-implementing the fallback."""
+        from src.spawner import build_agent_name
+        assert build_agent_name("") == "agent-unknown"
+        assert build_agent_name("/") == "agent-unknown"
+
 
 class TestInjectMcpConfig:
     def test_inject_mcp_config_creates_file(self, tmp_path):

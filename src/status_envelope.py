@@ -7,11 +7,12 @@ states stay on kind=result. Emission is deduplicated via
 tick.
 """
 import logging
-from pathlib import Path
 from typing import Any
 
 from src.chat_db import ChatDB
 from src.json_envelope import CONTENT_TYPE as _JSON_CT, build_envelope
+from src.spawner import build_agent_name
+from src.task_queue import TaskQueue
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +21,14 @@ STATUS_CODES = {"stalled", "waiting-on-peer"}
 
 
 def emit_status(
-    db: ChatDB, task_id: int, status: str, *,
+    db: ChatDB, task_id: int | None, status: str, *,
     reason: str = "",
     retry_after_seconds: int | None = None,
     last_activity_at: str = "",
 ) -> bool:
     """Insert a status notify message for ``task_id`` iff the status
     differs from the last one sent. Returns True if a message was
-    emitted, False if deduped or the task is unknown.
+    emitted, False if deduped, missing, or task_id is None.
 
     Mirrors notify_task_done's content-type handling: JSON envelope for
     JSON-origin tasks, plain-text body otherwise. ``retry_after_seconds``
@@ -38,6 +39,8 @@ def emit_status(
         raise ValueError(
             f"unknown status code {status!r}; add to STATUS_CODES",
         )
+    if task_id is None:
+        return False
     row = db._conn.execute(  # noqa: SLF001 — same-package coupling
         "SELECT project_path, last_sent_status, origin_content_type "
         "FROM tasks WHERE id=?",
@@ -54,7 +57,7 @@ def emit_status(
         data["reason"] = reason
     if status == "stalled" and retry_after_seconds is not None:
         data["retry_after_seconds"] = int(retry_after_seconds)
-    from_name = "agent-" + (Path(row["project_path"]).name or "unknown")
+    from_name = build_agent_name(row["project_path"])
     is_json = (row["origin_content_type"] or "") == _JSON_CT
     if is_json:
         body = build_envelope(
@@ -91,14 +94,19 @@ def _plain_body(task_id: int, status: str, data: dict) -> str:
     return "\n".join(parts)
 
 
-def clear_status_dedup(db: ChatDB, task_id: int) -> None:
+def clear_status_dedup(db: ChatDB, task_id: int | None) -> None:
     """Clear ``last_sent_status`` for ``task_id`` so the next entry into any
     mid-flight state emits a fresh envelope. Call sites: ask_user after a
-    reply lands, wake_watcher after a turn delivers progress. Without this,
-    a task that re-enters the same state later (a second chat_ask, a
-    recovered-then-stalled wake) would be silently deduped."""
+    reply lands or times out, wake_watcher after a turn delivers progress.
+    Without this, a task that re-enters the same state later (a second
+    chat_ask, a recovered-then-stalled wake) would be silently deduped.
+    Silent no-op when ``task_id`` is None or already clear."""
+    if task_id is None:
+        return
     db._conn.execute(  # noqa: SLF001
-        "UPDATE tasks SET last_sent_status=NULL WHERE id=?", (task_id,),
+        "UPDATE tasks SET last_sent_status=NULL "
+        "WHERE id=? AND last_sent_status IS NOT NULL",
+        (task_id,),
     )
     db._conn.commit()
 
@@ -106,10 +114,13 @@ def clear_status_dedup(db: ChatDB, task_id: int) -> None:
 def clear_status_dedup_for_project(db: ChatDB, project_path: str) -> None:
     """Clear ``last_sent_status`` for the running task in ``project_path``.
     Wake-watcher entry point — used when a turn delivers messages so a
-    later stall emits a fresh envelope instead of being deduped."""
+    later stall emits a fresh envelope instead of being deduped. The
+    ``IS NOT NULL`` guard skips the WAL fsync when there's nothing to
+    clear, since wake-success calls this on the common case."""
     db._conn.execute(  # noqa: SLF001
         "UPDATE tasks SET last_sent_status=NULL "
-        "WHERE project_path=? AND status='running'",
+        "WHERE project_path=? AND status='running' "
+        "AND last_sent_status IS NOT NULL",
         (project_path,),
     )
     db._conn.commit()
@@ -124,13 +135,10 @@ def emit_stalled_for_project(
     running task have nothing task-linked to surface. Swallows its own
     exceptions so call sites stay one-liners that can't break wake."""
     try:
-        row = db._conn.execute(  # noqa: SLF001
-            "SELECT id FROM tasks WHERE project_path=? AND status='running' LIMIT 1",
-            (project_path,),
-        ).fetchone()
-        if row is None:
+        running = TaskQueue(db.path).get_running(project_path)
+        if running is None:
             return False
-        return emit_status(db, row["id"], "stalled", reason=reason)
+        return emit_status(db, running["id"], "stalled", reason=reason)
     except Exception:
         logger.exception("emit_stalled_for_project failed for %s", project_path)
         return False

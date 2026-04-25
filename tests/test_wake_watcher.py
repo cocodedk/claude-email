@@ -6,6 +6,7 @@ import tempfile
 import pytest
 
 from src.chat_db import ChatDB
+from src.task_queue import TaskQueue
 from src.wake_spawn import WakeTurnResult
 from src.wake_watcher import (
     WakeWatcherConfig,
@@ -462,12 +463,9 @@ async def test_stalled_wake_emits_status_for_running_task(live_db, tmp_path):
     import json
     live_db.register_agent("agent-foo", str(tmp_path))
     live_db.insert_message("bar", "agent-foo", "hi", "notify")
-    task_id = live_db._conn.execute(
-        "INSERT INTO tasks (project_path, body, status, created_at, "
-        "origin_content_type) VALUES (?, ?, ?, ?, ?)",
-        (str(tmp_path), "work", "running", "2026-01-01T00:00:00", "application/json"),
-    ).lastrowid
-    live_db._conn.commit()
+    tq = TaskQueue(live_db.path)
+    task_id = tq.enqueue(str(tmp_path), "work", origin_content_type="application/json")
+    tq.claim_next(str(tmp_path))
     locks = _AgentLocks()
     cache = _SessionCache(idle_secs=900)
     tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)

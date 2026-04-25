@@ -29,9 +29,11 @@ logger = logging.getLogger(__name__)
 def build_agent_name(project_path: str) -> str:
     """Extract folder name from path, prefix with 'agent-'.
 
-    Handles trailing slashes: '/home/user/fits/' → 'agent-fits'
+    Handles trailing slashes: '/home/user/fits/' → 'agent-fits'.
+    Falls back to 'agent-unknown' for empty/degenerate paths so the
+    name is always a usable bus identifier.
     """
-    folder = PurePosixPath(project_path).name
+    folder = PurePosixPath(project_path).name or "unknown"
     return f"agent-{folder}"
 
 
