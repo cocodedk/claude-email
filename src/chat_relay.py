@@ -129,10 +129,11 @@ def maybe_cleanup_db(chat_db: ChatDB) -> None:
     _last_cleanup_ts = now
     try:
         counts = chat_db.cleanup_old(days=_CLEANUP_RETENTION_DAYS)
-        if counts["messages"] or counts["events"]:
+        if counts["messages"] or counts["events"] or counts.get("outbound_emails"):
             logger.info(
-                "DB cleanup: removed %d messages, %d events",
+                "DB cleanup: removed %d messages, %d events, %d outbound IDs",
                 counts["messages"], counts["events"],
+                counts.get("outbound_emails", 0),
             )
     except Exception:
         logger.exception("DB cleanup failed")

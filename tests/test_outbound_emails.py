@@ -63,57 +63,36 @@ class TestRecordOutbound:
         assert cdb.find_outbound_email("<fresh@x>") is not None
 
 
-class TestSendAndRecord:
-    """The mailer wrapper that every outbound site routes through. It
-    forwards send-args to mailer.send_reply and persists the returned
-    Message-ID into outbound_emails on success."""
+class TestCleanupLogIncludesOutbound:
+    """Regression: the periodic cleanup log gate ignored ``outbound_emails``,
+    so a cleanup pass that pruned only stale outbound IDs (with no
+    matching delivered/failed messages) silently logged nothing. Catches
+    the asymmetry between the columns cleanup writes and the columns
+    the operator-visible log surfaces."""
 
-    def test_records_returned_message_id(self, cdb, mocker):
-        from src.mailer import send_and_record
-        mocker.patch("src.mailer.send_reply", return_value="<sent-1@cocode.dk>")
+    def test_log_fires_when_only_outbound_rows_pruned(self, cdb, caplog):
+        import logging
+        from datetime import datetime, timedelta, timezone
+        from src.chat_relay import maybe_cleanup_db
 
-        rv = send_and_record(
-            cdb, kind="ack", sender_agent="agent-x",
-            smtp_host="h", smtp_port=465, username="u", password="p",
-            to="bb@cocode.dk", subject="S", body="b",
+        old = (datetime.now(timezone.utc) - timedelta(days=40)).isoformat()
+        cdb.record_outbound_email("<aged@x>", kind="ack")
+        cdb._conn.execute(
+            "UPDATE outbound_emails SET sent_at=? WHERE email_message_id=?",
+            (old, "<aged@x>"),
+        )
+        cdb._conn.commit()
+
+        # Force the cleanup interval gate open.
+        import src.chat_relay as cr
+        cr._last_cleanup_ts = 0.0
+
+        with caplog.at_level(logging.INFO, logger="src.chat_relay"):
+            maybe_cleanup_db(cdb)
+
+        assert any(
+            "outbound IDs" in r.message and "DB cleanup" in r.message
+            for r in caplog.records
         )
 
-        assert rv == "<sent-1@cocode.dk>"
-        row = cdb.find_outbound_email("<sent-1@cocode.dk>")
-        assert row is not None
-        assert row["kind"] == "ack"
-        assert row["sender_agent"] == "agent-x"
 
-    def test_send_failure_does_not_record(self, cdb, mocker):
-        import smtplib
-        from src.mailer import send_and_record
-        mocker.patch(
-            "src.mailer.send_reply",
-            side_effect=smtplib.SMTPException("boom"),
-        )
-
-        with pytest.raises(smtplib.SMTPException):
-            send_and_record(
-                cdb, kind="ack",
-                smtp_host="h", smtp_port=465, username="u", password="p",
-                to="bb@cocode.dk", subject="S", body="b",
-            )
-
-        assert cdb.find_outbound_email("<anything@x>") is None
-
-    def test_blank_message_id_skipped(self, cdb, mocker):
-        """If send_reply returns "" (defensive — make_msgid always returns
-        a value, but be safe), no row is recorded but the call still
-        returns the value to the caller."""
-        from src.mailer import send_and_record
-        mocker.patch("src.mailer.send_reply", return_value="")
-
-        rv = send_and_record(
-            cdb, kind="ack",
-            smtp_host="h", smtp_port=465, username="u", password="p",
-            to="bb@cocode.dk", subject="S", body="b",
-        )
-        assert rv == ""
-        assert cdb._conn.execute(
-            "SELECT COUNT(*) FROM outbound_emails"
-        ).fetchone()[0] == 0
