@@ -4,6 +4,7 @@ import email.utils
 import logging
 import smtplib
 import ssl
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -59,3 +60,26 @@ def send_reply(
         logger.error("Failed to send reply: %s", exc)
         raise
     return msg["Message-ID"] or ""
+
+
+def send_and_record(
+    chat_db: Any, *, kind: str, sender_agent: str = "", **send_kwargs: Any,
+) -> str:
+    """Send a reply via send_reply and persist its Message-ID.
+
+    Every outbound mail we want to be reply-able routes through here so
+    security.is_authorized can thread-match the user's reply via the
+    outbound_emails table. Recording happens *after* a successful SMTP
+    handshake — if send_reply raises, no row is written.
+
+    ``kind`` tags the row for audit/debug ("ack", "result", "ask",
+    "notify", "envelope_reply", ...). ``sender_agent`` is the agent name
+    when known, empty for service-level mails (CLI fallback, JSON
+    handler errors).
+    """
+    msg_id = send_reply(**send_kwargs)
+    if msg_id:
+        chat_db.record_outbound_email(
+            msg_id, kind=kind, sender_agent=sender_agent,
+        )
+    return msg_id
