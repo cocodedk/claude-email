@@ -1,12 +1,27 @@
 """Sender authorization for incoming email commands."""
 import email.message
 import email.utils
+import hmac
 import logging
 import re as _re
 
 from src.gpg_verify import verify_gpg_signature  # noqa: F401 — re-export
 
 logger = logging.getLogger(__name__)
+
+
+def _ct_startswith(haystack: str, prefix: str) -> bool:
+    """Constant-time prefix check on the secret-bearing portion.
+
+    ``str.startswith`` short-circuits character-by-character which leaks
+    a timing oracle on the secret. ``hmac.compare_digest`` runs in time
+    proportional to the prefix length only — fine to use for a known-
+    length comparison since attackers already know how long the secret
+    is from any leaked email.
+    """
+    if len(haystack) < len(prefix):
+        return False
+    return hmac.compare_digest(haystack[: len(prefix)], prefix)
 
 
 def _extract_body_text(message: email.message.Message) -> str:
@@ -118,8 +133,16 @@ def is_authorized(
 
     if chat_db is not None:
         in_reply_to = message.get("In-Reply-To", "").strip()
-        if in_reply_to and chat_db.find_message_by_email_id(in_reply_to) is not None:
-            return True
+        if in_reply_to:
+            if chat_db.find_message_by_email_id(in_reply_to) is not None:
+                return True
+            # Fallback path — covers replies to non-relay outbounds
+            # (CLI-fallback [Running]/[Result], @agent ACKs, JSON
+            # envelope responses) whose Message-IDs land in
+            # outbound_emails rather than messages.
+            find_outbound = getattr(chat_db, "find_outbound_email", None)
+            if find_outbound and find_outbound(in_reply_to) is not None:
+                return True
 
     if gpg_fingerprint:
         return verify_gpg_signature(message, gpg_fingerprint, gpg_home)
@@ -127,7 +150,7 @@ def is_authorized(
     subject = message.get("Subject", "")
     subject = _re.sub(r'^(Re:\s*)+', '', subject, flags=_re.IGNORECASE).strip()
     expected_prefix = f"AUTH:{shared_secret}"
-    if shared_secret and subject.startswith(expected_prefix):
+    if shared_secret and _ct_startswith(subject, expected_prefix):
         return True
 
     if shared_secret and expected_prefix in _extract_body_text(message):

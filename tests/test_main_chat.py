@@ -372,6 +372,7 @@ class TestRelaySubjectSymmetry:
         tq = TaskQueue(db_path)
         tid = tq.enqueue(
             "/p", "do it", origin_content_type="application/json",
+            origin_message_id="<inbound-json@x>",
             origin_subject="[test-0042] do it",
         )
         cdb.insert_message(
@@ -392,7 +393,11 @@ class TestRelaySubjectSymmetry:
         db_path = str(tmp_path / "sym.db")
         cdb = ChatDB(db_path)
         tq = TaskQueue(db_path)
-        tid = tq.enqueue("/p", "do it", origin_subject="[task-7] do it")
+        tid = tq.enqueue(
+            "/p", "do it",
+            origin_message_id="<inbound-pt@x>",
+            origin_subject="[task-7] do it",
+        )
         cdb.insert_message(
             "agent-p", "user", "done!", "notify", task_id=tid,
         )
@@ -404,9 +409,11 @@ class TestRelaySubjectSymmetry:
 
     def test_relay_falls_back_to_template_when_no_origin_subject(self, mocker, chat_db):
         """Backward-compat: old task rows without origin_subject still get
-        the [from_name] message subject template."""
+        the [from_name] message subject template. Email-origin context is
+        provided via a prior user→agent command so the relay gate accepts."""
         from src.chat_handlers import relay_outbound_messages
 
+        chat_db.insert_message("user", "agent-solo", "kick off", "command")
         chat_db.insert_message("agent-solo", "user", "hi", "notify")
         mock_send = mocker.patch("src.chat_relay.send_reply", return_value="<r@x>")
         relay_outbound_messages(_make_config(), chat_db)
@@ -422,7 +429,10 @@ class TestRelayOutboundMessages:
 
         mock_reply = mocker.patch("src.chat_relay.send_reply", return_value="<test@example.com>")
 
-        # Agent sends a message to user
+        # Email-origin context: user previously emailed @agent-foo and
+        # @agent-bar, so the gate accepts subsequent notify replies.
+        chat_db.insert_message("user", "agent-foo", "go", "command")
+        chat_db.insert_message("user", "agent-bar", "go", "command")
         chat_db.insert_message("agent-foo", "user", "Build succeeded!", "chat")
         chat_db.insert_message("agent-bar", "user", "Tests all pass", "chat")
 
@@ -443,6 +453,7 @@ class TestRelayOutboundMessages:
             side_effect=smtplib.SMTPRecipientsRefused({"x@y": (550, b"no such user")}),
         )
 
+        chat_db.insert_message("user", "agent-foo", "go", "command")
         msg = chat_db.insert_message("agent-foo", "user", "Build succeeded!", "chat")
         config = _make_config()
         relay_outbound_messages(config, chat_db)
@@ -464,6 +475,7 @@ class TestRelayOutboundMessages:
             side_effect=smtplib.SMTPServerDisconnected("connection lost"),
         )
 
+        chat_db.insert_message("user", "agent-foo", "go", "command")
         msg = chat_db.insert_message("agent-foo", "user", "Build succeeded!", "chat")
         config = _make_config()
         relay_outbound_messages(config, chat_db)
@@ -483,6 +495,8 @@ class TestRelayOutboundMessages:
             side_effect=smtplib.SMTPServerDisconnected("connection lost"),
         )
 
+        chat_db.insert_message("user", "agent-foo", "go", "command")
+        chat_db.insert_message("user", "agent-bar", "go", "command")
         chat_db.insert_message("agent-foo", "user", "msg1", "chat")
         chat_db.insert_message("agent-bar", "user", "msg2", "chat")
 

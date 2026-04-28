@@ -65,6 +65,13 @@ CREATE TABLE IF NOT EXISTS wake_sessions (
     session_id TEXT NOT NULL,
     last_turn_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS outbound_emails (
+    email_message_id TEXT PRIMARY KEY,
+    sent_at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    sender_agent TEXT
+);
 """
 
 

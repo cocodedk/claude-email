@@ -85,7 +85,10 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
 
     timeout = config["claude_timeout"]
     try:
-        send_threaded_reply(config, message, f"Command received. Running (up to {timeout}s)...", tag="Running")
+        send_threaded_reply(
+            config, message, f"Command received. Running (up to {timeout}s)...",
+            tag="Running", chat_db=chat_db, kind="running_ack",
+        )
     except Exception:
         logger.exception("Failed to send progress ack — continuing with execution")
 
@@ -102,7 +105,9 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
         system_prompt=EMAIL_ROUTER_SYSTEM_PROMPT if on else None,
         mcp_config=(u.mcp_config if (on and u) else None),
     )
-    send_threaded_reply(config, message, output, tag="Result")
+    send_threaded_reply(
+        config, message, output, tag="Result", chat_db=chat_db, kind="result",
+    )
 
 
 def _tick_housekeeping(config: dict, cdb, tq) -> None:

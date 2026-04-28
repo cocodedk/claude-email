@@ -235,11 +235,14 @@ class TestEmitStalledForProject:
         from src.status_envelope import emit_stalled_for_project
         assert emit_stalled_for_project(cdb, "/nowhere") is False
 
-    def test_swallows_db_errors(self, cdb):
+    def test_swallows_db_errors(self, cdb, mocker):
         """emit_stalled_for_project must never raise into wake_watcher —
-        a DB blip at the wrong moment cannot break the wake loop."""
-        from unittest.mock import MagicMock
+        a DB blip at the wrong moment cannot break the wake loop. We
+        force the inner TaskQueue.get_running to raise so the bare
+        ``except`` branch (the actual safety net) executes."""
         from src.status_envelope import emit_stalled_for_project
-        cdb._conn = MagicMock(side_effect=RuntimeError("db blip"))
-        cdb._conn.execute.side_effect = RuntimeError("db blip")
+        mocker.patch(
+            "src.status_envelope.TaskQueue.get_running",
+            side_effect=RuntimeError("db blip"),
+        )
         assert emit_stalled_for_project(cdb, "/p") is False
