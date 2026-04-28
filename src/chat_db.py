@@ -127,6 +127,35 @@ class ChatDB(AgentRegistryMixin, DashboardQueriesMixin, WakeSessionStoreMixin):
         ).fetchone()
         return dict(row) if row else None
 
+    def record_outbound_email(
+        self, email_message_id: str, *, kind: str, sender_agent: str = "",
+    ) -> None:
+        """Persist an outbound SMTP Message-ID for thread-match auth.
+
+        Every reply we send (relay, ACK, JSON envelope, CLI-fallback)
+        records here so a user reply passes ``security.is_authorized``
+        via the chat-thread match without an ``AUTH:`` keyword. ON
+        CONFLICT DO NOTHING keeps repeats idempotent.
+        """
+        if not email_message_id:
+            raise ValueError("email_message_id must not be empty")
+        self._conn.execute(
+            "INSERT INTO outbound_emails "
+            "(email_message_id, sent_at, kind, sender_agent) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT(email_message_id) DO NOTHING",
+            (email_message_id, _now(), kind, sender_agent or None),
+        )
+        self._conn.commit()
+
+    def find_outbound_email(self, email_message_id: str) -> dict | None:
+        if not email_message_id:
+            return None
+        row = self._conn.execute(
+            "SELECT * FROM outbound_emails WHERE email_message_id=?",
+            (email_message_id,),
+        ).fetchone()
+        return dict(row) if row else None
+
     def get_last_email_message_id_for_agent(self, agent_name: str) -> str | None:
         row = self._conn.execute(
             "SELECT email_message_id FROM messages "
@@ -144,7 +173,8 @@ class ChatDB(AgentRegistryMixin, DashboardQueriesMixin, WakeSessionStoreMixin):
         return dict(row) if row else None
 
     def cleanup_old(self, days: int = 30) -> dict:
-        """Prune delivered/failed messages and old events. Pending rows preserved."""
+        """Prune delivered/failed messages, old events, and stale outbound
+        Message-IDs. Pending rows preserved."""
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         m = self._conn.execute(
             "DELETE FROM messages WHERE status IN ('delivered','failed') AND created_at < ?",
@@ -153,8 +183,11 @@ class ChatDB(AgentRegistryMixin, DashboardQueriesMixin, WakeSessionStoreMixin):
         e = self._conn.execute(
             "DELETE FROM events WHERE created_at < ?", (cutoff,)
         ).rowcount
+        o = self._conn.execute(
+            "DELETE FROM outbound_emails WHERE sent_at < ?", (cutoff,)
+        ).rowcount
         self._conn.commit()
-        return {"messages": m, "events": e}
+        return {"messages": m, "events": e, "outbound_emails": o}
 
     # ── Events (internal) ──────────────────────────────────
 

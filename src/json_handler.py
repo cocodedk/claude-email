@@ -37,7 +37,7 @@ def handle_json_email(
             "error", body=exc.message,
             error=make_error(exc.code, exc.message),
             ask_id=exc.ask_id,
-        ))
+        ), chat_db=chat_db)
         return True
 
     universe = config.get("_universe")
@@ -54,7 +54,7 @@ def handle_json_email(
                 hint="Open Settings and re-enter the shared secret.",
             ),
             ask_id=env.ask_id,
-        ))
+        ), chat_db=chat_db)
         return True
 
     logger.info("JSON envelope accepted: kind=%s project=%s", env.kind, env.project)
@@ -64,7 +64,7 @@ def handle_json_email(
         env, config, chat_db, task_queue, worker_manager,
         inbound_msg_id, inbound_subject,
     )
-    _send_json_reply(config, message, reply)
+    _send_json_reply(config, message, reply, chat_db=chat_db)
     return True
 
 
@@ -136,11 +136,13 @@ def _handle_command(
     )
 
 
-def _send_json_reply(config, original_message, body_json: str) -> None:
+def _send_json_reply(
+    config, original_message, body_json: str, chat_db: ChatDB | None = None,
+) -> None:
     subject = original_message.get("Subject", "command")
     msg_id = original_message.get("Message-ID", "")
     try:
-        send_reply(
+        sent_id = send_reply(
             smtp_host=config["smtp_host"], smtp_port=config["smtp_port"],
             username=config["username"], password=config["password"],
             to=config["authorized_sender"], subject=subject,
@@ -150,3 +152,6 @@ def _send_json_reply(config, original_message, body_json: str) -> None:
         )
     except Exception:
         logger.exception("JSON reply send failed")
+        return
+    if chat_db is not None and sent_id:
+        chat_db.record_outbound_email(sent_id, kind="envelope_reply")

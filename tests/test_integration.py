@@ -174,7 +174,10 @@ class TestRelayStoresEmailMessageId:
         fake_msg_id = "<relay-456@example.com>"
         mock_send.return_value = fake_msg_id
 
-        # Agent inserts a pending message to user
+        # Establish email-origin context (user previously emailed @agent-relay)
+        # so the relay gate accepts this notify. CLI-only chat_notify is
+        # intentionally dropped to prevent unsolicited mail.
+        db.insert_message("user", "agent-relay", "kick off", "command")
         msg = db.insert_message("agent-relay", "user", "Task finished", "notify")
 
         relay_outbound_messages(DUMMY_CONFIG, db)
