@@ -2,8 +2,8 @@
 
 ## Overview
 
-A Python service that polls `claude@cocode.dk` via IMAP, filters for commands
-sent exclusively by `bb@cocode.dk`, executes them via the `claude` CLI, and
+A Python service that polls `agent@example.com` via IMAP, filters for commands
+sent exclusively by `user@example.com`, executes them via the `claude` CLI, and
 replies with the output. Runs as a systemd service.
 
 ## Connection Details
@@ -23,8 +23,8 @@ Credentials stored in `.env`, loaded via `python-dotenv`.
 arbitrary shell commands, so sender validation is load-bearing.
 
 **Mitigation layers (implemented)**:
-1. Check `From:` header contains `bb@cocode.dk`
-2. Check `Return-Path` header matches `bb@cocode.dk`
+1. Check `From:` header contains `user@example.com`
+2. Check `Return-Path` header matches `user@example.com`
 3. Reject if either header is missing or mismatched
 
 **Recommended hardening (post-MVP)**:
@@ -67,7 +67,7 @@ claude-email/
 def is_authorized(message: email.message.Message) -> bool
 ```
 - Extract `From` and `Return-Path` headers
-- Both must match `bb@cocode.dk`
+- Both must match `user@example.com`
 - Return `False` (and log a warning) if any check fails
 
 ### `src/executor.py`
@@ -151,9 +151,9 @@ IMAP_HOST=imap.one.com
 IMAP_PORT=993
 SMTP_HOST=send.one.com
 SMTP_PORT=465
-EMAIL_ADDRESS=claude@cocode.dk
+EMAIL_ADDRESS=agent@example.com
 EMAIL_PASSWORD=<password>
-AUTHORIZED_SENDER=bb@cocode.dk
+AUTHORIZED_SENDER=user@example.com
 POLL_INTERVAL=30
 CLAUDE_TIMEOUT=300
 ```

@@ -17,9 +17,9 @@ class TestSendReply:
         send_reply(
             smtp_host="send.one.com",
             smtp_port=465,
-            username="claude@cocode.dk",
+            username="agent@example.com",
             password="pw",
-            to="bb@cocode.dk",
+            to="user@example.com",
             subject="Re: test",
             body="done",
             in_reply_to="<original@mail>",
@@ -37,9 +37,9 @@ class TestSendReply:
         send_reply(
             smtp_host="send.one.com",
             smtp_port=465,
-            username="claude@cocode.dk",
+            username="agent@example.com",
             password="pw",
-            to="bb@cocode.dk",
+            to="user@example.com",
             subject="Re: test",
             body="result",
             in_reply_to="<orig@mail>",
@@ -58,7 +58,7 @@ class TestSendReply:
         result = send_reply(
             smtp_host="send.one.com", smtp_port=465,
             username="u", password="p",
-            to="bb@cocode.dk",
+            to="user@example.com",
             subject="test",
             body="ok",
             email_domain="example.com",
@@ -77,7 +77,7 @@ class TestSendReply:
         send_reply(
             smtp_host="send.one.com", smtp_port=465,
             username="u", password="p",
-            to="bb@cocode.dk",
+            to="user@example.com",
             subject="Re: original subject",
             body="ok",
         )

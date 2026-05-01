@@ -19,8 +19,8 @@ from src.chat_db import ChatDB
 def _config():
     return {
         "smtp_host": "smtp.example.com", "smtp_port": 465,
-        "username": "claude@cocode.dk", "password": "pw",
-        "authorized_sender": "bb@cocode.dk",
+        "username": "agent@example.com", "password": "pw",
+        "authorized_sender": "user@example.com",
         "email_domain": "cocode.dk",
         "shared_secret": "s", "auth_prefix": "AUTH:s",
         "claude_cwd": "/tmp",
@@ -35,8 +35,8 @@ def _config():
 
 def _inbound(subject="cmd", msg_id="<inbound-1@cocode.dk>"):
     m = email.message.EmailMessage()
-    m["From"] = "bb@cocode.dk"
-    m["Return-Path"] = "<bb@cocode.dk>"
+    m["From"] = "user@example.com"
+    m["Return-Path"] = "<user@example.com>"
     m["Message-ID"] = msg_id
     m["Subject"] = subject
     m.set_content("body")
@@ -105,7 +105,7 @@ class TestCliFallbackRecords:
             **_config(),
             "shared_secret": "s",
             "gpg_fingerprint": "", "gpg_home": None,
-            "authorized_senders": ["bb@cocode.dk"],
+            "authorized_senders": ["user@example.com"],
             "claude_extra_env": None, "claude_model": None,
             "claude_effort": None, "claude_max_budget_usd": None,
             "llm_router": False,

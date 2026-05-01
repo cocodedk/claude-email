@@ -893,7 +893,7 @@ def db(tmp_path):
     return ChatDB(str(tmp_path / "test.db"))
 
 
-def _make_email(subject="", body="", in_reply_to="", from_addr="bb@cocode.dk"):
+def _make_email(subject="", body="", in_reply_to="", from_addr="user@example.com"):
     msg = email.message.EmailMessage()
     msg["From"] = from_addr
     msg["Subject"] = subject
@@ -1268,8 +1268,8 @@ def db(tmp_path):
 
 def _make_email(subject="", body="", in_reply_to=""):
     msg = email.message.EmailMessage()
-    msg["From"] = "bb@cocode.dk"
-    msg["Return-Path"] = "<bb@cocode.dk>"
+    msg["From"] = "user@example.com"
+    msg["Return-Path"] = "<user@example.com>"
     msg["Subject"] = subject
     msg["Message-ID"] = "<test-123@cocode.dk>"
     if in_reply_to:
@@ -1734,7 +1734,7 @@ systemctl --user status claude-email
 
 - [ ] **Step 6: Check that the notification email was sent**
 
-The notification message should be picked up by claude-email's relay loop and sent to bb@cocode.dk.
+The notification message should be picked up by claude-email's relay loop and sent to user@example.com.
 
 - [ ] **Step 7: Final commit**
 

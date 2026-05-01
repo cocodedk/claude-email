@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-19
 **Status**: Draft
-**Author**: bb@cocode.dk + Claude
+**Author**: user@example.com + Claude
 
 ---
 

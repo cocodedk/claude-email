@@ -20,80 +20,80 @@ VALID_SECRET = "supersecret"
 class TestIsAuthorized:
     def test_valid_sender_passes(self):
         msg = _make_msg(
-            "Babak <bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
             subject=f"AUTH:{VALID_SECRET} do something",
         )
-        assert is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
+        assert is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
     def test_wrong_from_rejected(self):
         msg = _make_msg(
             "hacker@evil.com",
-            return_path="<bb@cocode.dk>",
+            return_path="<user@example.com>",
             subject=f"AUTH:{VALID_SECRET} do something",
         )
-        assert not is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
+        assert not is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
     def test_wrong_return_path_rejected(self):
         msg = _make_msg(
-            "bb@cocode.dk",
+            "user@example.com",
             return_path="<hacker@evil.com>",
             subject=f"AUTH:{VALID_SECRET} do something",
         )
-        assert not is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
+        assert not is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
     def test_missing_return_path_rejected(self):
-        msg = _make_msg("bb@cocode.dk", subject=f"AUTH:{VALID_SECRET} do something")
-        assert not is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
+        msg = _make_msg("user@example.com", subject=f"AUTH:{VALID_SECRET} do something")
+        assert not is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
     def test_wrong_secret_rejected(self):
         msg = _make_msg(
-            "bb@cocode.dk",
-            return_path="<bb@cocode.dk>",
+            "user@example.com",
+            return_path="<user@example.com>",
             subject="AUTH:wrongsecret do something",
         )
-        assert not is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
+        assert not is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
     def test_missing_secret_in_subject_rejected(self):
         msg = _make_msg(
-            "bb@cocode.dk",
-            return_path="<bb@cocode.dk>",
+            "user@example.com",
+            return_path="<user@example.com>",
             subject="do something without auth",
         )
-        assert not is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
+        assert not is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
     def test_from_contains_trick_rejected(self):
         """'Contains' check is unsafe — must do exact domain match."""
         msg = _make_msg(
-            "bb@cocode.dk.evil.com",
-            return_path="<bb@cocode.dk>",
+            "user@example.com.evil.com",
+            return_path="<user@example.com>",
             subject=f"AUTH:{VALID_SECRET} do something",
         )
-        assert not is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
+        assert not is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
     def test_missing_from_rejected(self):
         msg = email.message.EmailMessage()
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["Return-Path"] = "<user@example.com>"
         msg["Subject"] = f"AUTH:{VALID_SECRET} cmd"
-        assert not is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
+        assert not is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
     def test_reply_subject_with_re_prefix_passes(self):
         """Replying to a reply produces 'Re: AUTH:secret' — should still be accepted."""
         msg = _make_msg(
-            "Babak <bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
             subject=f"Re: AUTH:{VALID_SECRET} do something",
         )
-        assert is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
+        assert is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
     def test_multiple_re_prefixes_pass(self):
         """Re: Re: AUTH:secret should also be accepted."""
         msg = _make_msg(
-            "Babak <bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
             subject=f"Re: Re: AUTH:{VALID_SECRET} do something",
         )
-        assert is_authorized(msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET)
+        assert is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
 
 class _FakeChatDB:
@@ -121,30 +121,30 @@ class TestReplyAuthorization:
 
     def test_in_reply_to_matching_known_chat_id_accepts_without_auth(self):
         msg = _make_msg(
-            "Babak <bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
             subject="Re: [master-fixer] message",
         )
         msg["In-Reply-To"] = "<known-chat-msg@cocode.dk>"
         db = _FakeChatDB(known_ids={"<known-chat-msg@cocode.dk>"})
         assert is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=db,
         )
 
     def test_in_reply_to_unknown_id_still_requires_auth(self):
         msg = _make_msg(
-            "Babak <bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
             subject="Re: random subject nothing to see here",
         )
         msg["In-Reply-To"] = "<never-seen-before@example.com>"
         db = _FakeChatDB(known_ids=set())
         assert not is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=db,
         )
@@ -160,15 +160,15 @@ class TestReplyAuthorization:
         db = _FakeChatDB(known_ids={"<known-chat-msg@cocode.dk>"})
         assert not is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=db,
         )
 
     def test_body_containing_auth_secret_accepted_plain_text(self):
         msg = email.message.EmailMessage()
-        msg["From"] = "Babak <bb@cocode.dk>"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "Babak <user@example.com>"
+        msg["Return-Path"] = "<user@example.com>"
         msg["Subject"] = "Re: [master-fixer] message"
         msg.set_content(
             "my reply text\n\n> From: ...\n> Subject: AUTH:"
@@ -176,24 +176,24 @@ class TestReplyAuthorization:
             + " original command\n",
         )
         assert is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     def test_body_without_auth_and_no_chat_db_rejected(self):
         msg = email.message.EmailMessage()
-        msg["From"] = "Babak <bb@cocode.dk>"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "Babak <user@example.com>"
+        msg["Return-Path"] = "<user@example.com>"
         msg["Subject"] = "Re: [master-fixer] message"
         msg.set_content("just a reply, no secret, no nothing")
         assert not is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     def test_body_auth_in_html_part_accepted(self):
         """Mail clients often send HTML-only replies — secret in HTML should count."""
         msg = email.message.EmailMessage()
-        msg["From"] = "Babak <bb@cocode.dk>"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "Babak <user@example.com>"
+        msg["Return-Path"] = "<user@example.com>"
         msg["Subject"] = "Re: [master-fixer] message"
         msg.set_content("plain fallback")
         msg.add_alternative(
@@ -201,19 +201,19 @@ class TestReplyAuthorization:
             subtype="html",
         )
         assert is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     def test_chat_db_none_keeps_standard_behavior(self):
         """Passing chat_db=None should behave exactly like not passing it."""
         msg = _make_msg(
-            "Babak <bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
             subject=f"AUTH:{VALID_SECRET} do thing",
         )
         assert is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=None,
         )
@@ -228,8 +228,8 @@ class TestReplyAuthorization:
         from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
         msg = MIMEMultipart("mixed")
-        msg["From"] = "Babak <bb@cocode.dk>"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "Babak <user@example.com>"
+        msg["Return-Path"] = "<user@example.com>"
         msg["Subject"] = "Re: [master-fixer] message"
         # An empty text part whose get_payload(decode=True) returns b""
         empty_part = MIMEText("", "plain")
@@ -240,7 +240,7 @@ class TestReplyAuthorization:
         )
         msg.attach(good_part)
         assert is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     def test_empty_shared_secret_rejects_auth_prefix(self):
@@ -250,34 +250,34 @@ class TestReplyAuthorization:
         GPG, but is_authorized must also reject bare 'AUTH:' directly.
         """
         msg = _make_msg(
-            "Babak <bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
             subject="AUTH: do something",
         )
         assert not is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret="",
+            msg, authorized_sender="user@example.com", shared_secret="",
         )
 
     def test_single_part_html_body_secret_accepted(self):
         """Cover the non-multipart HTML body branch in _extract_body_text."""
         from email.message import EmailMessage
         msg = EmailMessage()
-        msg["From"] = "Babak <bb@cocode.dk>"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "Babak <user@example.com>"
+        msg["Return-Path"] = "<user@example.com>"
         msg["Subject"] = "Re: [master-fixer] message"
         msg.set_content(
             f"<p>hello AUTH:{VALID_SECRET} world</p>", subtype="html",
         )
         assert not msg.is_multipart()  # sanity: exercises the non-multipart branch
         assert is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
 
 VALID_FINGERPRINT = "AABBCCDDEEFF00112233445566778899AABBCCDD"
 
 
-def _make_gpg_msg(from_addr: str = "bb@cocode.dk", signed: bool = True) -> email.message.EmailMessage:
+def _make_gpg_msg(from_addr: str = "user@example.com", signed: bool = True) -> email.message.EmailMessage:
     msg = email.message.EmailMessage()
     msg["From"] = from_addr
     msg["Return-Path"] = f"<{from_addr}>"
@@ -349,8 +349,8 @@ class TestVerifyGpgSignature:
 
         # Build a PGP/MIME multipart/signed message
         msg = MIMEMultipart("signed", protocol="application/pgp-signature")
-        msg["From"] = "bb@cocode.dk"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "user@example.com"
+        msg["Return-Path"] = "<user@example.com>"
         msg.attach(MIMEText("run tests", "plain"))
         msg.attach(MIMEApplication(b"fakesigbytes", "pgp-signature"))
 
@@ -393,8 +393,8 @@ class TestVerifyGpgSignature:
         mock_gpg.verify_data.side_effect = fake_verify
 
         msg = MIMEMultipart("signed", protocol="application/pgp-signature")
-        msg["From"] = "bb@cocode.dk"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "user@example.com"
+        msg["Return-Path"] = "<user@example.com>"
         msg.attach(MIMEText("run tests", "plain"))
         msg.attach(MIMEApplication(b"fakesigbytes", "pgp-signature"))
 
@@ -410,7 +410,7 @@ class TestIsAuthorizedWithGpg:
         # No AUTH: prefix in subject — GPG mode should not care
         assert is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret="irrelevant",
             gpg_fingerprint=VALID_FINGERPRINT,
         )
@@ -421,7 +421,7 @@ class TestIsAuthorizedWithGpg:
         msg = _make_gpg_msg()
         assert not is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret="irrelevant",
             gpg_fingerprint=VALID_FINGERPRINT,
         )
@@ -431,7 +431,7 @@ class TestIsAuthorizedWithGpg:
         msg = _make_gpg_msg(from_addr="hacker@evil.com")
         assert not is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret="irrelevant",
             gpg_fingerprint=VALID_FINGERPRINT,
         )
@@ -446,8 +446,8 @@ class TestPgpMimeMissingParts:
         mocker.patch("gnupg.GPG")
 
         msg = MIMEMultipart("signed", protocol="application/pgp-signature")
-        msg["From"] = "bb@cocode.dk"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "user@example.com"
+        msg["Return-Path"] = "<user@example.com>"
         msg.attach(MIMEText("run tests", "plain"))
         # No pgp-signature part attached
 
@@ -461,8 +461,8 @@ class TestPgpMimeMissingParts:
         mocker.patch("gnupg.GPG")
 
         msg = MIMEMultipart("signed", protocol="application/pgp-signature")
-        msg["From"] = "bb@cocode.dk"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "user@example.com"
+        msg["Return-Path"] = "<user@example.com>"
         msg.attach(MIMEApplication(b"fakesigbytes", "pgp-signature"))
         # No text body part — only the signature
 
@@ -480,8 +480,8 @@ class TestInlinePgpMultipart:
         mock_gpg.verify.return_value = mock_result
 
         msg = email.message.EmailMessage()
-        msg["From"] = "bb@cocode.dk"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "user@example.com"
+        msg["Return-Path"] = "<user@example.com>"
         pgp_body = (
             "-----BEGIN PGP SIGNED MESSAGE-----\n"
             "Hash: SHA256\n\nrun tests\n\n"
@@ -568,15 +568,15 @@ class TestOutboundEmailsThreadMatch:
 
     def test_in_reply_to_matching_outbound_email_accepts(self):
         msg = _make_msg(
-            "Babak <bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
             subject="Re: [Result] do the thing",
         )
         msg["In-Reply-To"] = "<cli-result@cocode.dk>"
         db = _FakeChatDBWithOutbound(outbound_ids={"<cli-result@cocode.dk>"})
         assert is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=db,
         )
@@ -591,7 +591,7 @@ class TestOutboundEmailsThreadMatch:
         db = _FakeChatDBWithOutbound(outbound_ids={"<cli-result@cocode.dk>"})
         assert not is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=db,
         )
@@ -601,30 +601,30 @@ class TestOutboundEmailsThreadMatch:
         threads to messages.email_message_id is accepted regardless of
         whether outbound_emails has a row."""
         msg = _make_msg(
-            "Babak <bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
             subject="Re: relay",
         )
         msg["In-Reply-To"] = "<relay-msg@cocode.dk>"
         db = _FakeChatDBWithOutbound(message_ids={"<relay-msg@cocode.dk>"})
         assert is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=db,
         )
 
     def test_unknown_in_reply_to_still_requires_auth(self):
         msg = _make_msg(
-            "Babak <bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
             subject="Re: random",
         )
         msg["In-Reply-To"] = "<never-issued@x>"
         db = _FakeChatDBWithOutbound()
         assert not is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=db,
         )
@@ -641,16 +641,16 @@ class TestSpoofingResistance:
 
     # Display-name vs real address — parseaddr extracts the bracketed addr.
     def test_display_name_spoofing_uses_real_address(self):
-        """A forged 'bb@cocode.dk <evil@attacker.com>' must be rejected.
+        """A forged 'user@example.com <evil@attacker.com>' must be rejected.
         parseaddr should pull the bracketed address (evil@), not be
-        fooled by the display-name claiming bb@cocode.dk."""
+        fooled by the display-name claiming user@example.com."""
         msg = _make_msg(
-            '"bb@cocode.dk" <evil@attacker.com>',
+            '"user@example.com" <evil@attacker.com>',
             return_path="<evil@attacker.com>",
             subject=f"AUTH:{VALID_SECRET} cmd",
         )
         assert not is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     def test_unicode_lookalike_in_display_name_is_ignored(self):
@@ -660,48 +660,48 @@ class TestSpoofingResistance:
             subject=f"AUTH:{VALID_SECRET} cmd",
         )
         assert not is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     # Case + whitespace normalization on the comparison side.
     def test_uppercase_from_still_accepted(self):
         msg = _make_msg(
-            "<BB@COCODE.DK>",
-            return_path="<bb@cocode.dk>",
+            "<USER@EXAMPLE.COM>",
+            return_path="<user@example.com>",
             subject=f"AUTH:{VALID_SECRET} cmd",
         )
         assert is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     def test_padded_return_path_normalized(self):
         msg = _make_msg(
-            "<bb@cocode.dk>",
-            return_path="   <bb@cocode.dk>   ",
+            "<user@example.com>",
+            return_path="   <user@example.com>   ",
             subject=f"AUTH:{VALID_SECRET} cmd",
         )
         assert is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     # Envelope mismatch — Return-Path must equal From.
     def test_from_legit_return_path_evil_rejected(self):
         msg = _make_msg(
-            "<bb@cocode.dk>",
+            "<user@example.com>",
             return_path="<evil@attacker.com>",
             subject=f"AUTH:{VALID_SECRET} cmd",
         )
         assert not is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     def test_missing_return_path_rejected(self):
         msg = _make_msg(
-            "<bb@cocode.dk>",
+            "<user@example.com>",
             subject=f"AUTH:{VALID_SECRET} cmd",
         )
         assert not is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     # Snooped Message-ID + forged envelope: thread-match alone must NOT
@@ -717,7 +717,7 @@ class TestSpoofingResistance:
         db = _FakeChatDBWithOutbound(outbound_ids={"<leaked-id@cocode.dk>"})
         assert not is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=db,
         )
@@ -732,7 +732,7 @@ class TestSpoofingResistance:
         db = _FakeChatDBWithOutbound(message_ids={"<leaked-msg@cocode.dk>"})
         assert not is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=db,
         )
@@ -742,9 +742,9 @@ class TestSpoofingResistance:
     # From below a real one shouldn't change the verdict.
     def test_appended_from_header_does_not_bypass(self):
         msg = email.message.EmailMessage()
-        msg["From"] = "<bb@cocode.dk>"
+        msg["From"] = "<user@example.com>"
         # Appending a second header doesn't replace the first.
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["Return-Path"] = "<user@example.com>"
         msg["Subject"] = f"AUTH:{VALID_SECRET} cmd"
         try:
             msg["From"] = "<evil@attacker.com>"  # raises in EmailMessage
@@ -752,7 +752,7 @@ class TestSpoofingResistance:
             pass
         # Either the dup is rejected by EmailMessage or the first From wins.
         assert is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     # Forged AUTH:secret without legit envelope — must still fail.
@@ -763,28 +763,28 @@ class TestSpoofingResistance:
             subject=f"AUTH:{VALID_SECRET} cmd",
         )
         assert not is_authorized(
-            msg, authorized_sender="bb@cocode.dk", shared_secret=VALID_SECRET,
+            msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET,
         )
 
     # Allow-list of multiple senders shouldn't let an attacker who
     # spoofs *any* legit address through unless From + Return-Path agree.
     def test_multi_sender_envelope_consistency_required(self):
         msg = _make_msg(
-            "<bb@cocode.dk>",
+            "<user@example.com>",
             return_path="<test@cocode.dk>",  # different legit sender
             subject=f"AUTH:{VALID_SECRET} cmd",
         )
         assert not is_authorized(
             msg,
-            authorized_sender=["bb@cocode.dk", "test@cocode.dk"],
+            authorized_sender=["user@example.com", "test@cocode.dk"],
             shared_secret=VALID_SECRET,
         )
 
     # Empty In-Reply-To shouldn't trigger an accidental match.
     def test_empty_in_reply_to_does_not_match_anything(self):
         msg = _make_msg(
-            "<bb@cocode.dk>",
-            return_path="<bb@cocode.dk>",
+            "<user@example.com>",
+            return_path="<user@example.com>",
             subject="Re: nothing",
         )
         msg["In-Reply-To"] = ""
@@ -792,7 +792,7 @@ class TestSpoofingResistance:
         # No AUTH and no real In-Reply-To → reject.
         assert not is_authorized(
             msg,
-            authorized_sender="bb@cocode.dk",
+            authorized_sender="user@example.com",
             shared_secret=VALID_SECRET,
             chat_db=db,
         )

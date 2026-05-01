@@ -9,7 +9,7 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
 ```
                          ┌──────────────┐
                          │  User Email  │
-                         │ bb@cocode.dk │
+                         │ user@example.com │
                          └──────┬───────┘
                                 │ IMAP / SMTP
                                 ▼
@@ -136,9 +136,9 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 | `IMAP_PORT` | IMAP server port | `993` |
 | `SMTP_HOST` | SMTP server hostname | `send.one.com` |
 | `SMTP_PORT` | SMTP server port | `465` |
-| `EMAIL_ADDRESS` | IMAP/SMTP account | `claude@cocode.dk` |
+| `EMAIL_ADDRESS` | IMAP/SMTP account | `agent@example.com` |
 | `EMAIL_PASSWORD` | Account password | |
-| `AUTHORIZED_SENDER` | Only process emails from this address. Accepts a comma-separated list when one person has several inboxes that should share creds, project base, and conversation state — the first entry is canonical (the default relay recipient), the rest are aliases. | `bb@cocode.dk` or `bb@cocode.dk,babak@cocode.dk` |
+| `AUTHORIZED_SENDER` | Only process emails from this address. Accepts a comma-separated list when one person has several inboxes that should share creds, project base, and conversation state — the first entry is canonical (the default relay recipient), the rest are aliases. | `user@example.com` or `user@example.com,babak@cocode.dk` |
 | `EMAIL_DOMAIN` | Domain for Message-ID generation | `cocode.dk` |
 
 ### Polling & CLI

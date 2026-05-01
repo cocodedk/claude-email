@@ -7,14 +7,14 @@ from src.dispatch import (
 from src.universes import Universe
 
 
-def _make_msg(from_addr="bb@cocode.dk"):
+def _make_msg(from_addr="user@example.com"):
     msg = email.message.Message()
     msg["From"] = from_addr
     msg["Return-Path"] = f"<{from_addr}>"
     return msg
 
 
-def _universe(sender="bb@cocode.dk", base="/home/u/p", db_suffix=""):
+def _universe(sender="user@example.com", base="/home/u/p", db_suffix=""):
     return Universe(
         sender=sender,
         allowed_base=base,
@@ -34,7 +34,7 @@ class TestBuildUniverseResources:
         u1.allowed_base = str(tmp_path)
         u2.allowed_base = str(tmp_path)
         res = build_universe_resources([u1, u2])
-        assert "bb@cocode.dk" in res
+        assert "user@example.com" in res
         assert "t@x" in res
         assert len(res) == 2
 
@@ -43,7 +43,7 @@ class TestBuildUniverseResources:
         u.chat_db_path = str(tmp_path / "a.db")
         u.allowed_base = str(tmp_path)
         u.mcp_config = "/repo/.mcp-test.json"
-        _, _, _, wm = build_universe_resources([u])["bb@cocode.dk"]
+        _, _, _, wm = build_universe_resources([u])["user@example.com"]
         assert wm._module_env == {
             "ROUTER_MCP_CONFIG": "/repo/.mcp-test.json",
             "CHAT_DB_PATH": str(tmp_path / "a.db"),
@@ -70,10 +70,10 @@ class TestDispatchBySender:
             received["wm"] = worker_manager
         u = _universe()
         cdb, tq, wm = object(), object(), object()
-        resources = {"bb@cocode.dk": (u, cdb, tq, wm)}
-        msg = _make_msg("bb@cocode.dk")
+        resources = {"user@example.com": (u, cdb, tq, wm)}
+        msg = _make_msg("user@example.com")
         dispatch_by_sender(
-            msg, {"authorized_senders": ["bb@cocode.dk"]}, resources, fake_process,
+            msg, {"authorized_senders": ["user@example.com"]}, resources, fake_process,
         )
         assert received["cfg_universe"] is u
         assert received["cdb"] is cdb
@@ -116,7 +116,7 @@ class TestAliasRouting:
 
     def test_alias_resolves_to_canonical_universe(self, tmp_path):
         u = Universe(
-            sender="bb@cocode.dk",
+            sender="user@example.com",
             aliases=("babak@cocode.dk",),
             allowed_base=str(tmp_path),
             chat_db_path=str(tmp_path / "c.db"),
@@ -124,7 +124,7 @@ class TestAliasRouting:
         )
         resources = build_universe_resources([u])
         # Both addresses map to THE SAME bundle (same ChatDB, same TaskQueue).
-        primary_bundle = resources["bb@cocode.dk"]
+        primary_bundle = resources["user@example.com"]
         alias_bundle = resources["babak@cocode.dk"]
         assert primary_bundle is alias_bundle
 
@@ -135,26 +135,26 @@ class TestAliasRouting:
             received["sender_in_scoped_config"] = config["authorized_sender"]
             received["all_senders"] = config["authorized_senders"]
         u = Universe(
-            sender="bb@cocode.dk",
+            sender="user@example.com",
             aliases=("babak@cocode.dk",),
             allowed_base="/", chat_db_path="", chat_url="",
             mcp_config="", service_name_chat="",
         )
         cdb, tq, wm = object(), object(), object()
         resources = {
-            "bb@cocode.dk": (u, cdb, tq, wm),
+            "user@example.com": (u, cdb, tq, wm),
             "babak@cocode.dk": (u, cdb, tq, wm),  # same tuple
         }
         # Inbound message comes from the ALIAS, not the canonical.
         msg = _make_msg("babak@cocode.dk")
         dispatch_by_sender(
             msg,
-            {"authorized_senders": ["bb@cocode.dk", "babak@cocode.dk"]},
+            {"authorized_senders": ["user@example.com", "babak@cocode.dk"]},
             resources, fake_process,
         )
         # Routed to the canonical universe's bundle — both are authorized.
         assert received["cdb"] is cdb
         # The scoped config still reports the canonical as the primary
         # sender (for relay/reply defaults), but exposes all aliases too.
-        assert received["sender_in_scoped_config"] == "bb@cocode.dk"
-        assert received["all_senders"] == ["bb@cocode.dk", "babak@cocode.dk"]
+        assert received["sender_in_scoped_config"] == "user@example.com"
+        assert received["all_senders"] == ["user@example.com", "babak@cocode.dk"]

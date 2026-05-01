@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch, call
 
 def _make_authorized_msg(secret: str = "testsecret") -> email.message.Message:
     msg = email.message.EmailMessage()
-    msg["From"] = "Babak <bb@cocode.dk>"
-    msg["Return-Path"] = "<bb@cocode.dk>"
+    msg["From"] = "Babak <user@example.com>"
+    msg["Return-Path"] = "<user@example.com>"
     msg["Subject"] = f"AUTH:{secret} list files"
     msg["Message-ID"] = "<test001@mail>"
     msg.set_content("list files in /tmp")
@@ -34,13 +34,13 @@ class TestOrchestration:
 
         msg = _make_authorized_msg("testsecret")
         config = {
-            "authorized_sender": "bb@cocode.dk",
+            "authorized_sender": "user@example.com",
             "shared_secret": "testsecret",
             "gpg_fingerprint": "",
             "gpg_home": None,
             "smtp_host": "send.one.com",
             "smtp_port": 465,
-            "username": "claude@cocode.dk",
+            "username": "agent@example.com",
             "password": "pw",
             "claude_timeout": 30,
             "claude_bin": "claude",
@@ -65,7 +65,7 @@ class TestOrchestration:
 
         msg = _make_authorized_msg("testsecret")
         config = {
-            "authorized_sender": "bb@cocode.dk",
+            "authorized_sender": "user@example.com",
             "shared_secret": "testsecret",
             "gpg_fingerprint": "", "gpg_home": None,
             "smtp_host": "h", "smtp_port": 465,
@@ -89,7 +89,7 @@ class TestOrchestration:
 
         msg = _make_authorized_msg("testsecret")
         universe = Universe(
-            sender="bb@cocode.dk",
+            sender="user@example.com",
             allowed_base="/home/u/proj",
             chat_db_path="claude-chat.db",
             chat_url="http://localhost:8420/sse",
@@ -97,7 +97,7 @@ class TestOrchestration:
             service_name_chat="claude-chat.service",
         )
         config = {
-            "authorized_sender": "bb@cocode.dk", "shared_secret": "testsecret",
+            "authorized_sender": "user@example.com", "shared_secret": "testsecret",
             "gpg_fingerprint": "", "gpg_home": None,
             "smtp_host": "h", "smtp_port": 465, "username": "u", "password": "p",
             "claude_timeout": 10, "claude_bin": "claude",
@@ -116,7 +116,7 @@ class TestOrchestration:
 
         msg = _make_authorized_msg("testsecret")
         config = {
-            "authorized_sender": "bb@cocode.dk", "shared_secret": "testsecret",
+            "authorized_sender": "user@example.com", "shared_secret": "testsecret",
             "gpg_fingerprint": "", "gpg_home": None,
             "smtp_host": "h", "smtp_port": 465, "username": "u", "password": "p",
             "claude_timeout": 10, "claude_bin": "claude",
@@ -137,7 +137,7 @@ class TestOrchestration:
 
         msg = _make_authorized_msg("testsecret")
         config = {
-            "authorized_sender": "bb@cocode.dk",
+            "authorized_sender": "user@example.com",
             "shared_secret": "testsecret",
             "gpg_fingerprint": "", "gpg_home": None,
             "smtp_host": "h", "smtp_port": 465,
@@ -158,13 +158,13 @@ class TestOrchestration:
 
         msg = _make_unauthorized_msg()
         config = {
-            "authorized_sender": "bb@cocode.dk",
+            "authorized_sender": "user@example.com",
             "shared_secret": "testsecret",
             "gpg_fingerprint": "",
             "gpg_home": None,
             "smtp_host": "send.one.com",
             "smtp_port": 465,
-            "username": "claude@cocode.dk",
+            "username": "agent@example.com",
             "password": "pw",
             "claude_timeout": 30,
             "claude_bin": "claude",
@@ -180,14 +180,14 @@ class TestOrchestration:
         mocker.patch("main.is_authorized", return_value=True)
 
         msg = email.message.EmailMessage()
-        msg["From"] = "bb@cocode.dk"
-        msg["Return-Path"] = "<bb@cocode.dk>"
+        msg["From"] = "user@example.com"
+        msg["Return-Path"] = "<user@example.com>"
         msg["Subject"] = "AUTH:testsecret cmd"
         msg["Message-ID"] = "<test002@mail>"
         msg.set_content("")  # empty body
 
         config = {
-            "authorized_sender": "bb@cocode.dk",
+            "authorized_sender": "user@example.com",
             "shared_secret": "testsecret",
             "gpg_fingerprint": "", "gpg_home": None,
             "smtp_host": "h", "smtp_port": 465,

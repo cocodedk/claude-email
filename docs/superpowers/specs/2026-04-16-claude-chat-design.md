@@ -2,13 +2,13 @@
 
 **Date**: 2026-04-16
 **Status**: Draft
-**Author**: bb@cocode.dk + Claude
+**Author**: user@example.com + Claude
 
 ---
 
 ## 1. Overview
 
-claude-chat is a **message relay service** that brokers private conversations between the user (bb@cocode.dk) and multiple Claude Code agents. It runs as a standalone MCP server with an SQLite backend.
+claude-chat is a **message relay service** that brokers private conversations between the user (user@example.com) and multiple Claude Code agents. It runs as a standalone MCP server with an SQLite backend.
 
 claude-email acts as the user's avatar — it bridges email to MCP, spawns and manages agents, queries the DB directly for status, and can restart both services.
 
@@ -49,7 +49,7 @@ SQLite DB (single source of truth — WAL mode)
 **Role**: The user's avatar in the chat system. Bridges email to MCP. Spawns and manages agents.
 
 **Existing functionality** (unchanged):
-- Polls IMAP for emails from bb@cocode.dk
+- Polls IMAP for emails from user@example.com
 - Validates sender (From, Return-Path, GPG/shared secret)
 - Executes direct CLI commands via `claude --print`
 - Replies via SMTP with threading headers
@@ -230,9 +230,9 @@ All data is **denormalized and pre-formatted** — every row is ready to serve w
 3. claude-chat inserts event: `message from agent-fits: Should I refactor...`
 4. claude-chat holds the tool response open
 5. claude-email polls `chat_check_messages()` (or reads DB directly)
-6. claude-email sends email to bb@cocode.dk:
+6. claude-email sends email to user@example.com:
    - Subject: `[agent-fits] Should I refactor the auth module?`
-   - From: `claude@cocode.dk`
+   - From: `agent@example.com`
    - Stores the email's Message-ID in the `email_message_id` column
 7. User replies by email
 8. claude-email receives reply, matches `In-Reply-To` header against known `email_message_id` in DB
@@ -246,7 +246,7 @@ All data is **denormalized and pre-formatted** — every row is ready to serve w
 1. Agent calls `chat_notify("Refactoring complete, 12 files changed")`
 2. claude-chat inserts message row: `type=notify, status=pending`
 3. Tool returns immediately: `{ "status": "sent" }`
-4. claude-email picks up the message, emails it to bb@cocode.dk
+4. claude-email picks up the message, emails it to user@example.com
 5. User reads it — no reply needed
 
 ### 5.3 User dispatches a command to an agent
@@ -468,7 +468,7 @@ claude-email/
 
 ## 13. Out of Scope
 
-- Multi-user support (only bb@cocode.dk)
+- Multi-user support (only user@example.com)
 - Remote agents (all agents run on the same machine)
 - Web UI or dashboard
 - Message encryption between participants (local = trusted)

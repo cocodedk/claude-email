@@ -51,7 +51,7 @@ def recipient_for_message(chat_db, msg: dict, config: dict) -> str:
     Task-linked messages go back to the sender whose universe owns the
     task's project_path. Non-task messages go to config.authorized_sender
     (the primary sender). This is how test-universe notifications reach
-    test@cocode.dk instead of defaulting to bb@cocode.dk.
+    test@cocode.dk instead of defaulting to user@example.com.
     """
     task_id = msg.get("task_id")
     if task_id:

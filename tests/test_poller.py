@@ -49,7 +49,7 @@ class TestEmailPoller:
 
         poller = EmailPoller(
             host="imap.one.com", port=993,
-            username="claude@cocode.dk", password="pw",
+            username="agent@example.com", password="pw",
             state_file=str(tmp_path / "ids.json"),
         )
         poller.connect()

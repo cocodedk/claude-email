@@ -4,7 +4,7 @@
 
 A pure **message relay service** (MCP server) that brokers private conversations between participants. It routes messages, manages a participant registry, and persists all events to a shared SQLite database in a pre-formatted, ready-to-serve shape.
 
-**claude-email** is the user's avatar — it represents bb@cocode.dk in the chat system, bridges email to MCP, spawns and manages agents, and reads the DB directly for fast status queries.
+**claude-email** is the user's avatar — it represents user@example.com in the chat system, bridges email to MCP, spawns and manages agents, and reads the DB directly for fast status queries.
 
 ---
 
@@ -31,7 +31,7 @@ SQLite DB (single source of truth — event-driven writes, pre-formatted reads)
 
 ### claude-email (the user / orchestrator)
 
-- Represents bb@cocode.dk in the chat system
+- Represents user@example.com in the chat system
 - Bridges email <-> MCP: incoming mail becomes chat messages, agent messages become outgoing email
 - **Spawns agents**: can start Claude Code CLI instances in project directories, preconfigured with claude-chat's MCP server
 - **Process management**: tracks spawned agents (PIDs, status) in the DB
@@ -100,8 +100,8 @@ The SQLite DB is the **single source of truth**. All writes are event-driven. Al
 
 ### Communication Model
 
-1. **Agent -> User**: Agent sends message via MCP → claude-chat writes to DB → claude-email picks it up → emails bb@cocode.dk
-2. **User -> Agent (reply)**: bb@cocode.dk replies → claude-email receives it → writes to DB via MCP → agent picks it up
+1. **Agent -> User**: Agent sends message via MCP → claude-chat writes to DB → claude-email picks it up → emails user@example.com
+2. **User -> Agent (reply)**: user@example.com replies → claude-email receives it → writes to DB via MCP → agent picks it up
 3. **User -> System (meta)**: User asks "which agents are running?" → claude-email reads DB directly → replies by email. No MCP, no tokens.
 4. **User -> Agent (dispatch)**: User emails "tell agent-fits to do X" → claude-email parses it → routes via MCP → agent receives it
 5. **User -> Spawn**: User emails "start agent in /projects/fits" → claude-email spawns the process → agent auto-registers → user can command it

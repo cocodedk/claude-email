@@ -219,7 +219,7 @@ Target: ≥15 new tests, 100% line coverage on `envelope.py`.
 │   2m ago · 3 unread  │
 │                      │
 │ ─ laptop             │
-│   claude@cocode.dk   │
+│   agent@example.com   │
 │   1h ago             │
 └──────────────────────┘
 
@@ -252,7 +252,7 @@ Target: ≥15 new tests, 100% line coverage on `envelope.py`.
 ┌──────────────────────┐
 │ Settings             │    - Mail account (IMAP/SMTP creds)
 │                      │    - Notification preferences
-│ Mail: bb@cocode.dk   │    - Backup/export encrypted server list
+│ Mail: user@example.com   │    - Backup/export encrypted server list
 │ Poll: 60s            │    - About / version
 │ ...                  │
 └──────────────────────┘

@@ -21,8 +21,8 @@ from src.task_queue import TaskQueue
 def _config():
     return {
         "smtp_host": "smtp.example.com", "smtp_port": 465,
-        "username": "claude@cocode.dk", "password": "pw",
-        "authorized_sender": "bb@cocode.dk",
+        "username": "agent@example.com", "password": "pw",
+        "authorized_sender": "user@example.com",
         "email_domain": "cocode.dk",
         "universes": [],
     }

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Email-driven wrapper for the Claude Code CLI with an integrated chat relay for managing multiple Claude Code agents. Polls `claude@cocode.dk` via IMAP, verifies that commands come exclusively from `bb@cocode.dk` (GPG signature or shared secret), executes them via `claude --print`, and replies via SMTP. Includes an MCP-based chat system where claude-email acts as the user's avatar, brokering conversations between the user (via email) and multiple Claude Code agents (via MCP tools).
+Email-driven wrapper for the Claude Code CLI with an integrated chat relay for managing multiple Claude Code agents. Polls `agent@example.com` via IMAP, verifies that commands come exclusively from `user@example.com` (GPG signature or shared secret), executes them via `claude --print`, and replies via SMTP. Includes an MCP-based chat system where claude-email acts as the user's avatar, brokering conversations between the user (via email) and multiple Claude Code agents (via MCP tools).
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)

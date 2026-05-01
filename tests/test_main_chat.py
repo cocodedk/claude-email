@@ -9,13 +9,13 @@ from src.chat_db import ChatDB
 
 def _make_config(secret="testsecret"):
     return {
-        "authorized_sender": "bb@cocode.dk",
+        "authorized_sender": "user@example.com",
         "shared_secret": secret,
         "gpg_fingerprint": "",
         "gpg_home": None,
         "smtp_host": "send.one.com",
         "smtp_port": 465,
-        "username": "claude@cocode.dk",
+        "username": "agent@example.com",
         "password": "pw",
         "claude_timeout": 30,
         "claude_bin": "claude",
@@ -24,7 +24,7 @@ def _make_config(secret="testsecret"):
     }
 
 
-def _make_msg(subject, body, from_addr="bb@cocode.dk", msg_id="<test001@mail>",
+def _make_msg(subject, body, from_addr="user@example.com", msg_id="<test001@mail>",
               in_reply_to=""):
     msg = email.message.EmailMessage()
     msg["From"] = f"Babak <{from_addr}>"
@@ -78,7 +78,7 @@ class TestProcessEmailPlainTextAuthRejection:
         """Sender is allowed (envelope OK) but no AUTH:<secret> in body/subject
         and no GPG — is_authorized returns False → dropped with plain-text log."""
         from main import process_email
-        mocker.patch("main.identify_sender", return_value="bb@cocode.dk")
+        mocker.patch("main.identify_sender", return_value="user@example.com")
         mocker.patch("main.is_authorized", return_value=False)
         mock_execute = mocker.patch("main.execute_command")
         mock_logger = mocker.patch("main.logger")
@@ -97,7 +97,7 @@ class TestProcessEmailJsonMode:
     def test_json_email_routes_through_json_handler(self, mocker, chat_db):
         import json
         from main import process_email
-        mocker.patch("main.identify_sender", return_value="bb@cocode.dk")
+        mocker.patch("main.identify_sender", return_value="user@example.com")
         handler = mocker.patch("main.handle_json_email")
         mocker.patch("main.handle_chat_email")
         msg = email.message.Message()
@@ -214,13 +214,13 @@ class TestProcessEmailNoChatDB:
 
         # Config WITHOUT chat-specific keys (like existing tests)
         config = {
-            "authorized_sender": "bb@cocode.dk",
+            "authorized_sender": "user@example.com",
             "shared_secret": "testsecret",
             "gpg_fingerprint": "",
             "gpg_home": None,
             "smtp_host": "send.one.com",
             "smtp_port": 465,
-            "username": "claude@cocode.dk",
+            "username": "agent@example.com",
             "password": "pw",
             "claude_timeout": 30,
             "claude_bin": "claude",
