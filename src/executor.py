@@ -20,6 +20,18 @@ _QUOTE_PATTERNS = (
     # Various clients: "----- Original Message -----"
     re.compile(r"\n\s*-{3,}\s*Original Message\s*-{3,}.*", re.DOTALL | re.IGNORECASE),
 )
+# Reply/forward subject prefixes — stripped before subject becomes a command.
+_SUBJECT_PREFIX = re.compile(r"^\s*(?:Re|Fwd|Fw)\s*:\s*", re.IGNORECASE)
+
+
+def _clean_subject(subject: str, strip_secret: str = "") -> str:
+    prev = None
+    while subject != prev:
+        prev = subject
+        subject = _SUBJECT_PREFIX.sub("", subject)
+    if strip_secret:
+        subject = subject.replace(f"AUTH:{strip_secret}", "")
+    return subject.strip()
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -85,7 +97,11 @@ def extract_command(message: email.message.Message, strip_secret: str = "") -> s
         body = pattern.sub("", body)
     if strip_secret:
         body = body.replace(f"AUTH:{strip_secret}", "")
-    return body.strip()
+    body = body.strip()
+    if body:
+        return body
+    # Fall back to the Subject — phone clients often send subject-only mails.
+    return _clean_subject(message.get("Subject", "") or "", strip_secret)
 
 
 def execute_command(

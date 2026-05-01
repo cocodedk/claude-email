@@ -182,7 +182,7 @@ class TestOrchestration:
         msg = email.message.EmailMessage()
         msg["From"] = "user@example.com"
         msg["Return-Path"] = "<user@example.com>"
-        msg["Subject"] = "AUTH:testsecret cmd"
+        msg["Subject"] = "AUTH:testsecret"  # strips to empty; nothing to run
         msg["Message-ID"] = "<test002@mail>"
         msg.set_content("")  # empty body
 
@@ -197,6 +197,32 @@ class TestOrchestration:
         process_email(msg, config)
         mock_execute.assert_not_called()
         mock_reply.assert_not_called()
+
+    def test_subject_only_mail_executes(self, mocker):
+        """Phone-style subject-only mail must reach the CLI."""
+        from main import process_email
+        mock_execute = mocker.patch("main.execute_command", return_value="ok")
+        mocker.patch("main.send_threaded_reply")
+        mocker.patch("main.is_authorized", return_value=True)
+
+        msg = email.message.EmailMessage()
+        msg["From"] = "user@example.com"
+        msg["Return-Path"] = "<user@example.com>"
+        msg["Subject"] = "Re: AUTH:testsecret list files"
+        msg["Message-ID"] = "<sub01@mail>"
+        msg.set_content("")
+
+        config = {
+            "authorized_sender": "user@example.com",
+            "shared_secret": "testsecret",
+            "gpg_fingerprint": "", "gpg_home": None,
+            "smtp_host": "h", "smtp_port": 465,
+            "username": "u", "password": "p",
+            "claude_timeout": 30, "claude_bin": "claude",
+        }
+        process_email(msg, config)
+        mock_execute.assert_called_once()
+        assert mock_execute.call_args.args[0] == "list files"
 
 
 class TestConfig:
