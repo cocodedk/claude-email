@@ -148,7 +148,11 @@ async def dispatch(
             body=_sanitize_str(arguments["body"], _MAX_MSG_LEN, "body"),
             priority=int(arguments.get("priority", 0)),
             plan_first=_parse_bool(arguments.get("plan_first", False)),
-            dispatch_token=str(arguments.get("dispatch_token", "") or "")[:64],
+            # ``.strip()`` because the LLM commonly reads the token via
+            # ``echo "$CLAUDE_EMAIL_DISPATCH_TOKEN"`` which appends a
+            # newline; persisting the raw \n breaks the fixup's exact
+            # match against the un-newlined UUID minted in main.py.
+            dispatch_token=str(arguments.get("dispatch_token", "") or "").strip()[:64],
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
     if name == "chat_cancel_task":
