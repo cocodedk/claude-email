@@ -60,8 +60,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     dispatch_token TEXT,
     last_sent_status TEXT
 );
-CREATE INDEX IF NOT EXISTS tasks_dispatch_token_idx
-    ON tasks(dispatch_token) WHERE dispatch_token IS NOT NULL;
+-- The tasks_dispatch_token_idx index is created via _MIGRATIONS so the
+-- index DDL doesn't precede the ALTER TABLE on existing DBs that
+-- pre-date the dispatch_token column.
 CREATE INDEX IF NOT EXISTS tasks_project_status_idx ON tasks(project_path, status);
 
 CREATE TABLE IF NOT EXISTS wake_sessions (
