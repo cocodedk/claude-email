@@ -318,18 +318,18 @@ def test_mark_message_delivered(db):
 
 def test_set_email_message_id(db):
     msg = db.insert_message("agent-fits", "user", "msg1", "ask")
-    db.set_email_message_id(msg["id"], "<abc@cocode.dk>")
+    db.set_email_message_id(msg["id"], "<abc@example.com>")
     conn = __import__("sqlite3").connect(db.path)
     conn.row_factory = __import__("sqlite3").Row
     row = conn.execute("SELECT email_message_id FROM messages WHERE id=?", (msg["id"],)).fetchone()
     conn.close()
-    assert row["email_message_id"] == "<abc@cocode.dk>"
+    assert row["email_message_id"] == "<abc@example.com>"
 
 
 def test_find_message_by_email_id(db):
     msg = db.insert_message("agent-fits", "user", "msg1", "ask")
-    db.set_email_message_id(msg["id"], "<abc@cocode.dk>")
-    found = db.find_message_by_email_id("<abc@cocode.dk>")
+    db.set_email_message_id(msg["id"], "<abc@example.com>")
+    found = db.find_message_by_email_id("<abc@example.com>")
     assert found is not None
     assert found["id"] == msg["id"]
 
@@ -906,12 +906,12 @@ def _make_email(subject="", body="", in_reply_to="", from_addr="user@example.com
 def test_chat_reply_detected(db):
     # Insert a message with a known email_message_id
     ask = db.insert_message("agent-fits", "user", "question?", "ask")
-    db.set_email_message_id(ask["id"], "<chat-123@cocode.dk>")
+    db.set_email_message_id(ask["id"], "<chat-123@example.com>")
 
     msg = _make_email(
         subject="Re: [agent-fits] question?",
         body="yes do it",
-        in_reply_to="<chat-123@cocode.dk>",
+        in_reply_to="<chat-123@example.com>",
     )
     route = classify_email(msg, db, "AUTH:secret")
     assert route.kind == "chat_reply"
@@ -1271,7 +1271,7 @@ def _make_email(subject="", body="", in_reply_to=""):
     msg["From"] = "user@example.com"
     msg["Return-Path"] = "<user@example.com>"
     msg["Subject"] = subject
-    msg["Message-ID"] = "<test-123@cocode.dk>"
+    msg["Message-ID"] = "<test-123@example.com>"
     if in_reply_to:
         msg["In-Reply-To"] = in_reply_to
     msg.set_content(body)
@@ -1281,12 +1281,12 @@ def _make_email(subject="", body="", in_reply_to=""):
 def test_chat_reply_inserts_reply_message(db):
     """When a chat reply comes in, it should insert a reply message in the DB."""
     ask = db.insert_message("agent-fits", "user", "question?", "ask")
-    db.set_email_message_id(ask["id"], "<chat-abc@cocode.dk>")
+    db.set_email_message_id(ask["id"], "<chat-abc@example.com>")
 
     msg = _make_email(
         subject="Re: [agent-fits] question?",
         body="yes go ahead",
-        in_reply_to="<chat-abc@cocode.dk>",
+        in_reply_to="<chat-abc@example.com>",
     )
     route = classify_email(msg, db, "AUTH:secret")
     assert route.kind == "chat_reply"
@@ -1637,12 +1637,12 @@ def test_full_ask_reply_flow(db):
 
     # Agent asks
     ask_msg = db.insert_message("agent-fits", "user", "Should I proceed?", "ask")
-    db.set_email_message_id(ask_msg["id"], "<chat-999@cocode.dk>")
+    db.set_email_message_id(ask_msg["id"], "<chat-999@example.com>")
 
     # Simulate user replying by email
     reply_email = email.message.EmailMessage()
     reply_email["Subject"] = "Re: [agent-fits] Should I proceed?"
-    reply_email["In-Reply-To"] = "<chat-999@cocode.dk>"
+    reply_email["In-Reply-To"] = "<chat-999@example.com>"
     reply_email.set_content("Yes, go ahead")
 
     route = classify_email(reply_email, db, "AUTH:secret")

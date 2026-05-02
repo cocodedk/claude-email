@@ -45,7 +45,8 @@ def send_threaded_reply(
     sent_id = send_reply(
         smtp_host=config["smtp_host"], smtp_port=config["smtp_port"],
         username=config["username"], password=config["password"],
-        to=config["authorized_sender"], subject=subject,
+        to=config.get("reply_to") or config["authorized_sender"],
+        subject=subject,
         body=with_footer(body, footer),
         in_reply_to=msg_id, references=msg_id,
         email_domain=config.get("email_domain", ""),

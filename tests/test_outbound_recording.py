@@ -21,7 +21,7 @@ def _config():
         "smtp_host": "smtp.example.com", "smtp_port": 465,
         "username": "agent@example.com", "password": "pw",
         "authorized_sender": "user@example.com",
-        "email_domain": "cocode.dk",
+        "email_domain": "example.com",
         "shared_secret": "s", "auth_prefix": "AUTH:s",
         "claude_cwd": "/tmp",
         "service_name_chat": "claude-chat.service",
@@ -33,7 +33,7 @@ def _config():
     }
 
 
-def _inbound(subject="cmd", msg_id="<inbound-1@cocode.dk>"):
+def _inbound(subject="cmd", msg_id="<inbound-1@example.com>"):
     m = email.message.EmailMessage()
     m["From"] = "user@example.com"
     m["Return-Path"] = "<user@example.com>"
@@ -52,13 +52,13 @@ class TestSendThreadedReplyRecords:
     def test_records_when_chat_db_provided(self, cdb, mocker):
         from src.chat_handlers import send_threaded_reply
         mocker.patch(
-            "src.chat_handlers.send_reply", return_value="<ack-1@cocode.dk>",
+            "src.chat_handlers.send_reply", return_value="<ack-1@example.com>",
         )
         send_threaded_reply(
             _config(), _inbound(), "ok", tag="Dispatched",
             chat_db=cdb, kind="ack", sender_agent="agent-foo",
         )
-        row = cdb.find_outbound_email("<ack-1@cocode.dk>")
+        row = cdb.find_outbound_email("<ack-1@example.com>")
         assert row is not None
         assert row["kind"] == "ack"
         assert row["sender_agent"] == "agent-foo"
@@ -66,20 +66,20 @@ class TestSendThreadedReplyRecords:
     def test_no_record_when_chat_db_omitted(self, cdb, mocker):
         from src.chat_handlers import send_threaded_reply
         mocker.patch(
-            "src.chat_handlers.send_reply", return_value="<ack-2@cocode.dk>",
+            "src.chat_handlers.send_reply", return_value="<ack-2@example.com>",
         )
         send_threaded_reply(_config(), _inbound(), "ok", tag="Dispatched")
-        assert cdb.find_outbound_email("<ack-2@cocode.dk>") is None
+        assert cdb.find_outbound_email("<ack-2@example.com>") is None
 
 
 class TestJsonReplyRecords:
     def test_records_envelope_reply(self, cdb, mocker):
         from src.json_handler import _send_json_reply
         mocker.patch(
-            "src.json_handler.send_reply", return_value="<env-1@cocode.dk>",
+            "src.json_handler.send_reply", return_value="<env-1@example.com>",
         )
         _send_json_reply(_config(), _inbound(), '{"v":1}', chat_db=cdb)
-        row = cdb.find_outbound_email("<env-1@cocode.dk>")
+        row = cdb.find_outbound_email("<env-1@example.com>")
         assert row is not None
         assert row["kind"] == "envelope_reply"
 

@@ -427,7 +427,7 @@ class TestRelayOutboundMessages:
         """Pending agent messages get sent as emails and marked delivered."""
         from src.chat_handlers import relay_outbound_messages
 
-        mock_reply = mocker.patch("src.chat_relay.send_reply", return_value="<test@cocode.dk>")
+        mock_reply = mocker.patch("src.chat_relay.send_reply", return_value="<test@example.com>")
 
         # Email-origin context: user previously emailed @agent-foo and
         # @agent-bar, so the gate accepts subsequent notify replies.

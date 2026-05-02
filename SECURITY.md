@@ -5,7 +5,7 @@
 Do **not** open a public GitHub issue for security vulnerabilities.
 
 - Use the **"Report a vulnerability"** button on the Security tab of this repository
-- Or email: babak@cocode.dk
+- Or email: alias@example.com
 
 We will acknowledge within 5 business days.
 

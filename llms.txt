@@ -21,7 +21,7 @@ claude-email polls an IMAP mailbox for authorized commands, executes them via `c
 - Source: https://github.com/cocodedk/claude-email
 - Website: https://cocodedk.github.io/claude-email/
 - Author: Babak Bandpey (https://linkedin.com/in/babakbandpey)
-- Company: Cocode (https://cocode.dk)
+- Company: Cocode (https://example.com)
 
 ## License
 

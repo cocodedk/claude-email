@@ -138,8 +138,8 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 | `SMTP_PORT` | SMTP server port | `465` |
 | `EMAIL_ADDRESS` | IMAP/SMTP account | `agent@example.com` |
 | `EMAIL_PASSWORD` | Account password | |
-| `AUTHORIZED_SENDER` | Only process emails from this address. Accepts a comma-separated list when one person has several inboxes that should share creds, project base, and conversation state — the first entry is canonical (the default relay recipient), the rest are aliases. | `user@example.com` or `user@example.com,babak@cocode.dk` |
-| `EMAIL_DOMAIN` | Domain for Message-ID generation | `cocode.dk` |
+| `AUTHORIZED_SENDER` | Only process emails from this address. Accepts a comma-separated list when one person has several inboxes that should share creds, project base, and conversation state — the first entry is canonical (the default relay recipient), the rest are aliases. | `user@example.com` or `user@example.com,alias@example.com` |
+| `EMAIL_DOMAIN` | Domain for Message-ID generation | `example.com` |
 
 ### Polling & CLI
 
@@ -419,7 +419,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 1019 pytest tests (100% coverage)
+├── tests/                 # 1028 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -493,7 +493,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1019 tests, 100% coverage)
+# Run all tests (1028 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -511,7 +511,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1019 tests** with **100% code coverage** across all modules
+- **1028 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
@@ -528,8 +528,8 @@ scripts/check-line-limit.sh
 
 ## Author
 
-**Babak Bandpey** — [cocode.dk](https://cocode.dk) | [LinkedIn](https://linkedin.com/in/babakbandpey) | [GitHub](https://github.com/cocodedk) | [Project site](https://cocodedk.github.io/claude-email/)
+**Babak Bandpey** — [example.com](https://example.com) | [LinkedIn](https://linkedin.com/in/babakbandpey) | [GitHub](https://github.com/cocodedk) | [Project site](https://cocodedk.github.io/claude-email/)
 
 ## License
 
-Apache-2.0 | (c) 2026 [Cocode](https://cocode.dk) | Created by [Babak Bandpey](https://linkedin.com/in/babakbandpey)
+Apache-2.0 | (c) 2026 [Cocode](https://example.com) | Created by [Babak Bandpey](https://linkedin.com/in/babakbandpey)

@@ -39,7 +39,7 @@ class TestBuildUniverses:
 
     def test_test_env_adds_second_universe(self):
         result = build_universes(_base_env(), test_env={
-            "SENDER": "test@cocode.dk",
+            "SENDER": "test@example.com",
             "CLAUDE_CWD": "/home/u/projects-test",
             "CHAT_DB_PATH": "claude-chat-test.db",
             "CHAT_URL": "http://127.0.0.1:8421/sse",
@@ -48,7 +48,7 @@ class TestBuildUniverses:
         })
         assert len(result) == 2
         test = result[1]
-        assert test.sender == "test@cocode.dk"
+        assert test.sender == "test@example.com"
         assert test.allowed_base == "/home/u/projects-test"
         assert test.shared_secret == "test-secret"
         assert test.is_test is True
@@ -95,9 +95,9 @@ class TestParseSenders:
         assert aliases == ()
 
     def test_multi_address_splits_on_commas(self):
-        canon, aliases = _parse_senders("user@example.com,babak@cocode.dk")
+        canon, aliases = _parse_senders("user@example.com,alias@example.com")
         assert canon == "user@example.com"
-        assert aliases == ("babak@cocode.dk",)
+        assert aliases == ("alias@example.com",)
 
     def test_whitespace_trimmed(self):
         canon, aliases = _parse_senders(" bb@x , babak@x , admin@x ")
@@ -144,7 +144,7 @@ class TestUniverseAliases:
 
     def test_build_universes_splits_comma_separated_primary(self):
         env = {
-            "AUTHORIZED_SENDER": "user@example.com, babak@cocode.dk",
+            "AUTHORIZED_SENDER": "user@example.com, alias@example.com",
             "CLAUDE_CWD": "/home/u",
             "CHAT_DB_PATH": "c.db",
             "CHAT_URL": "http://x",
@@ -153,22 +153,22 @@ class TestUniverseAliases:
         }
         [primary] = build_universes(env)
         assert primary.sender == "user@example.com"
-        assert primary.aliases == ("babak@cocode.dk",)
+        assert primary.aliases == ("alias@example.com",)
         # Both share the same creds — only the canonical owns the slot.
-        assert primary.all_senders == ("user@example.com", "babak@cocode.dk")
+        assert primary.all_senders == ("user@example.com", "alias@example.com")
         assert primary.shared_secret == "s"
 
     def test_test_sender_colliding_with_primary_raises(self):
         """Isolation boundary: a .env.test SENDER that's also a primary
         alias would route prod email to the test universe (or vice versa)
         depending on which bundle registered first. Refuse at build time."""
-        env = _base_env(AUTHORIZED_SENDER="user@example.com, babak@cocode.dk")
-        test_env = {"SENDER": "babak@cocode.dk"}
+        env = _base_env(AUTHORIZED_SENDER="user@example.com, alias@example.com")
+        test_env = {"SENDER": "alias@example.com"}
         with pytest.raises(ValueError, match="duplicates a primary"):
             build_universes(env, test_env=test_env)
 
     def test_test_sender_collision_case_insensitive(self):
-        env = _base_env(AUTHORIZED_SENDER="user@example.com, babak@cocode.dk")
-        test_env = {"SENDER": "BABAK@Cocode.DK"}
+        env = _base_env(AUTHORIZED_SENDER="user@example.com, alias@example.com")
+        test_env = {"SENDER": "ALIAS@Example.COM"}
         with pytest.raises(ValueError, match="duplicates a primary"):
             build_universes(env, test_env=test_env)
