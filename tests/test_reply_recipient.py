@@ -166,210 +166,97 @@ class TestMcpDispatchIgnoresOriginArgs:
         assert row["origin_subject"] is None
 
 
-class TestPostExecuteOriginFromFixup:
-    """Safety net: tasks created via the LLM-router MCP path land with
-    origin_*=NULL (the dispatcher refuses to trust LLM-supplied values).
-    The fixup must stamp origin_from / origin_message_id / origin_subject
-    from the trusted inbound message before relay_outbound_messages
-    fires — without origin_message_id, ``chat_relay._should_relay`` drops
-    the [Update] entirely instead of sending it."""
+class TestStampOriginByToken:
+    """Tasks created via the LLM-router MCP path carry a per-dispatch
+    ``dispatch_token`` so the post-execute fixup can stamp origin_*
+    deterministically without window/path heuristics — concurrent
+    enqueues from other MCP clients won't carry this dispatch's token,
+    so they're left alone, and a single dispatch enqueueing multiple
+    tasks stamps them all."""
 
-    def test_stamps_unstamped_task_in_dispatch_window(self, tmp_path):
-        from src.reply_routing_fixup import stamp_origin_for_window
+    def test_stamps_every_task_carrying_token(self, tmp_path):
+        from src.reply_routing_fixup import stamp_origin_by_token
         ChatDB(str(tmp_path / "x.db"))
         tq = TaskQueue(str(tmp_path / "x.db"))
-        cdb = ChatDB(str(tmp_path / "x.db"))
         proj = str(tmp_path / "p")
         (tmp_path / "p").mkdir()
-        from datetime import datetime, timezone
-        started = datetime.now(timezone.utc).isoformat()
-        tid = tq.enqueue(proj, "do work")
-        n = stamp_origin_for_window(
+        a = tq.enqueue(proj, "task one", dispatch_token="tok-1")
+        b = tq.enqueue(proj, "task two", dispatch_token="tok-1")
+        n = stamp_origin_by_token(
             db_path=str(tmp_path / "x.db"),
-            allowed_base=str(tmp_path),
-            reply_to="alias@example.com",
-            started_at_iso=started,
+            dispatch_token="tok-1", reply_to="alias@example.com",
             origin_message_id="<m-1@example.com>",
             origin_subject="Re: do work",
         )
-        assert n == 1
-        row = tq.get(tid)
-        assert row["origin_from"] == "alias@example.com"
-        # origin_message_id is required by chat_relay._should_relay —
-        # without it the [Update] is silently dropped.
-        assert row["origin_message_id"] == "<m-1@example.com>"
-        assert row["origin_subject"] == "Re: do work"
+        assert n == 2
+        for tid in (a, b):
+            row = tq.get(tid)
+            assert row["origin_from"] == "alias@example.com"
+            assert row["origin_message_id"] == "<m-1@example.com>"
+            assert row["origin_subject"] == "Re: do work"
 
-    def test_does_not_overwrite_existing_origin_from(self, tmp_path):
-        from src.reply_routing_fixup import stamp_origin_from_for_window
+    def test_skips_tasks_with_other_tokens(self, tmp_path):
+        """Concurrent non-router enqueue carries a different token (or
+        no token) and must not be stamped with this dispatch's sender."""
+        from src.reply_routing_fixup import stamp_origin_by_token
         ChatDB(str(tmp_path / "x.db"))
         tq = TaskQueue(str(tmp_path / "x.db"))
-        proj = str(tmp_path / "p")
-        (tmp_path / "p").mkdir()
-        from datetime import datetime, timezone
-        started = datetime.now(timezone.utc).isoformat()
-        tid = tq.enqueue(proj, "x", origin_from="real@example.com")
-        n = stamp_origin_from_for_window(
+        mine = tq.enqueue("/p", "router task", dispatch_token="tok-mine")
+        other = tq.enqueue("/p", "concurrent task", dispatch_token="tok-other")
+        none = tq.enqueue("/p", "tokenless task")
+        n = stamp_origin_by_token(
             db_path=str(tmp_path / "x.db"),
-            allowed_base=str(tmp_path),
+            dispatch_token="tok-mine", reply_to="alias@example.com",
+        )
+        assert n == 1
+        assert tq.get(mine)["origin_from"] == "alias@example.com"
+        assert tq.get(other)["origin_from"] is None
+        assert tq.get(none)["origin_from"] is None
+
+    def test_does_not_overwrite_existing_origin_from(self, tmp_path):
+        from src.reply_routing_fixup import stamp_origin_by_token
+        ChatDB(str(tmp_path / "x.db"))
+        tq = TaskQueue(str(tmp_path / "x.db"))
+        tid = tq.enqueue(
+            "/p", "x", dispatch_token="tok-1", origin_from="real@example.com",
+        )
+        n = stamp_origin_by_token(
+            db_path=str(tmp_path / "x.db"),
+            dispatch_token="tok-1",
             reply_to="should-not-win@example.com",
-            started_at_iso=started,
         )
         assert n == 0
         assert tq.get(tid)["origin_from"] == "real@example.com"
 
-    def test_skips_tasks_outside_allowed_base(self, tmp_path):
-        from src.reply_routing_fixup import stamp_origin_from_for_window
+    def test_empty_token_is_noop(self, tmp_path):
+        """A blank token would mass-stamp every tokenless task — refuse."""
+        from src.reply_routing_fixup import stamp_origin_by_token
         ChatDB(str(tmp_path / "x.db"))
         tq = TaskQueue(str(tmp_path / "x.db"))
-        from datetime import datetime, timezone
-        started = datetime.now(timezone.utc).isoformat()
-        # Task is in a DIFFERENT universe's project tree.
-        tid = tq.enqueue("/some/other/path", "x")
-        n = stamp_origin_from_for_window(
+        tid = tq.enqueue("/p", "x")
+        n = stamp_origin_by_token(
             db_path=str(tmp_path / "x.db"),
-            allowed_base=str(tmp_path),
-            reply_to="alias@example.com",
-            started_at_iso=started,
+            dispatch_token="", reply_to="alias@example.com",
         )
         assert n == 0
         assert tq.get(tid)["origin_from"] is None
 
-    def test_skips_tasks_created_before_window(self, tmp_path):
-        from src.reply_routing_fixup import stamp_origin_from_for_window
-        import time
+    def test_no_match_is_silent_noop(self, tmp_path):
+        """LLM only answered in plain text and never enqueued — fine."""
+        from src.reply_routing_fixup import stamp_origin_by_token
         ChatDB(str(tmp_path / "x.db"))
-        tq = TaskQueue(str(tmp_path / "x.db"))
-        proj = str(tmp_path / "p")
-        (tmp_path / "p").mkdir()
-        tid = tq.enqueue(proj, "old task")  # before the window
-        time.sleep(0.01)
-        from datetime import datetime, timezone
-        started = datetime.now(timezone.utc).isoformat()
-        n = stamp_origin_from_for_window(
+        n = stamp_origin_by_token(
             db_path=str(tmp_path / "x.db"),
-            allowed_base=str(tmp_path),
-            reply_to="alias@example.com",
-            started_at_iso=started,
+            dispatch_token="tok-no-match", reply_to="alias@example.com",
         )
         assert n == 0
-        assert tq.get(tid)["origin_from"] is None
-
-    def test_empty_allowed_base_is_noop(self, tmp_path):
-        """Without an allowed_base we can't safely scope the stamp."""
-        from src.reply_routing_fixup import stamp_origin_from_for_window
-        ChatDB(str(tmp_path / "x.db"))
-        n = stamp_origin_from_for_window(
-            db_path=str(tmp_path / "x.db"),
-            allowed_base="",
-            reply_to="alias@example.com",
-            started_at_iso="2026-05-02T00:00:00+00:00",
-        )
-        assert n == 0
-
-    def test_underscore_in_allowed_base_does_not_overmatch(self, tmp_path):
-        """Codex repro: SQLite LIKE treats ``_`` as single-char wildcard,
-        so ``allowed_base=/tmp/foo_bar`` would otherwise match a task at
-        ``/tmp/fooxbar/proj`` and stamp it across universes."""
-        from src.reply_routing_fixup import stamp_origin_for_window
-        ChatDB(str(tmp_path / "x.db"))
-        tq = TaskQueue(str(tmp_path / "x.db"))
-        from datetime import datetime, timezone
-        started = datetime.now(timezone.utc).isoformat()
-        # Underscore in the universe's allowed_base.
-        base = str(tmp_path / "foo_bar")
-        (tmp_path / "foo_bar").mkdir()
-        other_path = str(tmp_path / "fooxbar" / "proj")
-        (tmp_path / "fooxbar" / "proj").mkdir(parents=True)
-        tid = tq.enqueue(other_path, "x")
-        n = stamp_origin_for_window(
-            db_path=str(tmp_path / "x.db"), allowed_base=base,
-            reply_to="alias@example.com", started_at_iso=started,
-            origin_message_id="<m@x>",
-        )
-        assert n == 0
-        assert tq.get(tid)["origin_from"] is None
-
-    def test_resolves_symlinked_allowed_base(self, tmp_path):
-        """Codex P2: enqueue_task_tool stores ``Path(...).resolve()`` for
-        project_path. If the fixup compares against an unresolved
-        allowed_base (symlink / relative / ``..``) the project would not
-        match and the task's [Update] gets drained without SMTP."""
-        from src.reply_routing_fixup import stamp_origin_for_window
-        ChatDB(str(tmp_path / "x.db"))
-        tq = TaskQueue(str(tmp_path / "x.db"))
-        from datetime import datetime, timezone
-        real = tmp_path / "real"
-        real.mkdir()
-        (real / "p").mkdir()
-        link = tmp_path / "link"
-        link.symlink_to(real)
-        # enqueue_task_tool would store the resolved path, so simulate.
-        from pathlib import Path as _P
-        resolved_proj = str(_P(link / "p").resolve())
-        started = datetime.now(timezone.utc).isoformat()
-        tid = tq.enqueue(resolved_proj, "x")
-        # Caller passes the SYMLINK form (the unresolved CLAUDE_CWD).
-        n = stamp_origin_for_window(
-            db_path=str(tmp_path / "x.db"), allowed_base=str(link),
-            reply_to="alias@example.com", started_at_iso=started,
-            origin_message_id="<m@x>",
-        )
-        assert n == 1
-        row = tq.get(tid)
-        assert row["origin_from"] == "alias@example.com"
-
-    def test_aborts_on_ambiguous_concurrent_tasks(self, tmp_path):
-        """Codex P2: if a non-router MCP client enqueues an origin-less
-        task during the dispatch window, stamping both would route the
-        unrelated task's [Update] to this dispatch's sender. Refuse
-        rather than mis-route."""
-        from src.reply_routing_fixup import stamp_origin_for_window
-        ChatDB(str(tmp_path / "x.db"))
-        tq = TaskQueue(str(tmp_path / "x.db"))
-        proj = str(tmp_path / "p")
-        (tmp_path / "p").mkdir()
-        from datetime import datetime, timezone
-        started = datetime.now(timezone.utc).isoformat()
-        a = tq.enqueue(proj, "router task")
-        b = tq.enqueue(proj, "concurrent agent task")
-        n = stamp_origin_for_window(
-            db_path=str(tmp_path / "x.db"), allowed_base=str(tmp_path),
-            reply_to="alias@example.com", started_at_iso=started,
-            origin_message_id="<m@x>",
-        )
-        assert n == 0
-        assert tq.get(a)["origin_from"] is None
-        assert tq.get(b)["origin_from"] is None
-
-    def test_pre_max_id_excludes_pre_existing_tasks(self, tmp_path):
-        """Tasks enqueued before the dispatch must not be touched even
-        if they're origin-less and live in the same universe."""
-        from src.reply_routing_fixup import stamp_origin_for_window, max_task_id
-        ChatDB(str(tmp_path / "x.db"))
-        tq = TaskQueue(str(tmp_path / "x.db"))
-        proj = str(tmp_path / "p")
-        (tmp_path / "p").mkdir()
-        old = tq.enqueue(proj, "pre-existing")
-        pre_max = max_task_id(str(tmp_path / "x.db"))
-        from datetime import datetime, timezone
-        started = datetime.now(timezone.utc).isoformat()
-        new = tq.enqueue(proj, "router task")
-        n = stamp_origin_for_window(
-            db_path=str(tmp_path / "x.db"), allowed_base=str(tmp_path),
-            reply_to="alias@example.com", started_at_iso=started,
-            pre_max_id=pre_max, origin_message_id="<m@x>",
-        )
-        assert n == 1
-        assert tq.get(old)["origin_from"] is None
-        assert tq.get(new)["origin_from"] == "alias@example.com"
 
 
 class TestRunRouterWithFixup:
-    """The orchestration wrapper main.process_email uses — wraps the
-    LLM-router call with timestamp-window + post-execute stamp pass."""
+    """The orchestration wrapper main.process_email uses — runs the
+    LLM-router call, then stamps every task carrying the dispatch token."""
 
-    def test_runs_executor_and_stamps_orphan_tasks(self, tmp_path):
+    def test_runs_executor_and_stamps_token_tasks(self, tmp_path):
         from src.reply_routing_fixup import run_router_with_fixup
         ChatDB(str(tmp_path / "x.db"))
         tq = TaskQueue(str(tmp_path / "x.db"))
@@ -377,45 +264,42 @@ class TestRunRouterWithFixup:
         (tmp_path / "p").mkdir()
 
         def _execute():
-            # Simulate the LLM router enqueuing a task without origin_from.
-            tq.enqueue(proj, "do work")
+            tq.enqueue(proj, "do work", dispatch_token="tok-abc")
             return "executor-output"
 
         result = run_router_with_fixup(
             _execute,
             db_path=str(tmp_path / "x.db"),
-            allowed_base=str(tmp_path),
+            dispatch_token="tok-abc",
             reply_to="alias@example.com",
+            origin_message_id="<m-1@example.com>",
         )
         assert result == "executor-output"
-        # Find the task and confirm it was stamped.
         rows = [r["origin_from"] for r in tq._conn.execute(  # noqa: SLF001
             "SELECT origin_from FROM tasks")]
         assert rows == ["alias@example.com"]
 
     def test_stamp_failure_does_not_break_dispatch(self, tmp_path, mocker):
-        """A buggy fixup must never poison the executor's output."""
         from src.reply_routing_fixup import run_router_with_fixup
         mocker.patch(
-            "src.reply_routing_fixup.stamp_origin_from_for_window",
+            "src.reply_routing_fixup.stamp_origin_by_token",
             side_effect=RuntimeError("disk full"),
         )
         result = run_router_with_fixup(
             lambda: "still-works",
             db_path=str(tmp_path / "x.db"),
-            allowed_base=str(tmp_path),
+            dispatch_token="tok-1",
             reply_to="alias@example.com",
         )
         assert result == "still-works"
 
-    def test_skips_stamp_when_reply_to_missing(self, tmp_path, mocker):
+    def test_skips_stamp_when_token_missing(self, tmp_path, mocker):
         from src.reply_routing_fixup import run_router_with_fixup
-        stamp = mocker.patch("src.reply_routing_fixup.stamp_origin_from_for_window")
+        stamp = mocker.patch("src.reply_routing_fixup.stamp_origin_by_token")
         run_router_with_fixup(
             lambda: "out",
             db_path=str(tmp_path / "x.db"),
-            allowed_base=str(tmp_path),
-            reply_to="",
+            dispatch_token="", reply_to="alias@example.com",
         )
         stamp.assert_not_called()
 

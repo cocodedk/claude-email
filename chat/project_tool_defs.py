@@ -58,6 +58,18 @@ PROJECT_TOOLS = [
                     ),
                     "default": False,
                 },
+                "dispatch_token": {
+                    "type": "string", "default": "",
+                    "description": (
+                        "Optional opaque per-dispatch correlation token. "
+                        "When the email-router invokes this tool it reads "
+                        "the token from $CLAUDE_EMAIL_DISPATCH_TOKEN and "
+                        "passes it here so claude-email can match the "
+                        "freshly-created task back to the inbound email "
+                        "for [Update] reply addressing. Other callers can "
+                        "leave this empty."
+                    ),
+                },
             },
             "required": ["project", "body"],
         },

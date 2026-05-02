@@ -106,16 +106,28 @@ _EMAIL_ROUTER_BASE_PROMPT = (
 )
 
 
+_DISPATCH_TOKEN_BLOCK = (
+    "\n\nDispatch correlation: when you call ``chat_enqueue_task``, also "
+    "pass ``dispatch_token`` set to the value of the environment variable "
+    "``CLAUDE_EMAIL_DISPATCH_TOKEN`` (read it with the Bash tool: "
+    "``echo \"$CLAUDE_EMAIL_DISPATCH_TOKEN\"``). claude-email uses this "
+    "opaque marker to correlate the freshly-created task with the inbound "
+    "email so [Update] / result replies thread back to the actual sender."
+)
+
+
 def build_email_router_prompt(reply_to: str = "") -> str:
     """Compose the email-router system prompt for one inbound email.
 
-    The router doesn't need to pass origin_from itself — the
-    deterministic fixup in ``main.process_email`` stamps origin_from /
-    origin_message_id / origin_subject on every task created during
-    the dispatch window, derived from the trusted inbound message.
-    Trusting an LLM-supplied origin_from would let any MCP caller
-    hijack a task's reply address, so the field isn't even in the MCP
-    schema. This builder remains a function for symmetry with the
-    fixup and to leave room for future per-sender tweaks.
+    Origin metadata (``origin_from`` / ``origin_message_id`` / ...) is
+    NOT routed through the LLM — trusting it would let any bus client
+    hijack a task's reply address. Instead, the LLM only needs to pass
+    ``dispatch_token`` (read from env), and claude-email's deterministic
+    post-execute fixup stamps the origin_* fields from the trusted
+    inbound headers onto the task that carries the matching token.
+
+    The ``reply_to`` arg is kept for API symmetry with the fixup and
+    leaves room for future per-sender tweaks; it is not embedded in
+    the prompt.
     """
-    return _EMAIL_ROUTER_BASE_PROMPT
+    return _EMAIL_ROUTER_BASE_PROMPT + _DISPATCH_TOKEN_BLOCK

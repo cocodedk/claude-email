@@ -43,6 +43,7 @@ def enqueue_task_tool(
     allowed_base: str, plan_first: bool = False,
     origin_content_type: str = "", origin_message_id: str = "",
     origin_subject: str = "", origin_from: str = "",
+    dispatch_token: str = "",
 ) -> dict:
     try:
         resolved = resolve_project(project, allowed_base)
@@ -56,7 +57,7 @@ def enqueue_task_tool(
         resolved, body, priority=_clamp_priority(priority), plan_first=plan_first,
         origin_content_type=origin_content_type,
         origin_message_id=origin_message_id, origin_subject=origin_subject,
-        origin_from=origin_from,
+        origin_from=origin_from, dispatch_token=dispatch_token,
     )
     return {
         "status": "enqueued",
