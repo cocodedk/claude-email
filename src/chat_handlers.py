@@ -12,7 +12,7 @@ from src.chat_relay import (  # noqa: F401 — re-export for back-compat
 )
 from src.chat_router import Route, classify_email
 from src.email_format import prepend_tag, with_footer
-from src.executor import extract_command
+from src.email_extract import extract_command
 from src.mailer import send_reply
 from src.reply_router import apply_reply
 from src.spawner import spawn_agent

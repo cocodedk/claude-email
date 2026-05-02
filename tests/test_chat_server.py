@@ -407,7 +407,7 @@ class TestToolDispatch:
         monkeypatch.setenv("CLAUDE_CWD", str(tmp_path))
         (tmp_path / "p").mkdir()
         mocker.patch(
-            "chat.project_tools.commit_all", return_value=(True, "abc1234"),
+            "chat.project_mutations.commit_all", return_value=(True, "abc1234"),
         )
 
         async def _call():
@@ -425,6 +425,7 @@ class TestToolDispatch:
         data = json.loads(result.root.content[0].text)
         assert data["status"] == "committed"
         assert data["sha"] == "abc1234"
+
 
     def test_call_chat_where_am_i(self, app):
         import asyncio

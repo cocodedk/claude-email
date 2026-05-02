@@ -151,13 +151,15 @@ def spawn_agent_tool(
 
 # Re-export Phase 3 project tools so dispatch + callers can use a single
 # `from chat import tools` import surface.
-from chat.project_tools import (  # noqa: E402
-    cancel_task_tool,
+from chat.project_mutations import (  # noqa: E402
     commit_project_tool,
     confirm_reset_tool,
+    reset_project_tool,
+)
+from chat.project_tools import (  # noqa: E402
+    cancel_task_tool,
     enqueue_task_tool,
     queue_status_tool,
-    reset_project_tool,
     retry_task_tool,
     where_am_i_tool,
 )

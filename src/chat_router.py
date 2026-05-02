@@ -1,12 +1,10 @@
 """Email classification and routing logic for the claude-chat system."""
 import email.message
-import re
 from dataclasses import dataclass
 
 from src.chat_db import ChatDB
-from src.executor import extract_command
+from src.email_extract import decode_subject, extract_command, strip_subject_prefixes
 
-_RE_PREFIX = re.compile(r"^(?:re:\s*)+", re.IGNORECASE)
 _META_COMMANDS = {"status", "spawn", "restart"}
 
 
@@ -21,11 +19,11 @@ class Route:
 
 
 def _strip_subject_prefix(subject: str, auth_prefix: str) -> str:
-    """Strip Re: prefixes and the AUTH:secret prefix from a subject line.
+    """Decode encoded-words, strip Re/Fwd/Fw and the AUTH:secret prefix.
 
     Returns just the command part, stripped of whitespace.
     """
-    cleaned = _RE_PREFIX.sub("", subject).strip()
+    cleaned = strip_subject_prefixes(decode_subject(subject)).strip()
     if cleaned.startswith(auth_prefix):
         cleaned = cleaned[len(auth_prefix):].strip()
     return cleaned
@@ -59,16 +57,18 @@ def classify_email(
     subject = message.get("Subject", "")
     command = _strip_subject_prefix(subject, auth_prefix)
 
-    # 2. Agent command: starts with @agent-name
+    # 2. Agent command: starts with @agent-name. Subject fallback is OFF
+    # so we don't ship the @agent prefix as the body — when the body is
+    # empty we use the parsed remainder instead.
     if command.startswith("@"):
         parts = command.split(None, 1)
-        agent_name = parts[0][1:]  # strip the leading @
-        body = extract_command(message, strip_secret=auth_prefix.removeprefix("AUTH:"))
-        return Route(
-            kind="agent_command",
-            agent_name=agent_name,
-            body=body,
-        )
+        agent_name = parts[0][1:]
+        body = extract_command(
+            message,
+            strip_secret=auth_prefix.removeprefix("AUTH:"),
+            allow_subject_fallback=False,
+        ) or (parts[1] if len(parts) > 1 else "")
+        return Route(kind="agent_command", agent_name=agent_name, body=body)
 
     # 3. Meta-command: starts with status, spawn, or restart
     first_word = command.split(None, 1)[0].lower() if command else ""

@@ -126,14 +126,23 @@ PROJECT_TOOLS = [
             "Commit any pending changes in a project. Escape hatch for a "
             "dirty repo that would otherwise fail the branch-per-task "
             "guard. No claude subprocess is started — just `git add -A && "
-            "git commit -m <message>`. Use when the user emails 'commit "
-            "the current changes' / 'save what's there' / 'WIP commit'."
+            "git commit -m <message>`, optionally followed by `git push`. "
+            "Use when the user emails 'commit the current changes' / 'save "
+            "what's there' / 'WIP commit' / 'commit and push'."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "project": {"type": "string", "description": _PATH_DESC},
                 "message": {"type": "string", "description": "Commit message"},
+                "push": {
+                    "type": "boolean",
+                    "description": (
+                        "Also run `git push` on the current branch after "
+                        "the commit. Set true when the user asked to push."
+                    ),
+                    "default": False,
+                },
             },
             "required": ["project", "message"],
         },
