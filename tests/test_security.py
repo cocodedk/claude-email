@@ -95,6 +95,32 @@ class TestIsAuthorized:
         )
         assert is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
+    def test_fwd_prefix_passes(self):
+        """Codex P2: forwarded subjects with AUTH:secret must auth in
+        shared-secret mode — the website advertises Fwd-prefix support."""
+        msg = _make_msg(
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
+            subject=f"Fwd: AUTH:{VALID_SECRET} run the build",
+        )
+        assert is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
+
+    def test_fw_prefix_passes(self):
+        msg = _make_msg(
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
+            subject=f"FW: AUTH:{VALID_SECRET} ping",
+        )
+        assert is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
+
+    def test_mixed_re_fwd_prefixes_pass(self):
+        msg = _make_msg(
+            "Babak <user@example.com>",
+            return_path="<user@example.com>",
+            subject=f"Re: Fwd: AUTH:{VALID_SECRET} status",
+        )
+        assert is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
+
 
 class _FakeChatDB:
     """Minimal stand-in for ChatDB.find_message_by_email_id."""

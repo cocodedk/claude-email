@@ -2,7 +2,8 @@
 import email.message
 import subprocess
 import pytest
-from src.executor import extract_command, execute_command
+from src.email_extract import extract_command
+from src.executor import execute_command
 
 
 def _text_msg(body: str, subject: str = "AUTH:secret cmd") -> email.message.Message:

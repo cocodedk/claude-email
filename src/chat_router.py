@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 
 from src.chat_db import ChatDB
-from src.executor import extract_command
+from src.email_extract import extract_command
 
 _RE_PREFIX = re.compile(r"^(?:re:\s*)+", re.IGNORECASE)
 _META_COMMANDS = {"status", "spawn", "restart"}
@@ -63,7 +63,17 @@ def classify_email(
     if command.startswith("@"):
         parts = command.split(None, 1)
         agent_name = parts[0][1:]  # strip the leading @
-        body = extract_command(message, strip_secret=auth_prefix.removeprefix("AUTH:"))
+        # Body extraction with subject-fallback OFF — extract_command's
+        # default fallback would return the whole subject ("@agent run
+        # tests"), which then ships the routing prefix to the agent.
+        # When the body is empty, use the parsed subject remainder.
+        body = extract_command(
+            message,
+            strip_secret=auth_prefix.removeprefix("AUTH:"),
+            allow_subject_fallback=False,
+        )
+        if not body:
+            body = parts[1] if len(parts) > 1 else ""
         return Route(
             kind="agent_command",
             agent_name=agent_name,

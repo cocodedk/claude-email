@@ -182,7 +182,9 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 
 **Shared secret mode**: set Subject to `AUTH:<secret> <command>`. Email body contains the detailed instruction.
 
-**Subject fallback**: when the body is empty (or only quoted-reply trailer), the Subject is used as the command. Phone clients that compose subject-only mails work without ceremony — `Re: ` / `Fwd: ` prefixes are stripped automatically.
+**Subject fallback**: when the body is empty (or only quoted-reply trailer), the Subject is used as the command. Phone clients that compose subject-only mails work without ceremony — `Re: ` / `Fwd: ` / `Fw: ` prefixes are stripped automatically and RFC 2047 encoded-word Subjects (Persian, accents, etc.) are decoded before execution.
+
+In **GPG mode** the Subject fallback is disabled — the GPG signature only covers the message body, so a header-tampering hop could substitute the Subject without invalidating the signature. Put your command inside the signed body.
 
 ### Chat Commands
 
@@ -350,7 +352,7 @@ Agents connect to the chat server via MCP SSE and use these tools:
 | `chat_reset_project` | Step 1 of destructive reset — returns a `confirm_token` valid for 5 minutes. | No |
 | `chat_confirm_reset` | Step 2 — consumes the token and runs `git reset --hard HEAD && git clean -fd`, cancels running task, drains queue. | No |
 | `chat_where_am_i` | Cross-project dashboard: one row per project with running task, pending count, worker pid, last activity timestamp. | No |
-| `chat_commit_project` | Escape hatch for a dirty repo — runs `git add -A && git commit -m <message>` without starting a claude subprocess. Use when the branch-per-task guard has blocked execution. | No |
+| `chat_commit_project` | Escape hatch for a dirty repo — runs `git add -A && git commit -m <message>` without starting a claude subprocess. Optional `push=true` also runs `git push`, so "commit and push" stays a single tool call instead of falling through to a per-task branch. | No |
 | `chat_retry_task` | Re-enqueue a previously terminated task (done/failed/cancelled). Pass `new_body` to refine the instruction. Records the chain via `retry_of`. | No |
 
 ## Data Model
@@ -417,7 +419,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 992 pytest tests (100% coverage)
+├── tests/                 # 1015 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -491,7 +493,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (992 tests, 100% coverage)
+# Run all tests (1015 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -509,7 +511,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **992 tests** with **100% code coverage** across all modules
+- **1015 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit

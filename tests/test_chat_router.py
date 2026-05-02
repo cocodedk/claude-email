@@ -132,6 +132,29 @@ class TestAgentCommand:
         assert route.agent_name == "agent-fits"
         assert route.body == "instruction from body"
 
+    def test_subject_only_agent_command_uses_subject_remainder(self, db):
+        """Codex P2: subject-only @agent mails must deliver the remainder
+        as body, not the whole subject (which still has the @agent prefix).
+        """
+        email_msg = _make_msg(
+            subject=f"{AUTH_PREFIX} @agent-fits run tests",
+            body="",
+        )
+        route = classify_email(email_msg, db, AUTH_PREFIX)
+        assert route.kind == "agent_command"
+        assert route.agent_name == "agent-fits"
+        assert route.body == "run tests"
+
+    def test_subject_only_bare_agent_returns_empty_body(self, db):
+        email_msg = _make_msg(
+            subject=f"{AUTH_PREFIX} @agent-fits",
+            body="",
+        )
+        route = classify_email(email_msg, db, AUTH_PREFIX)
+        assert route.kind == "agent_command"
+        assert route.agent_name == "agent-fits"
+        assert route.body == ""
+
 
 class TestMetaCommands:
     def test_status_command(self, db):

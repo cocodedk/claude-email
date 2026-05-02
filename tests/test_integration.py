@@ -11,7 +11,7 @@ import pytest
 from src.chat_db import ChatDB
 from src.chat_router import Route, classify_email
 from src.chat_handlers import relay_outbound_messages
-from src.executor import extract_command
+from src.email_extract import extract_command
 from chat.tools import (
     register_agent,
     notify_user,

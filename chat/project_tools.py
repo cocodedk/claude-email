@@ -11,8 +11,7 @@ from pathlib import Path
 from src.error_codes import (
     ProjectNotFound, ProjectOutsideBase, error_result_from_exc,
 )
-from src.git_ops import commit_all, task_branch_name
-from src.reset_control import TokenStore, perform_reset
+from src.git_ops import task_branch_name
 from src.task_control import cancel_running_task, queue_status
 from src.task_queue import TaskQueue
 from src.worker_manager import WorkerManager
@@ -86,56 +85,6 @@ def queue_status_tool(
     except ValueError as exc:
         return {"error": str(exc)}
     return queue_status(queue, resolved)
-
-
-def reset_project_tool(
-    tokens: TokenStore, *, project: str, allowed_base: str,
-) -> dict:
-    """Step 1 of the two-step hard reset — issues a confirm token."""
-    try:
-        resolved = _resolve_project(project, allowed_base)
-    except ValueError as exc:
-        return {"error": str(exc)}
-    token = tokens.issue(resolved)
-    return {
-        "status": "confirm_required",
-        "confirm_token": token,
-        "project": resolved,
-        "instruction": (
-            "Reset will cancel the running task, drain the queue, and run "
-            "`git reset --hard HEAD && git clean -fd`. To confirm, call "
-            "chat_confirm_reset with the same project and this token."
-        ),
-    }
-
-
-def confirm_reset_tool(
-    queue: TaskQueue, tokens: TokenStore, *,
-    project: str, token: str, allowed_base: str,
-) -> dict:
-    """Step 2 — validate token and perform the destructive reset."""
-    try:
-        resolved = _resolve_project(project, allowed_base)
-    except ValueError as exc:
-        return {"error": str(exc)}
-    if not tokens.consume(resolved, token):
-        return {"error": "invalid or expired confirm token"}
-    return perform_reset(queue, resolved)
-
-
-def commit_project_tool(*, project: str, message: str, allowed_base: str) -> dict:
-    """Commit any pending changes in a project. Escape hatch for dirty
-    repos that would otherwise fail the branch-per-task guard. No claude
-    subprocess, no branch — just `git add -A && git commit -m <message>`.
-    """
-    try:
-        resolved = _resolve_project(project, allowed_base)
-    except ValueError as exc:
-        return {"error": str(exc)}
-    ok, detail = commit_all(resolved, message)
-    if not ok:
-        return {"error": detail}
-    return {"status": "committed", "sha": detail, "project": resolved}
 
 
 _TERMINAL_STATES = {"done", "failed", "cancelled"}
