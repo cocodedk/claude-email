@@ -1,10 +1,10 @@
 """System prompt + MCP config path for the Phase 2 email router.
 
-When LLM_ROUTER=1 in .env, main.process_email passes the prompt to
-execute_command so the CLI-fallback claude knows it is the email dispatcher,
-and points `--mcp-config` at ROUTER_MCP_CONFIG_PATH so the same claude has
-the claude-chat MCP tools — chat_spawn_agent in particular — regardless of
-the cwd the CLI fallback runs in.
+When LLM_ROUTER=1 in .env, main.process_email calls
+``build_email_router_prompt(reply_to=…)`` and passes the result to
+execute_command so the CLI-fallback claude knows it is the email
+dispatcher, and points `--mcp-config` at ROUTER_MCP_CONFIG_PATH so the
+same claude has the claude-chat MCP tools regardless of cwd.
 """
 import os as _os
 
@@ -12,7 +12,7 @@ ROUTER_MCP_CONFIG_PATH = _os.path.join(
     _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), ".mcp.json",
 )
 
-EMAIL_ROUTER_SYSTEM_PROMPT = (
+_EMAIL_ROUTER_BASE_PROMPT = (
     "You are the email router for the claude-email service. The user emailed "
     "a request — the message is delivered as your input.\n\n"
     "Available MCP tools on claude-chat:\n"
@@ -104,3 +104,30 @@ EMAIL_ROUTER_SYSTEM_PROMPT = (
     "'implement X in test-01' to start.\n"
     "Never stay silent on a refusal."
 )
+
+
+_DISPATCH_TOKEN_BLOCK = (
+    "\n\nDispatch correlation: when you call ``chat_enqueue_task``, also "
+    "pass ``dispatch_token`` set to the value of the environment variable "
+    "``CLAUDE_EMAIL_DISPATCH_TOKEN`` (read it with the Bash tool: "
+    "``echo \"$CLAUDE_EMAIL_DISPATCH_TOKEN\"``). claude-email uses this "
+    "opaque marker to correlate the freshly-created task with the inbound "
+    "email so [Update] / result replies thread back to the actual sender."
+)
+
+
+def build_email_router_prompt(reply_to: str = "") -> str:
+    """Compose the email-router system prompt for one inbound email.
+
+    Origin metadata (``origin_from`` / ``origin_message_id`` / ...) is
+    NOT routed through the LLM — trusting it would let any bus client
+    hijack a task's reply address. Instead, the LLM only needs to pass
+    ``dispatch_token`` (read from env), and claude-email's deterministic
+    post-execute fixup stamps the origin_* fields from the trusted
+    inbound headers onto the task that carries the matching token.
+
+    The ``reply_to`` arg is kept for API symmetry with the fixup and
+    leaves room for future per-sender tweaks; it is not embedded in
+    the prompt.
+    """
+    return _EMAIL_ROUTER_BASE_PROMPT + _DISPATCH_TOKEN_BLOCK

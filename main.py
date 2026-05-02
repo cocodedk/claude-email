@@ -9,6 +9,7 @@ import os
 import signal
 import sys
 import time
+import uuid
 
 from dotenv import load_dotenv
 
@@ -20,25 +21,22 @@ from src.executor import execute_command
 from src.ghost_reaper import sweep_ghosts
 from src.json_envelope import is_json_email
 from src.json_handler import handle_json_email
-from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
+from src.llm_router import build_email_router_prompt
 from src.poller import EmailPoller
+from src.reply_routing_fixup import run_router_with_fixup
 from src.security import identify_sender, is_authorized
 
 load_dotenv()
 
 _LOG_FILE = os.environ.get("LOG_FILE", os.path.join(os.path.dirname(__file__), "claude-email.log"))
-_log_handler = logging.handlers.RotatingFileHandler(
-    _LOG_FILE, maxBytes=10_240, backupCount=7
-)
+_log_handler = logging.handlers.RotatingFileHandler(_LOG_FILE, maxBytes=10_240, backupCount=7)
 _log_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     handlers=[logging.StreamHandler(sys.stdout), _log_handler],
 )
 logger = logging.getLogger(__name__)
-
 _shutdown = False
 
 
@@ -58,9 +56,6 @@ _config = build_config  # alias: tests patch `main._config`
 def process_email(message, config: dict, chat_db=None, task_queue=None, worker_manager=None) -> None:
     """Validate, execute, and reply for a single email message."""
     allowed = config.get("authorized_senders") or config.get("authorized_sender")
-    # Envelope check (From + Return-Path) is mandatory for BOTH protocols.
-    # Plain-text emails additionally need AUTH:<secret> or GPG; JSON emails
-    # carry auth in meta.auth, checked inside handle_json_email.
     if not allowed or identify_sender(message, allowed) is None:
         logger.warning("Unauthorized email dropped (envelope)")
         return
@@ -78,12 +73,10 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
         message, config, chat_db, task_queue=task_queue, worker_manager=worker_manager,
     ):
         return
-
     command = extract_command(message, strip_secret=config["shared_secret"])
     if not command:
         logger.warning("Authorized email has empty command body — skipping")
         return
-
     timeout = config["claude_timeout"]
     try:
         send_threaded_reply(
@@ -92,19 +85,28 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
         )
     except Exception:
         logger.exception("Failed to send progress ack — continuing with execution")
-
     logger.info("Executing command from authorized sender")
     on = config.get("llm_router")
     u = config.get("_universe")
-    output = execute_command(
-        command, claude_bin=config["claude_bin"], timeout=timeout,
-        cwd=(u.allowed_base if u else config.get("claude_cwd")),
-        yolo=config.get("claude_yolo", False),
-        extra_env=config.get("claude_extra_env") or None,
-        model=config.get("claude_model"), effort=config.get("claude_effort"),
-        max_budget_usd=config.get("claude_max_budget_usd"),
-        system_prompt=EMAIL_ROUTER_SYSTEM_PROMPT if on else None,
-        mcp_config=(u.mcp_config if (on and u) else None),
+    reply_to = config.get("reply_to") or config.get("authorized_sender", "")
+    base = u.allowed_base if u else config.get("claude_cwd", "")
+    token = uuid.uuid4().hex if on else ""
+    env = {**(config.get("claude_extra_env") or {})}
+    if token: env["CLAUDE_EMAIL_DISPATCH_TOKEN"] = token
+    output = run_router_with_fixup(
+        lambda: execute_command(
+            command, claude_bin=config["claude_bin"], timeout=timeout,
+            cwd=base or None, yolo=config.get("claude_yolo", False),
+            extra_env=env or None,
+            model=config.get("claude_model"), effort=config.get("claude_effort"),
+            max_budget_usd=config.get("claude_max_budget_usd"),
+            system_prompt=build_email_router_prompt(reply_to=reply_to) if on else None,
+            mcp_config=(u.mcp_config if (on and u) else None),
+        ),
+        db_path=chat_db.path if (on and chat_db is not None) else "",
+        dispatch_token=token, reply_to=reply_to if on else "",
+        origin_message_id=message.get("Message-ID", "") if on else "",
+        origin_subject=message.get("Subject", "") if on else "",
     )
     send_threaded_reply(
         config, message, output, tag="Result", chat_db=chat_db, kind="result",

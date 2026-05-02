@@ -58,6 +58,18 @@ PROJECT_TOOLS = [
                     ),
                     "default": False,
                 },
+                "dispatch_token": {
+                    "type": "string", "default": "",
+                    "description": (
+                        "Optional opaque per-dispatch correlation token. "
+                        "When the email-router invokes this tool it reads "
+                        "the token from $CLAUDE_EMAIL_DISPATCH_TOKEN and "
+                        "passes it here so claude-email can match the "
+                        "freshly-created task back to the inbound email "
+                        "for [Update] reply addressing. Other callers can "
+                        "leave this empty."
+                    ),
+                },
             },
             "required": ["project", "body"],
         },
@@ -125,10 +137,9 @@ PROJECT_TOOLS = [
         description=(
             "Commit any pending changes in a project. Escape hatch for a "
             "dirty repo that would otherwise fail the branch-per-task "
-            "guard. No claude subprocess is started — just `git add -A && "
-            "git commit -m <message>`, optionally followed by `git push`. "
-            "Use when the user emails 'commit the current changes' / 'save "
-            "what's there' / 'WIP commit' / 'commit and push'."
+            "guard. No claude subprocess; runs `git add -A && git commit "
+            "-m <message>`, optionally followed by `git push`. Use for "
+            "'commit the current changes' / 'WIP commit' / 'commit and push'."
         ),
         inputSchema={
             "type": "object",
@@ -136,12 +147,8 @@ PROJECT_TOOLS = [
                 "project": {"type": "string", "description": _PATH_DESC},
                 "message": {"type": "string", "description": "Commit message"},
                 "push": {
-                    "type": "boolean",
-                    "description": (
-                        "Also run `git push` on the current branch after "
-                        "the commit. Set true when the user asked to push."
-                    ),
-                    "default": False,
+                    "type": "boolean", "default": False,
+                    "description": "Also run `git push` on the current branch.",
                 },
             },
             "required": ["project", "message"],
@@ -151,18 +158,16 @@ PROJECT_TOOLS = [
         name="chat_retry_task",
         description=(
             "Re-enqueue a previously terminal task (done / failed / "
-            "cancelled). Pass task_id; optionally pass new_body to refine. "
-            "Preserves priority and project; records the chain via retry_of "
-            "so the audit log shows lineage."
+            "cancelled). Preserves priority and project; records the chain "
+            "via retry_of so the audit log shows lineage."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "task_id": {"type": "integer", "description": "Original task id"},
                 "new_body": {
-                    "type": "string",
-                    "description": "Refined instruction (default: reuse original body)",
-                    "default": "",
+                    "type": "string", "default": "",
+                    "description": "Refined instruction (default: reuse original).",
                 },
             },
             "required": ["task_id"],

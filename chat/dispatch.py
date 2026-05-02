@@ -135,12 +135,20 @@ async def dispatch(
             max_budget_usd=os.environ.get("CLAUDE_MAX_BUDGET_USD") or None,
         )
     if name == "chat_enqueue_task":
+        # ``origin_*`` are NOT accepted from MCP arguments — trusting them
+        # would let any bus client hijack a task's reply address. Only
+        # ``dispatch_token`` is forwarded: it's an opaque correlation
+        # marker the email-router passes from the trusted env var
+        # ``$CLAUDE_EMAIL_DISPATCH_TOKEN``. claude-email's post-execute
+        # fixup uses it to find the freshly-created task and stamp
+        # origin_* from the trusted inbound headers.
         return tools.enqueue_task_tool(
             queue, manager,
             project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
             body=_sanitize_str(arguments["body"], _MAX_MSG_LEN, "body"),
             priority=int(arguments.get("priority", 0)),
             plan_first=_parse_bool(arguments.get("plan_first", False)),
+            dispatch_token=str(arguments.get("dispatch_token", "") or "")[:64],
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
     if name == "chat_cancel_task":
