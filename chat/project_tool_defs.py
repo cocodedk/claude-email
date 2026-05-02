@@ -7,6 +7,31 @@ from mcp.types import Tool
 
 _PATH_DESC = "Folder name or absolute path"
 
+# Email-origin metadata accepted on chat_enqueue_task — populated by the
+# email router so result / [Update] replies route back to the actual
+# inbound sender instead of the canonical AUTHORIZED_SENDER.
+_ORIGIN_PROPS = {
+    "origin_from": {
+        "type": "string", "default": "",
+        "description": (
+            "Inbound sender's email. Required when triggered by email so "
+            "[Update] replies route to the actual sender, not canonical."
+        ),
+    },
+    "origin_message_id": {
+        "type": "string", "default": "",
+        "description": "Inbound Message-ID — threads replies via In-Reply-To.",
+    },
+    "origin_subject": {
+        "type": "string", "default": "",
+        "description": "Inbound Subject (preserved for replies).",
+    },
+    "origin_content_type": {
+        "type": "string", "default": "",
+        "description": "Inbound Content-Type ('application/json' or empty).",
+    },
+}
+
 PROJECT_TOOLS = [
     Tool(
         name="chat_spawn_agent",
@@ -58,6 +83,7 @@ PROJECT_TOOLS = [
                     ),
                     "default": False,
                 },
+                **_ORIGIN_PROPS,
             },
             "required": ["project", "body"],
         },
@@ -125,10 +151,9 @@ PROJECT_TOOLS = [
         description=(
             "Commit any pending changes in a project. Escape hatch for a "
             "dirty repo that would otherwise fail the branch-per-task "
-            "guard. No claude subprocess is started — just `git add -A && "
-            "git commit -m <message>`, optionally followed by `git push`. "
-            "Use when the user emails 'commit the current changes' / 'save "
-            "what's there' / 'WIP commit' / 'commit and push'."
+            "guard. No claude subprocess; runs `git add -A && git commit "
+            "-m <message>`, optionally followed by `git push`. Use for "
+            "'commit the current changes' / 'WIP commit' / 'commit and push'."
         ),
         inputSchema={
             "type": "object",
@@ -136,12 +161,8 @@ PROJECT_TOOLS = [
                 "project": {"type": "string", "description": _PATH_DESC},
                 "message": {"type": "string", "description": "Commit message"},
                 "push": {
-                    "type": "boolean",
-                    "description": (
-                        "Also run `git push` on the current branch after "
-                        "the commit. Set true when the user asked to push."
-                    ),
-                    "default": False,
+                    "type": "boolean", "default": False,
+                    "description": "Also run `git push` on the current branch.",
                 },
             },
             "required": ["project", "message"],
@@ -151,18 +172,16 @@ PROJECT_TOOLS = [
         name="chat_retry_task",
         description=(
             "Re-enqueue a previously terminal task (done / failed / "
-            "cancelled). Pass task_id; optionally pass new_body to refine. "
-            "Preserves priority and project; records the chain via retry_of "
-            "so the audit log shows lineage."
+            "cancelled). Preserves priority and project; records the chain "
+            "via retry_of so the audit log shows lineage."
         ),
         inputSchema={
             "type": "object",
             "properties": {
                 "task_id": {"type": "integer", "description": "Original task id"},
                 "new_body": {
-                    "type": "string",
-                    "description": "Refined instruction (default: reuse original body)",
-                    "default": "",
+                    "type": "string", "default": "",
+                    "description": "Refined instruction (default: reuse original).",
                 },
             },
             "required": ["task_id"],

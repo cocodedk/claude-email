@@ -10,7 +10,9 @@
 The contract here is the literal prompt text the router LLM consumes —
 brittle by nature, but the only way to lock the routing intent in place.
 """
-from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
+from src.llm_router import build_email_router_prompt
+
+EMAIL_ROUTER_SYSTEM_PROMPT = build_email_router_prompt(reply_to="")
 
 
 class TestQuestionsRouteToPlainText:

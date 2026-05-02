@@ -1,10 +1,10 @@
 """System prompt + MCP config path for the Phase 2 email router.
 
-When LLM_ROUTER=1 in .env, main.process_email passes the prompt to
-execute_command so the CLI-fallback claude knows it is the email dispatcher,
-and points `--mcp-config` at ROUTER_MCP_CONFIG_PATH so the same claude has
-the claude-chat MCP tools — chat_spawn_agent in particular — regardless of
-the cwd the CLI fallback runs in.
+When LLM_ROUTER=1 in .env, main.process_email calls
+``build_email_router_prompt(reply_to=…)`` and passes the result to
+execute_command so the CLI-fallback claude knows it is the email
+dispatcher, and points `--mcp-config` at ROUTER_MCP_CONFIG_PATH so the
+same claude has the claude-chat MCP tools regardless of cwd.
 """
 import os as _os
 
@@ -12,7 +12,7 @@ ROUTER_MCP_CONFIG_PATH = _os.path.join(
     _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), ".mcp.json",
 )
 
-EMAIL_ROUTER_SYSTEM_PROMPT = (
+_EMAIL_ROUTER_BASE_PROMPT = (
     "You are the email router for the claude-email service. The user emailed "
     "a request — the message is delivered as your input.\n\n"
     "Available MCP tools on claude-chat:\n"
@@ -104,3 +104,26 @@ EMAIL_ROUTER_SYSTEM_PROMPT = (
     "'implement X in test-01' to start.\n"
     "Never stay silent on a refusal."
 )
+
+
+def build_email_router_prompt(reply_to: str = "") -> str:
+    """Compose the email-router system prompt for one inbound email.
+
+    When ``reply_to`` is set, the prompt instructs the LLM to pass it as
+    ``origin_from`` on every chat_enqueue_task call so async [Update] /
+    result replies route back to the actual sender (not the canonical
+    AUTHORIZED_SENDER). Without this, plain-text emails through the
+    LLM-router → MCP path land on tasks with origin_from=NULL and the
+    relay falls back to the canonical inbox.
+    """
+    if not reply_to:
+        return _EMAIL_ROUTER_BASE_PROMPT
+    sender_block = (
+        f"\n\nINBOUND SENDER: {reply_to}\n"
+        "When you call chat_enqueue_task, you MUST pass "
+        f"origin_from=\"{reply_to}\" so the worker's [Update] / result "
+        "replies thread back to the same inbox the user wrote from. "
+        "Forgetting this routes the result to the canonical sender and "
+        "the user never sees it in their actual mailbox."
+    )
+    return _EMAIL_ROUTER_BASE_PROMPT + sender_block

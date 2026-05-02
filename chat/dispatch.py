@@ -141,6 +141,10 @@ async def dispatch(
             body=_sanitize_str(arguments["body"], _MAX_MSG_LEN, "body"),
             priority=int(arguments.get("priority", 0)),
             plan_first=_parse_bool(arguments.get("plan_first", False)),
+            origin_from=str(arguments.get("origin_from", "") or ""),
+            origin_message_id=str(arguments.get("origin_message_id", "") or ""),
+            origin_subject=str(arguments.get("origin_subject", "") or ""),
+            origin_content_type=str(arguments.get("origin_content_type", "") or ""),
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
     if name == "chat_cancel_task":

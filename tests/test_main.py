@@ -82,7 +82,7 @@ class TestOrchestration:
 
     def test_llm_router_enabled_passes_system_prompt_and_mcp_config(self, mocker):
         from main import process_email
-        from src.llm_router import EMAIL_ROUTER_SYSTEM_PROMPT
+        from src.llm_router import build_email_router_prompt
         from src.universes import Universe
         mock_execute = mocker.patch("main.execute_command", return_value="out")
         mocker.patch("main.send_threaded_reply")
@@ -105,7 +105,11 @@ class TestOrchestration:
             "_universe": universe,
         }
         process_email(msg, config)
-        assert mock_execute.call_args.kwargs["system_prompt"] == EMAIL_ROUTER_SYSTEM_PROMPT
+        # The prompt is now sender-aware; without reply_to set on config it
+        # falls back to the canonical sender.
+        assert mock_execute.call_args.kwargs["system_prompt"] == build_email_router_prompt(
+            reply_to="user@example.com",
+        )
         assert mock_execute.call_args.kwargs["mcp_config"] == "/repo/.mcp.json"
         assert mock_execute.call_args.kwargs["cwd"] == "/home/u/proj"
 
