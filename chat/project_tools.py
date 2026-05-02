@@ -1,7 +1,7 @@
 """Per-project MCP tools: enqueue_task / cancel / status / reset flow.
 
 Split out of chat/tools.py so that file stays under the 200-line cap as
-Phase 3 grew. Shares one _resolve_project helper — canonical-path
+Phase 3 grew. Shares one resolve_project helper — canonical-path
 resolution is the seatbelt that keeps the router from touching anything
 outside CLAUDE_CWD.
 """
@@ -24,7 +24,7 @@ def _clamp_priority(priority: int) -> int:
     return max(_MIN_PRIORITY, min(_MAX_PRIORITY, priority))
 
 
-def _resolve_project(project: str, allowed_base: str) -> str:
+def resolve_project(project: str, allowed_base: str) -> str:
     if not allowed_base:
         raise ValueError("CLAUDE_CWD not configured on chat server")
     candidate = project if os.path.isabs(project) else os.path.join(allowed_base, project)
@@ -45,7 +45,7 @@ def enqueue_task_tool(
     origin_subject: str = "",
 ) -> dict:
     try:
-        resolved = _resolve_project(project, allowed_base)
+        resolved = resolve_project(project, allowed_base)
     except ValueError as exc:
         return error_result_from_exc(exc)
     try:
@@ -71,7 +71,7 @@ def cancel_task_tool(
     drain_queue: bool = False,
 ) -> dict:
     try:
-        resolved = _resolve_project(project, allowed_base)
+        resolved = resolve_project(project, allowed_base)
     except ValueError as exc:
         return {"error": str(exc)}
     return cancel_running_task(queue, resolved, drain_queue=drain_queue)
@@ -81,7 +81,7 @@ def queue_status_tool(
     queue: TaskQueue, *, project: str, allowed_base: str,
 ) -> dict:
     try:
-        resolved = _resolve_project(project, allowed_base)
+        resolved = resolve_project(project, allowed_base)
     except ValueError as exc:
         return {"error": str(exc)}
     return queue_status(queue, resolved)

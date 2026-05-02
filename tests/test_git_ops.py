@@ -178,29 +178,23 @@ class TestPushCurrentBranch:
     def test_success(self, tmp_path, mocker):
         from src.git_ops import push_current_branch
         mocker.patch(
-            "src.git_ops._git",
-            side_effect=[
-                (0, "", ""),                         # is_git_repo
-                (0, "Everything up-to-date", ""),    # git push
-            ],
+            "src.git_ops._git", return_value=(0, "Everything up-to-date", ""),
         )
-        ok, msg = push_current_branch(str(tmp_path))
+        ok, _ = push_current_branch(str(tmp_path))
         assert ok is True
 
     def test_failure_reports_stderr(self, tmp_path, mocker):
         from src.git_ops import push_current_branch
         mocker.patch(
             "src.git_ops._git",
-            side_effect=[
-                (0, "", ""),                                       # is_git_repo
-                (1, "", "fatal: no upstream configured"),          # git push
-            ],
+            return_value=(1, "", "fatal: no upstream configured"),
         )
         ok, msg = push_current_branch(str(tmp_path))
         assert ok is False
         assert "no upstream" in msg
 
-    def test_non_git_repo_short_circuits(self, tmp_path):
+    def test_non_git_repo_surfaces_git_error(self, tmp_path):
+        """git push itself reports the error — we just pass it through."""
         from src.git_ops import push_current_branch
         ok, msg = push_current_branch(str(tmp_path))
         assert ok is False

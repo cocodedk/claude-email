@@ -84,12 +84,9 @@ def push_current_branch(path: str) -> tuple[bool, str]:
     """Push the current branch to its tracking remote.
 
     Returns (True, stdout_or_summary) on success; (False, error_text)
-    otherwise. Used by chat_commit_project when the user asks to commit
-    AND push — keeps the LLM router off the chat_enqueue_task path that
-    would otherwise create a fresh `claude/task-*` branch.
+    otherwise. ``git push`` reports its own "not a git repository" error
+    in non-repo dirs, so we don't pre-check.
     """
-    if not is_git_repo(path):
-        return False, "not a git repository"
     rc, out, err = _git(["push"], path)
     if rc != 0:
         return False, err or out or f"git push rc={rc}"

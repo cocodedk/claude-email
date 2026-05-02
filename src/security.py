@@ -5,7 +5,7 @@ import hmac
 import logging
 import re as _re
 
-from src.email_extract import SUBJECT_PREFIX_RE
+from src.email_extract import decode_subject, strip_subject_prefixes
 from src.gpg_verify import verify_gpg_signature  # noqa: F401 — re-export
 
 logger = logging.getLogger(__name__)
@@ -148,15 +148,11 @@ def is_authorized(
     if gpg_fingerprint:
         return verify_gpg_signature(message, gpg_fingerprint, gpg_home)
 
-    subject = message.get("Subject", "")
-    # Strip Re:/Fwd:/Fw: prefixes (possibly nested) before checking AUTH —
-    # forwarded subject-only mails advertised on the website would otherwise
-    # be rejected before extract_command ever runs its own prefix strip.
-    prev = None
-    while subject != prev:
-        prev = subject
-        subject = SUBJECT_PREFIX_RE.sub("", subject)
-    subject = subject.strip()
+    # Decode encoded-words and strip Re/Fwd/Fw before the AUTH prefix check —
+    # forwarded subject-only mails on the website-advertised path would
+    # otherwise be rejected, and an RFC 2047 forwarded Subject would defeat
+    # AUTH detection entirely.
+    subject = strip_subject_prefixes(decode_subject(message.get("Subject", ""))).strip()
     expected_prefix = f"AUTH:{shared_secret}"
     if shared_secret and _ct_startswith(subject, expected_prefix):
         return True

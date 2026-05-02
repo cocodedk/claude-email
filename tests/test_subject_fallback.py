@@ -84,10 +84,8 @@ class TestSubjectFallback:
 
 
 class TestGpgSignedSubjectRefused:
-    """Codex P1: GPG signature only covers the body, so trusting the Subject
-    when the body is empty allows a header-tampering hop to substitute the
-    command without invalidating the signature.
-    """
+    """An OpenPGP signature covers only the body, so a header-tampering hop
+    could substitute the Subject without invalidating the signature."""
 
     def test_signed_empty_body_returns_empty(self):
         msg = _signed_msg("rm -rf /etc", body="")
@@ -115,9 +113,8 @@ class TestExplicitFallbackDisabled:
 
 
 class TestRfc2047SubjectDecoded:
-    """Codex P2: phone clients send Subject headers RFC 2047-encoded for
-    non-ASCII text. The fallback must decode them, not pass the encoded
-    word `=?utf-8?...?=` straight through to the claude CLI."""
+    """Phone clients send non-ASCII Subjects RFC 2047-encoded; the fallback
+    must decode them rather than pipe ``=?utf-8?...?=`` to the CLI."""
 
     def test_base64_encoded_subject_decoded(self):
         # base64-encoded "hello fødsel" in utf-8 — uses the IMAP-like

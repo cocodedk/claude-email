@@ -2,9 +2,9 @@
 chat_reset_project / chat_confirm_reset / chat_commit_project.
 
 Split from ``chat/project_tools.py`` to keep both files under the
-200-line cap. Shares ``_resolve_project`` from project_tools.
+200-line cap. Shares ``resolve_project`` from project_tools.
 """
-from chat.project_tools import _resolve_project
+from chat.project_tools import resolve_project
 from src.git_ops import commit_all, push_current_branch
 from src.reset_control import TokenStore, perform_reset
 from src.task_queue import TaskQueue
@@ -15,7 +15,7 @@ def reset_project_tool(
 ) -> dict:
     """Step 1 of the two-step hard reset — issues a confirm token."""
     try:
-        resolved = _resolve_project(project, allowed_base)
+        resolved = resolve_project(project, allowed_base)
     except ValueError as exc:
         return {"error": str(exc)}
     token = tokens.issue(resolved)
@@ -37,7 +37,7 @@ def confirm_reset_tool(
 ) -> dict:
     """Step 2 — validate token and perform the destructive reset."""
     try:
-        resolved = _resolve_project(project, allowed_base)
+        resolved = resolve_project(project, allowed_base)
     except ValueError as exc:
         return {"error": str(exc)}
     if not tokens.consume(resolved, token):
@@ -50,29 +50,24 @@ def commit_project_tool(
 ) -> dict:
     """Commit any pending changes in a project — escape hatch for dirty
     repos. With ``push=True``, also runs ``git push`` so 'commit and push'
-    emails map to one tool call (else the LLM router falls through to
-    chat_enqueue_task and creates a fresh per-task branch).
+    emails map to one tool call.
     """
     try:
-        resolved = _resolve_project(project, allowed_base)
+        resolved = resolve_project(project, allowed_base)
     except ValueError as exc:
         return {"error": str(exc)}
     ok, detail = commit_all(resolved, message)
     if not ok:
         return {"error": detail}
-    if not push:
-        return {"status": "committed", "sha": detail, "project": resolved}
-    push_ok, push_detail = push_current_branch(resolved)
-    if not push_ok:
-        return {
-            "status": "committed",
-            "sha": detail,
-            "project": resolved,
-            "push_error": push_detail,
-        }
-    return {
-        "status": "committed-and-pushed",
-        "sha": detail,
-        "project": resolved,
-        "push": push_detail,
+    result = {
+        "status": "committed", "sha": detail, "project": resolved,
+        "pushed": False, "push_error": None,
     }
+    if not push:
+        return result
+    push_ok, push_detail = push_current_branch(resolved)
+    if push_ok:
+        result["pushed"] = True
+    else:
+        result["push_error"] = push_detail
+    return result

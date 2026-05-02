@@ -96,8 +96,8 @@ class TestIsAuthorized:
         assert is_authorized(msg, authorized_sender="user@example.com", shared_secret=VALID_SECRET)
 
     def test_fwd_prefix_passes(self):
-        """Codex P2: forwarded subjects with AUTH:secret must auth in
-        shared-secret mode — the website advertises Fwd-prefix support."""
+        """Forwarded subjects with AUTH:secret must auth — the website
+        advertises Fwd-prefix support."""
         msg = _make_msg(
             "Babak <user@example.com>",
             return_path="<user@example.com>",

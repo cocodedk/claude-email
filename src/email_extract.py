@@ -25,13 +25,11 @@ _QUOTE_PATTERNS = (
 SUBJECT_PREFIX_RE = re.compile(r"^\s*(?:Re|Fwd|Fw)\s*:\s*", re.IGNORECASE)
 
 
-def _decode_subject_header(value: str) -> str:
+def decode_subject(value: str) -> str:
     """Decode RFC 2047 encoded-word Subjects (`=?utf-8?B?...?=`).
 
-    Phone clients send non-ASCII Subjects as encoded words, and messages
-    parsed by ``email.message_from_bytes`` without an explicit policy
-    hand them back undecoded — without this, the fallback would pipe
-    ``=?utf-8?B?...?=`` straight into the claude CLI.
+    Messages parsed by ``email.message_from_bytes`` (the IMAP poller's
+    path) hand encoded-word headers back undecoded.
     """
     if not value:
         return ""
@@ -41,12 +39,17 @@ def _decode_subject_header(value: str) -> str:
         return value
 
 
-def _clean_subject(subject: str, strip_secret: str = "") -> str:
-    subject = _decode_subject_header(subject)
+def strip_subject_prefixes(subject: str) -> str:
+    """Strip nested ``Re:`` / ``Fwd:`` / ``Fw:`` prefixes."""
     prev = None
     while subject != prev:
         prev = subject
         subject = SUBJECT_PREFIX_RE.sub("", subject)
+    return subject
+
+
+def _clean_subject(subject: str, strip_secret: str = "") -> str:
+    subject = strip_subject_prefixes(decode_subject(subject))
     if strip_secret:
         subject = subject.replace(f"AUTH:{strip_secret}", "")
     return subject.strip()
@@ -87,18 +90,13 @@ def extract_command(
 ) -> str:
     """Extract the command text from an email message body.
 
-    Prefers plain-text parts. Falls back to HTML. Strips quoted replies.
-    When ``strip_secret`` is non-empty, every ``AUTH:<secret>`` is removed
-    so the secret never flows into the claude CLI prompt, chat_db, logs,
-    or outbound relay emails.
+    Prefers plain-text, falls back to HTML, strips quoted-reply trailers,
+    and redacts every ``AUTH:<secret>`` occurrence.
 
-    When the body is empty, falls back to the Subject — phone clients
-    often send subject-only mails. The fallback is suppressed when:
-      - ``allow_subject_fallback=False`` (callers like chat_router that
-        already have the parsed subject in hand),
-      - the message is multipart/signed with an OpenPGP signature: the
-        signature only covers the body, so a header-tampering hop could
-        replace the Subject without invalidating the signature.
+    When the body is empty, falls back to the Subject — except for
+    OpenPGP-signed messages (the signature covers only the body) or
+    when ``allow_subject_fallback=False`` (caller already has the
+    subject in hand).
     """
     body = ""
 

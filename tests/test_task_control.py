@@ -233,9 +233,8 @@ class TestToolWrappers:
         assert result["error"] == "nothing to commit"
 
     def test_commit_project_tool_with_push_runs_push(self, tmp_path, mocker):
-        """UX fix: 'commit and push the dirty repo' must be a single tool
-        call that commits AND pushes — otherwise the LLM router falls
-        through to chat_enqueue_task and branches the work."""
+        """'commit and push the dirty repo' must be a single tool call so
+        the router doesn't fall through to chat_enqueue_task."""
         from chat.tools import commit_project_tool
         (tmp_path / "p").mkdir()
         mocker.patch(
@@ -248,13 +247,16 @@ class TestToolWrappers:
         result = commit_project_tool(
             project="p", message="WIP", push=True, allowed_base=str(tmp_path),
         )
-        assert result["status"] == "committed-and-pushed"
-        assert result["sha"] == "deadbeef"
+        assert result == {
+            "status": "committed", "sha": "deadbeef",
+            "project": str((tmp_path / "p").resolve()),
+            "pushed": True, "push_error": None,
+        }
         push.assert_called_once()
 
     def test_commit_project_tool_push_failure_after_commit(self, tmp_path, mocker):
-        """Commit succeeded but push failed — surface the push error so the
-        user sees the partial outcome."""
+        """Commit succeeded but push failed — push_error carries the reason
+        and pushed stays False."""
         from chat.tools import commit_project_tool
         (tmp_path / "p").mkdir()
         mocker.patch(
@@ -269,10 +271,10 @@ class TestToolWrappers:
         )
         assert result["status"] == "committed"
         assert result["sha"] == "abc1234"
+        assert result["pushed"] is False
         assert "no upstream" in result["push_error"]
 
     def test_commit_project_tool_push_default_off(self, tmp_path, mocker):
-        """Default push=False — preserves existing callers' behavior."""
         from chat.tools import commit_project_tool
         (tmp_path / "p").mkdir()
         mocker.patch(
@@ -283,6 +285,8 @@ class TestToolWrappers:
             project="p", message="x", allowed_base=str(tmp_path),
         )
         assert result["status"] == "committed"
+        assert result["pushed"] is False
+        assert result["push_error"] is None
         push.assert_not_called()
 
     def test_where_am_i_tool_empty(self, tq):

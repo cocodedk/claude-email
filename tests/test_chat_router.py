@@ -41,6 +41,17 @@ class TestStripSubjectPrefix:
         result = _strip_subject_prefix("re: RE: AUTH:mysecret status", AUTH_PREFIX)
         assert result == "status"
 
+    def test_strips_fwd_and_fw_prefixes(self):
+        assert _strip_subject_prefix("Fwd: AUTH:mysecret @x go", AUTH_PREFIX) == "@x go"
+        assert _strip_subject_prefix("FW: AUTH:mysecret status", AUTH_PREFIX) == "status"
+        assert _strip_subject_prefix("Re: Fwd: AUTH:mysecret status", AUTH_PREFIX) == "status"
+
+    def test_decodes_rfc2047_encoded_word(self):
+        # base64-encoded "AUTH:mysecret status" — Subject parsed from raw
+        # bytes by IMAP poller would otherwise show up encoded.
+        encoded = "=?utf-8?B?QVVUSDpteXNlY3JldCBzdGF0dXM=?="
+        assert _strip_subject_prefix(encoded, AUTH_PREFIX) == "status"
+
     def test_strips_auth_prefix_without_re(self):
         result = _strip_subject_prefix("AUTH:mysecret do something", AUTH_PREFIX)
         assert result == "do something"
@@ -133,9 +144,8 @@ class TestAgentCommand:
         assert route.body == "instruction from body"
 
     def test_subject_only_agent_command_uses_subject_remainder(self, db):
-        """Codex P2: subject-only @agent mails must deliver the remainder
-        as body, not the whole subject (which still has the @agent prefix).
-        """
+        """Subject-only @agent mails deliver the remainder as body, not
+        the whole subject (which still has the @agent prefix)."""
         email_msg = _make_msg(
             subject=f"{AUTH_PREFIX} @agent-fits run tests",
             body="",
