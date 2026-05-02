@@ -426,6 +426,7 @@ class TestToolDispatch:
         assert data["status"] == "committed"
         assert data["sha"] == "abc1234"
 
+
     def test_call_chat_where_am_i(self, app):
         import asyncio
         import json
