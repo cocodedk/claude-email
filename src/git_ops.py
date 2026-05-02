@@ -78,3 +78,16 @@ def commit_all(path: str, message: str) -> tuple[bool, str]:
         return False, err or f"git commit rc={rc}"
     rc, sha, _ = _git(["rev-parse", "--short", "HEAD"], path)
     return (rc == 0, sha if rc == 0 else "committed (sha lookup failed)")
+
+
+def push_current_branch(path: str) -> tuple[bool, str]:
+    """Push the current branch to its tracking remote.
+
+    Returns (True, stdout_or_summary) on success; (False, error_text)
+    otherwise. ``git push`` reports its own "not a git repository" error
+    in non-repo dirs, so we don't pre-check.
+    """
+    rc, out, err = _git(["push"], path)
+    if rc != 0:
+        return False, err or out or f"git push rc={rc}"
+    return True, out or "pushed"

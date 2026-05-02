@@ -172,3 +172,30 @@ class TestCommitAll:
         ok, msg = commit_all(str(tmp_path), "x")
         assert ok is False  # (rc == 0) is False because rc was 1
         assert "sha lookup failed" in msg
+
+
+class TestPushCurrentBranch:
+    def test_success(self, tmp_path, mocker):
+        from src.git_ops import push_current_branch
+        mocker.patch(
+            "src.git_ops._git", return_value=(0, "Everything up-to-date", ""),
+        )
+        ok, _ = push_current_branch(str(tmp_path))
+        assert ok is True
+
+    def test_failure_reports_stderr(self, tmp_path, mocker):
+        from src.git_ops import push_current_branch
+        mocker.patch(
+            "src.git_ops._git",
+            return_value=(1, "", "fatal: no upstream configured"),
+        )
+        ok, msg = push_current_branch(str(tmp_path))
+        assert ok is False
+        assert "no upstream" in msg
+
+    def test_non_git_repo_surfaces_git_error(self, tmp_path):
+        """git push itself reports the error — we just pass it through."""
+        from src.git_ops import push_current_branch
+        ok, msg = push_current_branch(str(tmp_path))
+        assert ok is False
+        assert "not a git" in msg.lower()

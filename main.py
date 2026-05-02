@@ -15,7 +15,8 @@ from dotenv import load_dotenv
 from src.chat_handlers import handle_chat_email, maybe_cleanup_db, relay_outbound_messages, send_threaded_reply
 from src.config import build_config
 from src.dispatch import build_universe_resources, dispatch_by_sender, universes_from_config
-from src.executor import execute_command, extract_command
+from src.email_extract import extract_command
+from src.executor import execute_command
 from src.ghost_reaper import sweep_ghosts
 from src.json_envelope import is_json_email
 from src.json_handler import handle_json_email

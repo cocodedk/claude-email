@@ -1,6 +1,9 @@
 """Subject fallback: phone-style subject-only mails must be acceptable commands."""
+import email
 import email.message
-from src.executor import extract_command
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from src.email_extract import extract_command
 
 
 def _msg(subject: str, body: str = "") -> email.message.Message:
@@ -10,6 +13,28 @@ def _msg(subject: str, body: str = "") -> email.message.Message:
         m.set_content(body)
     else:
         m.set_content("")
+    return m
+
+
+def _raw_msg(subject: str, body: str = "") -> email.message.Message:
+    """Mirror the IMAP poller's `email.message_from_bytes(raw)` path —
+    no explicit policy, so RFC 2047 encoded-word Subjects come through
+    undecoded the way they do in production."""
+    raw = (
+        f"Subject: {subject}\r\n"
+        "Content-Type: text/plain; charset=utf-8\r\n"
+        "\r\n"
+        f"{body}\r\n"
+    ).encode("utf-8")
+    return email.message_from_bytes(raw)
+
+
+def _signed_msg(subject: str, body: str = "") -> email.message.Message:
+    """Build a multipart/signed message simulating an OpenPGP-signed email."""
+    m = MIMEMultipart("signed", protocol="application/pgp-signature")
+    m["Subject"] = subject
+    m.attach(MIMEText(body, "plain", "utf-8"))
+    m.attach(MIMEText("---FAKE PGP SIGNATURE---", "pgp-signature", "us-ascii"))
     return m
 
 
@@ -56,3 +81,52 @@ class TestSubjectFallback:
         m = email.message.EmailMessage()
         m.set_content("")
         assert extract_command(m) == ""
+
+
+class TestGpgSignedSubjectRefused:
+    """An OpenPGP signature covers only the body, so a header-tampering hop
+    could substitute the Subject without invalidating the signature."""
+
+    def test_signed_empty_body_returns_empty(self):
+        msg = _signed_msg("rm -rf /etc", body="")
+        assert extract_command(msg) == ""
+
+    def test_signed_with_body_uses_body(self):
+        """Signed messages with a real body still use the body — only the
+        empty-body fallback is suppressed."""
+        msg = _signed_msg("ignored", body="run the migration")
+        assert extract_command(msg) == "run the migration"
+
+
+class TestExplicitFallbackDisabled:
+    """Callers (e.g. chat_router for @agent commands) need to suppress the
+    subject fallback so they can supply a parsed remainder instead of the
+    raw subject."""
+
+    def test_disable_fallback_returns_empty_for_empty_body(self):
+        msg = _msg("would-be-subject", body="")
+        assert extract_command(msg, allow_subject_fallback=False) == ""
+
+    def test_disable_fallback_still_returns_body(self):
+        msg = _msg("ignored", body="real command")
+        assert extract_command(msg, allow_subject_fallback=False) == "real command"
+
+
+class TestRfc2047SubjectDecoded:
+    """Phone clients send non-ASCII Subjects RFC 2047-encoded; the fallback
+    must decode them rather than pipe ``=?utf-8?...?=`` to the CLI."""
+
+    def test_base64_encoded_subject_decoded(self):
+        # base64-encoded "hello fødsel" in utf-8 — uses the IMAP-like
+        # message_from_bytes path so the encoded word survives to the helper.
+        msg = _raw_msg("=?utf-8?B?aGVsbG8gZsO4ZHNlbA==?=")
+        assert extract_command(msg) == "hello fødsel"
+
+    def test_quoted_printable_subject_decoded(self):
+        msg = _raw_msg("=?utf-8?Q?caf=C3=A9?=")
+        assert extract_command(msg) == "café"
+
+    def test_persian_subject_decoded(self):
+        # base64-encoded Persian "سلام" in utf-8
+        msg = _raw_msg("=?utf-8?B?2LPZhNin2YU=?=")
+        assert extract_command(msg) == "سلام"

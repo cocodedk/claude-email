@@ -181,6 +181,7 @@ async def dispatch(
         return tools.commit_project_tool(
             project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
             message=_sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
+            push=_parse_bool(arguments.get("push", False)),
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
     raise ValueError(f"Unknown tool: {name}")
