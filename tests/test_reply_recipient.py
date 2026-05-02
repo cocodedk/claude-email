@@ -271,7 +271,7 @@ class TestPostExecuteOriginFromFixup:
         """Codex repro: SQLite LIKE treats ``_`` as single-char wildcard,
         so ``allowed_base=/tmp/foo_bar`` would otherwise match a task at
         ``/tmp/fooxbar/proj`` and stamp it across universes."""
-        from src.reply_routing_fixup import stamp_origin_from_for_window
+        from src.reply_routing_fixup import stamp_origin_for_window
         ChatDB(str(tmp_path / "x.db"))
         tq = TaskQueue(str(tmp_path / "x.db"))
         from datetime import datetime, timezone
@@ -279,19 +279,90 @@ class TestPostExecuteOriginFromFixup:
         # Underscore in the universe's allowed_base.
         base = str(tmp_path / "foo_bar")
         (tmp_path / "foo_bar").mkdir()
-        # Different-universe task path that would match /tmp/foo_bar/% via
-        # LIKE if the underscore weren't escaped.
         other_path = str(tmp_path / "fooxbar" / "proj")
         (tmp_path / "fooxbar" / "proj").mkdir(parents=True)
         tid = tq.enqueue(other_path, "x")
-        n = stamp_origin_from_for_window(
-            db_path=str(tmp_path / "x.db"),
-            allowed_base=base,
-            reply_to="alias@example.com",
-            started_at_iso=started,
+        n = stamp_origin_for_window(
+            db_path=str(tmp_path / "x.db"), allowed_base=base,
+            reply_to="alias@example.com", started_at_iso=started,
+            origin_message_id="<m@x>",
         )
         assert n == 0
         assert tq.get(tid)["origin_from"] is None
+
+    def test_resolves_symlinked_allowed_base(self, tmp_path):
+        """Codex P2: enqueue_task_tool stores ``Path(...).resolve()`` for
+        project_path. If the fixup compares against an unresolved
+        allowed_base (symlink / relative / ``..``) the project would not
+        match and the task's [Update] gets drained without SMTP."""
+        from src.reply_routing_fixup import stamp_origin_for_window
+        ChatDB(str(tmp_path / "x.db"))
+        tq = TaskQueue(str(tmp_path / "x.db"))
+        from datetime import datetime, timezone
+        real = tmp_path / "real"
+        real.mkdir()
+        (real / "p").mkdir()
+        link = tmp_path / "link"
+        link.symlink_to(real)
+        # enqueue_task_tool would store the resolved path, so simulate.
+        from pathlib import Path as _P
+        resolved_proj = str(_P(link / "p").resolve())
+        started = datetime.now(timezone.utc).isoformat()
+        tid = tq.enqueue(resolved_proj, "x")
+        # Caller passes the SYMLINK form (the unresolved CLAUDE_CWD).
+        n = stamp_origin_for_window(
+            db_path=str(tmp_path / "x.db"), allowed_base=str(link),
+            reply_to="alias@example.com", started_at_iso=started,
+            origin_message_id="<m@x>",
+        )
+        assert n == 1
+        row = tq.get(tid)
+        assert row["origin_from"] == "alias@example.com"
+
+    def test_aborts_on_ambiguous_concurrent_tasks(self, tmp_path):
+        """Codex P2: if a non-router MCP client enqueues an origin-less
+        task during the dispatch window, stamping both would route the
+        unrelated task's [Update] to this dispatch's sender. Refuse
+        rather than mis-route."""
+        from src.reply_routing_fixup import stamp_origin_for_window
+        ChatDB(str(tmp_path / "x.db"))
+        tq = TaskQueue(str(tmp_path / "x.db"))
+        proj = str(tmp_path / "p")
+        (tmp_path / "p").mkdir()
+        from datetime import datetime, timezone
+        started = datetime.now(timezone.utc).isoformat()
+        a = tq.enqueue(proj, "router task")
+        b = tq.enqueue(proj, "concurrent agent task")
+        n = stamp_origin_for_window(
+            db_path=str(tmp_path / "x.db"), allowed_base=str(tmp_path),
+            reply_to="alias@example.com", started_at_iso=started,
+            origin_message_id="<m@x>",
+        )
+        assert n == 0
+        assert tq.get(a)["origin_from"] is None
+        assert tq.get(b)["origin_from"] is None
+
+    def test_pre_max_id_excludes_pre_existing_tasks(self, tmp_path):
+        """Tasks enqueued before the dispatch must not be touched even
+        if they're origin-less and live in the same universe."""
+        from src.reply_routing_fixup import stamp_origin_for_window, max_task_id
+        ChatDB(str(tmp_path / "x.db"))
+        tq = TaskQueue(str(tmp_path / "x.db"))
+        proj = str(tmp_path / "p")
+        (tmp_path / "p").mkdir()
+        old = tq.enqueue(proj, "pre-existing")
+        pre_max = max_task_id(str(tmp_path / "x.db"))
+        from datetime import datetime, timezone
+        started = datetime.now(timezone.utc).isoformat()
+        new = tq.enqueue(proj, "router task")
+        n = stamp_origin_for_window(
+            db_path=str(tmp_path / "x.db"), allowed_base=str(tmp_path),
+            reply_to="alias@example.com", started_at_iso=started,
+            pre_max_id=pre_max, origin_message_id="<m@x>",
+        )
+        assert n == 1
+        assert tq.get(old)["origin_from"] is None
+        assert tq.get(new)["origin_from"] == "alias@example.com"
 
 
 class TestRunRouterWithFixup:
