@@ -135,16 +135,20 @@ async def dispatch(
             max_budget_usd=os.environ.get("CLAUDE_MAX_BUDGET_USD") or None,
         )
     if name == "chat_enqueue_task":
+        # ``origin_*`` are deliberately NOT accepted from MCP arguments.
+        # chat_enqueue_task is exposed to every bus client; an LLM-driven
+        # origin_from would let any caller route a task's completion email
+        # to an arbitrary address, bypassing authorized_senders. The
+        # deterministic email-router fixup
+        # (src/reply_routing_fixup.run_router_with_fixup) stamps these
+        # fields from the trusted inbound message instead. JSON-envelope
+        # mail sets them via the in-process call from json_handler.
         return tools.enqueue_task_tool(
             queue, manager,
             project=_sanitize_str(arguments["project"], _MAX_PATH_LEN, "project"),
             body=_sanitize_str(arguments["body"], _MAX_MSG_LEN, "body"),
             priority=int(arguments.get("priority", 0)),
             plan_first=_parse_bool(arguments.get("plan_first", False)),
-            origin_from=str(arguments.get("origin_from", "") or ""),
-            origin_message_id=str(arguments.get("origin_message_id", "") or ""),
-            origin_subject=str(arguments.get("origin_subject", "") or ""),
-            origin_content_type=str(arguments.get("origin_content_type", "") or ""),
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
     if name == "chat_cancel_task":

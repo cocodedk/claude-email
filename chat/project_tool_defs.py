@@ -7,31 +7,6 @@ from mcp.types import Tool
 
 _PATH_DESC = "Folder name or absolute path"
 
-# Email-origin metadata accepted on chat_enqueue_task — populated by the
-# email router so result / [Update] replies route back to the actual
-# inbound sender instead of the canonical AUTHORIZED_SENDER.
-_ORIGIN_PROPS = {
-    "origin_from": {
-        "type": "string", "default": "",
-        "description": (
-            "Inbound sender's email. Required when triggered by email so "
-            "[Update] replies route to the actual sender, not canonical."
-        ),
-    },
-    "origin_message_id": {
-        "type": "string", "default": "",
-        "description": "Inbound Message-ID — threads replies via In-Reply-To.",
-    },
-    "origin_subject": {
-        "type": "string", "default": "",
-        "description": "Inbound Subject (preserved for replies).",
-    },
-    "origin_content_type": {
-        "type": "string", "default": "",
-        "description": "Inbound Content-Type ('application/json' or empty).",
-    },
-}
-
 PROJECT_TOOLS = [
     Tool(
         name="chat_spawn_agent",
@@ -83,7 +58,6 @@ PROJECT_TOOLS = [
                     ),
                     "default": False,
                 },
-                **_ORIGIN_PROPS,
             },
             "required": ["project", "body"],
         },

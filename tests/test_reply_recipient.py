@@ -116,13 +116,16 @@ class TestRecipientForMessage:
         assert recipient_for_message(cdb, msg, cfg) == "bb@example.com"
 
 
-class TestMcpDispatchForwardsOriginFrom:
-    """Plain-text emails route through LLM-router → chat_enqueue_task (MCP).
-    Without forwarding origin_from from MCP arguments, tasks created on
-    that path land with origin_from=NULL and the relay routes [Update]
-    messages to the canonical sender — exactly the post-PR#38 regression."""
+class TestMcpDispatchIgnoresOriginArgs:
+    """Security: chat_enqueue_task is exposed to every MCP client/agent.
+    If origin_from / origin_message_id were trusted from MCP arguments,
+    any caller could hijack a task's reply address (relay treats
+    origin_message_id-set tasks as email-origin and addresses replies
+    to origin_from). The dispatcher must drop these fields; the
+    deterministic email-router fixup stamps them from the inbound
+    message instead."""
 
-    def test_dispatch_passes_origin_from_to_enqueue(self, tmp_path, mocker, monkeypatch):
+    def test_dispatch_ignores_origin_args_from_mcp(self, tmp_path, mocker, monkeypatch):
         import asyncio
         from chat.dispatch import dispatch
         from src.task_queue import TaskQueue
@@ -149,44 +152,53 @@ class TestMcpDispatchForwardsOriginFrom:
             "chat_enqueue_task",
             {
                 "project": "p", "body": "do the thing",
-                "origin_from": "alias@example.com",
-                "origin_message_id": "<inbound@example.com>",
-                "origin_subject": "do the thing",
-                "origin_content_type": "text/plain",
+                # Attacker-supplied; must NOT land on the row.
+                "origin_from": "attacker@example.com",
+                "origin_message_id": "<spoofed@example.com>",
+                "origin_subject": "spoofed",
+                "origin_content_type": "application/json",
             },
         ))
         assert "task_id" in result
         row = queue.get(result["task_id"])
-        assert row["origin_from"] == "alias@example.com"
-        assert row["origin_message_id"] == "<inbound@example.com>"
+        assert row["origin_from"] is None
+        assert row["origin_message_id"] is None
+        assert row["origin_subject"] is None
 
 
 class TestPostExecuteOriginFromFixup:
-    """Safety net: even if the LLM router forgets to pass origin_from, any
-    task created during a dispatch with origin_from=NULL must be stamped
-    with config.reply_to before relay_outbound_messages fires."""
+    """Safety net: tasks created via the LLM-router MCP path land with
+    origin_*=NULL (the dispatcher refuses to trust LLM-supplied values).
+    The fixup must stamp origin_from / origin_message_id / origin_subject
+    from the trusted inbound message before relay_outbound_messages
+    fires — without origin_message_id, ``chat_relay._should_relay`` drops
+    the [Update] entirely instead of sending it."""
 
     def test_stamps_unstamped_task_in_dispatch_window(self, tmp_path):
-        from src.reply_routing_fixup import stamp_origin_from_for_window
+        from src.reply_routing_fixup import stamp_origin_for_window
         ChatDB(str(tmp_path / "x.db"))
         tq = TaskQueue(str(tmp_path / "x.db"))
         cdb = ChatDB(str(tmp_path / "x.db"))
         proj = str(tmp_path / "p")
         (tmp_path / "p").mkdir()
-        # Window-start marker collected before dispatch.
         from datetime import datetime, timezone
         started = datetime.now(timezone.utc).isoformat()
-        # Task created during the window with no origin_from (the LLM
-        # router-via-MCP path forgot to pass it).
         tid = tq.enqueue(proj, "do work")
-        n = stamp_origin_from_for_window(
+        n = stamp_origin_for_window(
             db_path=str(tmp_path / "x.db"),
             allowed_base=str(tmp_path),
             reply_to="alias@example.com",
             started_at_iso=started,
+            origin_message_id="<m-1@example.com>",
+            origin_subject="Re: do work",
         )
         assert n == 1
-        assert tq.get(tid)["origin_from"] == "alias@example.com"
+        row = tq.get(tid)
+        assert row["origin_from"] == "alias@example.com"
+        # origin_message_id is required by chat_relay._should_relay —
+        # without it the [Update] is silently dropped.
+        assert row["origin_message_id"] == "<m-1@example.com>"
+        assert row["origin_subject"] == "Re: do work"
 
     def test_does_not_overwrite_existing_origin_from(self, tmp_path):
         from src.reply_routing_fixup import stamp_origin_from_for_window
@@ -255,6 +267,32 @@ class TestPostExecuteOriginFromFixup:
         )
         assert n == 0
 
+    def test_underscore_in_allowed_base_does_not_overmatch(self, tmp_path):
+        """Codex repro: SQLite LIKE treats ``_`` as single-char wildcard,
+        so ``allowed_base=/tmp/foo_bar`` would otherwise match a task at
+        ``/tmp/fooxbar/proj`` and stamp it across universes."""
+        from src.reply_routing_fixup import stamp_origin_from_for_window
+        ChatDB(str(tmp_path / "x.db"))
+        tq = TaskQueue(str(tmp_path / "x.db"))
+        from datetime import datetime, timezone
+        started = datetime.now(timezone.utc).isoformat()
+        # Underscore in the universe's allowed_base.
+        base = str(tmp_path / "foo_bar")
+        (tmp_path / "foo_bar").mkdir()
+        # Different-universe task path that would match /tmp/foo_bar/% via
+        # LIKE if the underscore weren't escaped.
+        other_path = str(tmp_path / "fooxbar" / "proj")
+        (tmp_path / "fooxbar" / "proj").mkdir(parents=True)
+        tid = tq.enqueue(other_path, "x")
+        n = stamp_origin_from_for_window(
+            db_path=str(tmp_path / "x.db"),
+            allowed_base=base,
+            reply_to="alias@example.com",
+            started_at_iso=started,
+        )
+        assert n == 0
+        assert tq.get(tid)["origin_from"] is None
+
 
 class TestRunRouterWithFixup:
     """The orchestration wrapper main.process_email uses — wraps the
@@ -311,21 +349,18 @@ class TestRunRouterWithFixup:
         stamp.assert_not_called()
 
 
-class TestLlmRouterPromptCarriesReplyTo:
-    """The router prompt must carry the actual inbound sender so the LLM
-    can pass it as origin_from on chat_enqueue_task."""
+class TestLlmRouterPromptDoesNotLeakSender:
+    """Codex caught: trusting LLM-supplied origin_from is a routing-
+    hijack vector. The prompt must not instruct the LLM to pass it,
+    and must not embed the sender into the prompt at all (the fixup
+    handles routing deterministically)."""
 
-    def test_build_prompt_inserts_reply_to(self):
+    def test_build_prompt_ignores_reply_to(self):
         from src.llm_router import build_email_router_prompt
-        out = build_email_router_prompt(reply_to="alias@example.com")
-        assert "alias@example.com" in out
-        assert "origin_from" in out
-
-    def test_build_prompt_without_reply_to_omits_block(self):
-        from src.llm_router import build_email_router_prompt
-        out = build_email_router_prompt(reply_to="")
-        # Should still be a well-formed prompt — just without the
-        # sender-specific instruction.
-        assert "chat_enqueue_task" in out
-        # And no template placeholder leaking through.
-        assert "{reply_to}" not in out
+        out_with = build_email_router_prompt(reply_to="alias@example.com")
+        out_without = build_email_router_prompt(reply_to="")
+        # The prompt is sender-agnostic — same text either way.
+        assert out_with == out_without
+        assert "alias@example.com" not in out_with
+        # And no placeholder leaking through.
+        assert "{reply_to}" not in out_with

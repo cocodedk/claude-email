@@ -109,21 +109,13 @@ _EMAIL_ROUTER_BASE_PROMPT = (
 def build_email_router_prompt(reply_to: str = "") -> str:
     """Compose the email-router system prompt for one inbound email.
 
-    When ``reply_to`` is set, the prompt instructs the LLM to pass it as
-    ``origin_from`` on every chat_enqueue_task call so async [Update] /
-    result replies route back to the actual sender (not the canonical
-    AUTHORIZED_SENDER). Without this, plain-text emails through the
-    LLM-router → MCP path land on tasks with origin_from=NULL and the
-    relay falls back to the canonical inbox.
+    The router doesn't need to pass origin_from itself — the
+    deterministic fixup in ``main.process_email`` stamps origin_from /
+    origin_message_id / origin_subject on every task created during
+    the dispatch window, derived from the trusted inbound message.
+    Trusting an LLM-supplied origin_from would let any MCP caller
+    hijack a task's reply address, so the field isn't even in the MCP
+    schema. This builder remains a function for symmetry with the
+    fixup and to leave room for future per-sender tweaks.
     """
-    if not reply_to:
-        return _EMAIL_ROUTER_BASE_PROMPT
-    sender_block = (
-        f"\n\nINBOUND SENDER: {reply_to}\n"
-        "When you call chat_enqueue_task, you MUST pass "
-        f"origin_from=\"{reply_to}\" so the worker's [Update] / result "
-        "replies thread back to the same inbox the user wrote from. "
-        "Forgetting this routes the result to the canonical sender and "
-        "the user never sees it in their actual mailbox."
-    )
-    return _EMAIL_ROUTER_BASE_PROMPT + sender_block
+    return _EMAIL_ROUTER_BASE_PROMPT

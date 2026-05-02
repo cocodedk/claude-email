@@ -105,6 +105,8 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
         ),
         db_path=chat_db.path if (on and chat_db is not None) else "",
         allowed_base=base if on else "", reply_to=reply_to if on else "",
+        origin_message_id=message.get("Message-ID", "") if on else "",
+        origin_subject=message.get("Subject", "") if on else "",
     )
     send_threaded_reply(
         config, message, output, tag="Result", chat_db=chat_db, kind="result",
