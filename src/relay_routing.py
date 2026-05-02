@@ -48,16 +48,22 @@ def subject_base_for_message(chat_db, msg: dict) -> str:
 def recipient_for_message(chat_db, msg: dict, config: dict) -> str:
     """Return the email address to send this outbound to.
 
-    Task-linked messages go back to the sender whose universe owns the
-    task's project_path. Non-task messages go to config.authorized_sender
-    (the primary sender). This is how test-universe notifications reach
-    test@example.com instead of defaulting to user@example.com.
+    Priority for task-linked messages:
+      1. ``tasks.origin_from`` — the actual inbound sender. Only populated
+         when the inbound came through the dispatch path. This is how alias
+         senders get their replies back instead of the canonical inbox.
+      2. The universe whose ``allowed_base`` owns the task's project_path
+         — picks the canonical sender for that universe (primary vs test
+         isolation).
+      3. ``config.authorized_sender`` — primary fallback.
     """
     task_id = msg.get("task_id")
     if task_id:
         row = chat_db._conn.execute(  # noqa: SLF001
-            "SELECT project_path FROM tasks WHERE id=?", (task_id,),
+            "SELECT project_path, origin_from FROM tasks WHERE id=?", (task_id,),
         ).fetchone()
+        if row and row["origin_from"]:
+            return row["origin_from"]
         if row and row["project_path"]:
             proj = row["project_path"]
             for u in config.get("universes", []):

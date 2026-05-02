@@ -169,6 +169,6 @@ class TestUniverseAliases:
 
     def test_test_sender_collision_case_insensitive(self):
         env = _base_env(AUTHORIZED_SENDER="user@example.com, alias@example.com")
-        test_env = {"SENDER": "BABAK@Cocode.DK"}
+        test_env = {"SENDER": "ALIAS@Example.COM"}
         with pytest.raises(ValueError, match="duplicates a primary"):
             build_universes(env, test_env=test_env)

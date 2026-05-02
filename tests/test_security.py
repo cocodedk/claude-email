@@ -151,8 +151,8 @@ class TestReplyAuthorization:
             return_path="<user@example.com>",
             subject="Re: [master-fixer] message",
         )
-        msg["In-Reply-To"] = "<known-chat-msg@cocode.dk>"
-        db = _FakeChatDB(known_ids={"<known-chat-msg@cocode.dk>"})
+        msg["In-Reply-To"] = "<known-chat-msg@example.com>"
+        db = _FakeChatDB(known_ids={"<known-chat-msg@example.com>"})
         assert is_authorized(
             msg,
             authorized_sender="user@example.com",
@@ -182,8 +182,8 @@ class TestReplyAuthorization:
             return_path="<evil@attacker.com>",
             subject="Re: [master-fixer] message",
         )
-        msg["In-Reply-To"] = "<known-chat-msg@cocode.dk>"
-        db = _FakeChatDB(known_ids={"<known-chat-msg@cocode.dk>"})
+        msg["In-Reply-To"] = "<known-chat-msg@example.com>"
+        db = _FakeChatDB(known_ids={"<known-chat-msg@example.com>"})
         assert not is_authorized(
             msg,
             authorized_sender="user@example.com",
@@ -598,8 +598,8 @@ class TestOutboundEmailsThreadMatch:
             return_path="<user@example.com>",
             subject="Re: [Result] do the thing",
         )
-        msg["In-Reply-To"] = "<cli-result@cocode.dk>"
-        db = _FakeChatDBWithOutbound(outbound_ids={"<cli-result@cocode.dk>"})
+        msg["In-Reply-To"] = "<cli-result@example.com>"
+        db = _FakeChatDBWithOutbound(outbound_ids={"<cli-result@example.com>"})
         assert is_authorized(
             msg,
             authorized_sender="user@example.com",
@@ -613,8 +613,8 @@ class TestOutboundEmailsThreadMatch:
             return_path="<evil@x>",
             subject="Re: [Result] something",
         )
-        msg["In-Reply-To"] = "<cli-result@cocode.dk>"
-        db = _FakeChatDBWithOutbound(outbound_ids={"<cli-result@cocode.dk>"})
+        msg["In-Reply-To"] = "<cli-result@example.com>"
+        db = _FakeChatDBWithOutbound(outbound_ids={"<cli-result@example.com>"})
         assert not is_authorized(
             msg,
             authorized_sender="user@example.com",
@@ -631,8 +631,8 @@ class TestOutboundEmailsThreadMatch:
             return_path="<user@example.com>",
             subject="Re: relay",
         )
-        msg["In-Reply-To"] = "<relay-msg@cocode.dk>"
-        db = _FakeChatDBWithOutbound(message_ids={"<relay-msg@cocode.dk>"})
+        msg["In-Reply-To"] = "<relay-msg@example.com>"
+        db = _FakeChatDBWithOutbound(message_ids={"<relay-msg@example.com>"})
         assert is_authorized(
             msg,
             authorized_sender="user@example.com",
@@ -681,8 +681,8 @@ class TestSpoofingResistance:
 
     def test_unicode_lookalike_in_display_name_is_ignored(self):
         msg = _make_msg(
-            "Babak Bandpey <Ьb@cocode.dk>",  # cyrillic 'Ь' — lookalike
-            return_path="<Ьb@cocode.dk>",
+            "Babak Bandpey <Ьb@example.com>",  # cyrillic 'Ь' — lookalike
+            return_path="<Ьb@example.com>",
             subject=f"AUTH:{VALID_SECRET} cmd",
         )
         assert not is_authorized(
@@ -739,8 +739,8 @@ class TestSpoofingResistance:
             return_path="<evil@attacker.com>",
             subject="Re: anything",
         )
-        msg["In-Reply-To"] = "<leaked-id@cocode.dk>"
-        db = _FakeChatDBWithOutbound(outbound_ids={"<leaked-id@cocode.dk>"})
+        msg["In-Reply-To"] = "<leaked-id@example.com>"
+        db = _FakeChatDBWithOutbound(outbound_ids={"<leaked-id@example.com>"})
         assert not is_authorized(
             msg,
             authorized_sender="user@example.com",
@@ -754,8 +754,8 @@ class TestSpoofingResistance:
             return_path="<evil@attacker.com>",
             subject="Re: anything",
         )
-        msg["In-Reply-To"] = "<leaked-msg@cocode.dk>"
-        db = _FakeChatDBWithOutbound(message_ids={"<leaked-msg@cocode.dk>"})
+        msg["In-Reply-To"] = "<leaked-msg@example.com>"
+        db = _FakeChatDBWithOutbound(message_ids={"<leaked-msg@example.com>"})
         assert not is_authorized(
             msg,
             authorized_sender="user@example.com",

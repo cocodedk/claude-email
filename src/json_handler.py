@@ -60,9 +60,10 @@ def handle_json_email(
     logger.info("JSON envelope accepted: kind=%s project=%s", env.kind, env.project)
     inbound_msg_id = message.get("Message-ID", "")
     inbound_subject = message.get("Subject", "")
+    inbound_from = config.get("reply_to") or config.get("authorized_sender", "")
     reply = _dispatch(
         env, config, chat_db, task_queue, worker_manager,
-        inbound_msg_id, inbound_subject,
+        inbound_msg_id, inbound_subject, inbound_from,
     )
     _send_json_reply(config, message, reply, chat_db=chat_db)
     return True
@@ -71,13 +72,14 @@ def handle_json_email(
 def _dispatch(
     env: Envelope, config, chat_db, task_queue, worker_manager,
     inbound_msg_id: str = "", inbound_subject: str = "",
+    inbound_from: str = "",
 ) -> str:
     universe = config.get("_universe")
     allowed_base = universe.allowed_base if universe else config.get("claude_cwd", "")
     if env.kind == "command":
         return _handle_command(
             env, task_queue, worker_manager, allowed_base,
-            inbound_msg_id, inbound_subject,
+            inbound_msg_id, inbound_subject, inbound_from,
         )
     msg = f"kind {env.kind!r} comes online in a later phase"
     return build_envelope(
@@ -89,7 +91,7 @@ def _dispatch(
 
 def _handle_command(
     env, task_queue, worker_manager, allowed_base,
-    inbound_msg_id="", inbound_subject="",
+    inbound_msg_id="", inbound_subject="", inbound_from="",
 ) -> str:
     if not env.project or not env.body:
         return build_envelope(
@@ -111,6 +113,7 @@ def _handle_command(
         origin_content_type="application/json",
         origin_message_id=inbound_msg_id,
         origin_subject=inbound_subject,
+        origin_from=inbound_from,
     )
     if "error" in result:
         code = result.get("error_code", "invalid_state")
@@ -145,7 +148,8 @@ def _send_json_reply(
         sent_id = send_reply(
             smtp_host=config["smtp_host"], smtp_port=config["smtp_port"],
             username=config["username"], password=config["password"],
-            to=config["authorized_sender"], subject=subject,
+            to=config.get("reply_to") or config["authorized_sender"],
+            subject=subject,
             body=body_json, in_reply_to=msg_id, references=msg_id,
             email_domain=config.get("email_domain", ""),
             content_type="application/json",

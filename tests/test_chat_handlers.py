@@ -87,6 +87,34 @@ class TestSendThreadedReply:
         kwargs = mock_send.call_args.kwargs
         assert kwargs["email_domain"] == "custom.domain"
 
+    def test_reply_to_overrides_canonical_sender(self, mocker):
+        """When dispatch_by_sender adds ``reply_to`` to the scoped config,
+        send_threaded_reply must address the reply to that actual sender,
+        not the canonical AUTHORIZED_SENDER. Otherwise alias senders can
+        write but never receive."""
+        from src.chat_handlers import send_threaded_reply
+
+        mock_send = mocker.patch("src.chat_handlers.send_reply", return_value="<r@mail>")
+        config = _base_config()
+        config["authorized_senders"] = ["bb@example.com", "alias@example.com"]
+        config["reply_to"] = "alias@example.com"
+        send_threaded_reply(config, _make_message(), "body")
+
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["to"] == "alias@example.com"
+
+    def test_falls_back_to_canonical_when_reply_to_missing(self, mocker):
+        """Direct callers (legacy/test paths) without reply_to keep using
+        the canonical sender — preserves back-compat."""
+        from src.chat_handlers import send_threaded_reply
+
+        mock_send = mocker.patch("src.chat_handlers.send_reply", return_value="<r@mail>")
+        config = _base_config()  # no reply_to
+        send_threaded_reply(config, _make_message(), "body")
+
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["to"] == "bb@example.com"
+
 
 class TestHandleMetaSpawnValueError:
     """Covers lines 109-111: spawn ValueError path."""

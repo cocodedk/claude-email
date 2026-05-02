@@ -21,11 +21,11 @@ def cdb(tmp_path):
 class TestRecordOutbound:
     def test_record_then_find(self, cdb):
         cdb.record_outbound_email(
-            "<m1@cocode.dk>", kind="ack", sender_agent="agent-x",
+            "<m1@example.com>", kind="ack", sender_agent="agent-x",
         )
-        row = cdb.find_outbound_email("<m1@cocode.dk>")
+        row = cdb.find_outbound_email("<m1@example.com>")
         assert row is not None
-        assert row["email_message_id"] == "<m1@cocode.dk>"
+        assert row["email_message_id"] == "<m1@example.com>"
         assert row["kind"] == "ack"
         assert row["sender_agent"] == "agent-x"
 

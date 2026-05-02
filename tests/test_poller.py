@@ -123,7 +123,7 @@ class TestEmailPoller:
     def test_list_with_non_string_entries_starts_fresh(self, tmp_path):
         """A list containing non-strings (int, None, dict) must be rejected."""
         state_file = tmp_path / "ids.json"
-        state_file.write_text('["<valid-id@cocode.dk>", 42, null, {"x": 1}]')
+        state_file.write_text('["<valid-id@example.com>", 42, null, {"x": 1}]')
         poller = EmailPoller(
             host="h", port=993, username="u", password="p",
             state_file=str(state_file),
@@ -135,12 +135,12 @@ class TestEmailPoller:
     def test_list_of_strings_loads_normally(self, tmp_path):
         """The happy path stays happy."""
         state_file = tmp_path / "ids.json"
-        state_file.write_text('["<a@cocode.dk>", "<b@cocode.dk>"]')
+        state_file.write_text('["<a@example.com>", "<b@example.com>"]')
         poller = EmailPoller(
             host="h", port=993, username="u", password="p",
             state_file=str(state_file),
         )
-        assert set(poller._processed_ids) == {"<a@cocode.dk>", "<b@cocode.dk>"}
+        assert set(poller._processed_ids) == {"<a@example.com>", "<b@example.com>"}
 
     def test_fetch_unseen_not_connected_raises(self, tmp_path):
         poller = EmailPoller(

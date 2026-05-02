@@ -23,7 +23,7 @@ def _config():
         "smtp_host": "smtp.example.com", "smtp_port": 465,
         "username": "agent@example.com", "password": "pw",
         "authorized_sender": "user@example.com",
-        "email_domain": "cocode.dk",
+        "email_domain": "example.com",
         "universes": [],
     }
 
@@ -116,7 +116,7 @@ class TestThreadMatchPlumbing:
     reply auths via security.is_authorized's chat-thread match."""
 
     def test_relayed_ask_records_in_messages_and_outbound_emails(self, mocker, cdb):
-        mocker.patch("src.chat_relay.send_reply", return_value="<sent@cocode.dk>")
+        mocker.patch("src.chat_relay.send_reply", return_value="<sent@example.com>")
         cdb.register_agent("agent-cli", "/proj/cli")
         msg = cdb.insert_message("agent-cli", "user", "?", "ask")
 
@@ -126,9 +126,9 @@ class TestThreadMatchPlumbing:
         row = cdb._conn.execute(
             "SELECT email_message_id FROM messages WHERE id=?", (msg["id"],),
         ).fetchone()
-        assert row["email_message_id"] == "<sent@cocode.dk>"
+        assert row["email_message_id"] == "<sent@example.com>"
         # New lookup — outbound_emails
-        out = cdb.find_outbound_email("<sent@cocode.dk>")
+        out = cdb.find_outbound_email("<sent@example.com>")
         assert out is not None
         assert out["sender_agent"] == "agent-cli"
         assert out["kind"] == "ask"

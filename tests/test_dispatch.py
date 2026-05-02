@@ -134,6 +134,7 @@ class TestAliasRouting:
             received["cdb"] = chat_db
             received["sender_in_scoped_config"] = config["authorized_sender"]
             received["all_senders"] = config["authorized_senders"]
+            received["reply_to"] = config.get("reply_to")
         u = Universe(
             sender="user@example.com",
             aliases=("alias@example.com",),
@@ -154,7 +155,9 @@ class TestAliasRouting:
         )
         # Routed to the canonical universe's bundle — both are authorized.
         assert received["cdb"] is cdb
-        # The scoped config still reports the canonical as the primary
-        # sender (for relay/reply defaults), but exposes all aliases too.
+        # Canonical / all-senders keep their existing meaning…
         assert received["sender_in_scoped_config"] == "user@example.com"
         assert received["all_senders"] == ["user@example.com", "alias@example.com"]
+        # …but reply_to carries the actual inbound sender so reply paths
+        # don't dump alias replies into the canonical inbox.
+        assert received["reply_to"] == "alias@example.com"

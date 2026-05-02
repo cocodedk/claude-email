@@ -65,6 +65,8 @@ def dispatch_by_sender(msg, config: dict, resources: dict, process_email) -> Non
     # Overlay this universe's auth onto the config so process_email /
     # handle_chat_email / classify_email all use the sender-specific
     # secret and prefix. Primary and test cannot cross-authenticate.
+    # ``reply_to`` carries the actual inbound sender so reply paths
+    # address the right inbox even when an alias wrote in.
     scoped = {
         **config,
         "_universe": universe,
@@ -75,5 +77,6 @@ def dispatch_by_sender(msg, config: dict, resources: dict, process_email) -> Non
         "auth_prefix": universe.auth_prefix,
         "authorized_sender": universe.sender,
         "authorized_senders": list(universe.all_senders),
+        "reply_to": sender,
     }
     process_email(msg, scoped, chat_db=cdb, task_queue=tq, worker_manager=wm)

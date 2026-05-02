@@ -30,15 +30,17 @@ class TaskQueue:
         self, project_path: str, body: str, priority: int = 0,
         retry_of: int | None = None, plan_first: bool = False,
         origin_content_type: str = "", origin_message_id: str = "",
-        origin_subject: str = "",
+        origin_subject: str = "", origin_from: str = "",
     ) -> int:
         cur = self._conn.execute(
             "INSERT INTO tasks (project_path, body, priority, created_at, retry_of, "
-            "plan_first, origin_content_type, origin_message_id, origin_subject) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "plan_first, origin_content_type, origin_message_id, origin_subject, "
+            "origin_from) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (project_path, body, priority, _now(), retry_of,
              1 if plan_first else 0, origin_content_type or None,
-             origin_message_id or None, origin_subject or None),
+             origin_message_id or None, origin_subject or None,
+             origin_from or None),
         )
         self._conn.commit()
         return cur.lastrowid
