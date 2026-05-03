@@ -222,8 +222,9 @@ class TestSpawnAsName:
         assert "'Not-Valid'" in body or '"Not-Valid"' in body
 
     def test_dangling_as_replies_error(self, mocker):
-        """`spawn <path> as` with no name token — handler must NOT spawn,
-        must reply with an Error (regression for coderabbit comment #2)."""
+        """`spawn <path> as` with no name token is a typo — the handler
+        must NOT spawn the default agent with instruction "as"; it must
+        reply with an Error so the user catches the mistake."""
         from src.chat_handlers import _handle_meta
         from src.chat_router import Route
 
