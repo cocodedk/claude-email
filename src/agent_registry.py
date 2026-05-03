@@ -4,7 +4,7 @@ Split from chat_db.py to keep that module under the 200-line cap.
 Methods operate on the connection (`self._conn`) owned by the host class.
 """
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.process_liveness import is_alive
@@ -12,6 +12,13 @@ from src.process_liveness import is_alive
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# Default freshness window for "is this agent still around?" — agents
+# touch ``last_seen_at`` on every MCP call (heartbeat), so 60s is a
+# generous cushion that catches both actively-working sessions and
+# idle-but-cron-draining ones.
+DEFAULT_AGENT_FRESHNESS_SEC = 60
 
 
 class AgentRegistryMixin:
@@ -123,6 +130,32 @@ class AgentRegistryMixin:
     def list_agents(self) -> list[dict]:
         rows = self._conn.execute("SELECT * FROM agents").fetchall()
         return [dict(r) for r in rows]
+
+    def agent_status_for_project(
+        self, project_path: str,
+        freshness_sec: int = DEFAULT_AGENT_FRESHNESS_SEC,
+    ) -> str:
+        """Three-state liveness for a project: ``connected`` (at least one
+        agent registered for the path with ``status='running'`` and
+        ``last_seen_at`` within ``freshness_sec``), ``disconnected``
+        (some agent is registered but none are live + fresh), or
+        ``absent`` (no agent ever registered for this path).
+
+        Powers the ``list_projects`` envelope's ``agent_status`` field.
+        """
+        rows = self._conn.execute(
+            "SELECT status, last_seen_at FROM agents WHERE project_path=?",
+            (project_path,),
+        ).fetchall()
+        if not rows:
+            return "absent"
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(seconds=freshness_sec)
+        ).isoformat()
+        for row in rows:
+            if row["status"] == "running" and (row["last_seen_at"] or "") >= cutoff:
+                return "connected"
+        return "disconnected"
 
     def update_agent_status(self, name: str, status: str) -> None:
         self._conn.execute(

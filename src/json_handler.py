@@ -56,7 +56,7 @@ def handle_json_email(
     inbound_subject = message.get("Subject", "")
     inbound_from = config.get("reply_to") or config.get("authorized_sender", "")
     reply = _dispatch(
-        env, config, task_queue, worker_manager,
+        env, config, task_queue, worker_manager, chat_db,
         inbound_msg_id, inbound_subject, inbound_from,
     )
     _send_json_reply(config, message, reply, chat_db=chat_db)
@@ -64,7 +64,7 @@ def handle_json_email(
 
 
 def _dispatch(
-    env: Envelope, config, task_queue, worker_manager,
+    env: Envelope, config, task_queue, worker_manager, chat_db=None,
     inbound_msg_id: str = "", inbound_subject: str = "",
     inbound_from: str = "",
 ) -> str:
@@ -80,7 +80,7 @@ def _dispatch(
     if env.kind == "cancel":
         return handle_cancel(env, task_queue, allowed_base)
     if env.kind == "list_projects":
-        return handle_list_projects(env, task_queue, allowed_base)
+        return handle_list_projects(env, task_queue, allowed_base, chat_db=chat_db)
     msg = f"kind {env.kind!r} comes online in a later phase"
     return build_envelope(
         "error", body=f"kind {env.kind!r} not yet implemented",
