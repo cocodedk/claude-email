@@ -25,6 +25,22 @@ ERROR_CODES: dict[str, bool] = {
     "internal":          True,
 }
 
+# A hint per code so every error envelope is informative by default — the
+# user-facing principle is "an error flag has no value; every error must
+# tell the user what to do next." Per-call ``make_error(..., hint=...)``
+# overrides when context-specific guidance is sharper than the default.
+DEFAULT_HINTS: dict[str, str] = {
+    "bad_envelope":      "The client sent a malformed envelope. Update the app or report the message-id to the maintainer.",
+    "unknown_kind":      "The client sent an envelope kind this server doesn't recognise. Update the client.",
+    "unauthorized":      "Open Settings and re-enter the shared secret.",
+    "forbidden":         "The requested path is outside the configured CLAUDE_CWD. Check the project name in Settings.",
+    "project_not_found": "Check the project name in Settings.",
+    "invalid_state":     "The requested operation can't run in the current state. Try again or check status.",
+    "not_implemented":   "This feature isn't supported by the running claude-email yet. Update or wait for a release.",
+    "rate_limited":      "Too many requests in a short window. Retry after a brief pause.",
+    "internal":          "Server error — restart claude-email (`systemctl --user restart claude-email`) and re-send.",
+}
+
 
 class ProjectNotFound(ValueError):
     """Raised when a requested project path is missing. Keeps ValueError
@@ -37,19 +53,18 @@ class ProjectOutsideBase(ValueError):
 
 
 def make_error(code: str, message: str, *, hint: str | None = None) -> dict[str, Any]:
-    """Build an error payload with ``retryable`` auto-filled from the
-    enum. Unknown codes raise so typos fail loudly in tests.
+    """Build an error payload with ``retryable`` and a default ``hint``
+    auto-filled from the tables. The ``hint`` arg overrides the default
+    when context warrants. Unknown codes raise so typos fail loudly.
     """
     if code not in ERROR_CODES:
         raise ValueError(f"unknown error code {code!r}; add to ERROR_CODES")
-    payload: dict[str, Any] = {
+    return {
         "code": code,
         "message": message,
         "retryable": ERROR_CODES[code],
+        "hint": hint or DEFAULT_HINTS[code],
     }
-    if hint:
-        payload["hint"] = hint
-    return payload
 
 
 def error_result_from_exc(exc: Exception) -> dict[str, str]:
