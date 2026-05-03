@@ -9,10 +9,12 @@ from src.json_envelope import Envelope, build_envelope
 
 try:
     from chat.project_tools import (  # noqa: E402
-        cancel_task_tool, enqueue_task_tool, queue_status_tool,
+        cancel_task_tool, enqueue_task_tool, list_projects_tool,
+        queue_status_tool,
     )
 except ImportError:  # pragma: no cover
     cancel_task_tool = enqueue_task_tool = queue_status_tool = None
+    list_projects_tool = None
 
 
 def _bad_envelope(env: Envelope, body: str, message: str) -> str:
@@ -55,6 +57,16 @@ def handle_status(env: Envelope, task_queue, allowed_base: str) -> str:
             "running": result.get("running"),
             "pending": result.get("pending", []),
         },
+    )
+
+
+def handle_list_projects(env: Envelope, task_queue, allowed_base: str) -> str:
+    if list_projects_tool is None:  # pragma: no cover — chat package import broken
+        return _server_uninitialized(env, "list_projects_tool")
+    result = list_projects_tool(task_queue, allowed_base=allowed_base)
+    return build_envelope(
+        "ack", body=f"{len(result['projects'])} project(s)",
+        ask_id=env.ask_id, data=result,
     )
 
 

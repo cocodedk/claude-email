@@ -148,3 +148,40 @@ def where_am_i_tool(queue: TaskQueue, manager: WorkerManager) -> dict:
             ),
         })
     return {"projects": projects}
+
+
+def list_projects_tool(queue: TaskQueue, *, allowed_base: str) -> dict:
+    """Discover git repos under ``allowed_base`` + merge with task state.
+
+    Powers the Android app's Projects tab (``kind=list_projects``).
+
+    Project = a top-level directory under ``allowed_base`` containing a
+    ``.git/`` entry. Hidden directories and plain files are skipped. The
+    response is sorted by name so the app's row order is stable across
+    polls.
+    """
+    if not allowed_base or not os.path.isdir(allowed_base):
+        return {"projects": []}
+    base = Path(allowed_base).resolve()
+    rows = []
+    for entry in sorted(os.listdir(base)):
+        if entry.startswith("."):
+            continue
+        path = base / entry
+        if not path.is_dir() or not (path / ".git").exists():
+            continue
+        resolved = str(path.resolve())
+        running = queue.get_running(resolved)
+        latest = queue.latest_task(resolved)
+        rows.append({
+            "name": entry,
+            "path": resolved,
+            "running_task_id": running["id"] if running else None,
+            "queue_depth": len(queue.list_pending(resolved)),
+            "last_activity_at": (
+                (latest or {}).get("completed_at")
+                or (latest or {}).get("started_at")
+                or (latest or {}).get("created_at")
+            ),
+        })
+    return {"projects": rows}

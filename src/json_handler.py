@@ -8,7 +8,9 @@ import logging
 from src.chat_db import ChatDB
 from src.error_codes import make_error
 from src.json_envelope import Envelope, EnvelopeError, build_envelope, parse_envelope
-from src.json_kinds import handle_cancel, handle_command, handle_status
+from src.json_kinds import (
+    handle_cancel, handle_command, handle_list_projects, handle_status,
+)
 from src.mailer import send_reply
 from src.task_queue import TaskQueue
 from src.worker_manager import WorkerManager
@@ -77,6 +79,8 @@ def _dispatch(
         return handle_status(env, task_queue, allowed_base)
     if env.kind == "cancel":
         return handle_cancel(env, task_queue, allowed_base)
+    if env.kind == "list_projects":
+        return handle_list_projects(env, task_queue, allowed_base)
     msg = f"kind {env.kind!r} comes online in a later phase"
     return build_envelope(
         "error", body=f"kind {env.kind!r} not yet implemented",
