@@ -31,6 +31,7 @@ from src.chat_db import AgentNameTaken, AgentProjectTaken, ChatDB  # noqa: E402
 from src.process_liveness import (  # noqa: E402
     find_ancestor_pid_matching, is_ancestor_or_self,
 )
+from src.agent_name import validated_agent_name  # noqa: E402
 
 
 _CLAUDE_CMDLINE_MARKER = os.environ.get("CLAUDE_PROCESS_MARKER", "claude")
@@ -90,7 +91,8 @@ def main() -> int:
         # register again under the same cwd-derived name.
         return 0
     cwd = os.getcwd()
-    name = "agent-" + PurePosixPath(cwd).name
+    fallback = "agent-" + PurePosixPath(cwd).name
+    name = validated_agent_name(os.environ.get("CLAUDE_AGENT_NAME"), fallback)
     try:
         db_path = _resolved_db_path()
     except RuntimeError as exc:
