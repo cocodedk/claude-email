@@ -42,6 +42,10 @@ def _server_uninitialized(env: Envelope, missing: str) -> str:  # pragma: no cov
     )
 
 
+def _ack(env: Envelope, body: str, data: dict) -> str:
+    return build_envelope("ack", body=body, ask_id=env.ask_id, data=data)
+
+
 def handle_status(env: Envelope, task_queue, allowed_base: str) -> str:
     if not env.project:
         return _bad_envelope(env, "status requires project", "missing project")
@@ -50,24 +54,17 @@ def handle_status(env: Envelope, task_queue, allowed_base: str) -> str:
     result = queue_status_tool(task_queue, project=env.project, allowed_base=allowed_base)
     if "error" in result:
         return _tool_error(env, result)
-    return build_envelope(
-        "ack", body=f"Status for {env.project}",
-        ask_id=env.ask_id,
-        data={
-            "running": result.get("running"),
-            "pending": result.get("pending", []),
-        },
-    )
+    return _ack(env, f"Status for {env.project}", {
+        "running": result.get("running"),
+        "pending": result.get("pending", []),
+    })
 
 
 def handle_list_projects(env: Envelope, task_queue, allowed_base: str) -> str:
     if list_projects_tool is None:  # pragma: no cover — chat package import broken
         return _server_uninitialized(env, "list_projects_tool")
     result = list_projects_tool(task_queue, allowed_base=allowed_base)
-    return build_envelope(
-        "ack", body=f"{len(result['projects'])} project(s)",
-        ask_id=env.ask_id, data=result,
-    )
+    return _ack(env, f"{len(result['projects'])} project(s)", result)
 
 
 def handle_cancel(env: Envelope, task_queue, allowed_base: str) -> str:
@@ -81,10 +78,7 @@ def handle_cancel(env: Envelope, task_queue, allowed_base: str) -> str:
     )
     if "error" in result:
         return _tool_error(env, result)
-    return build_envelope(
-        "ack", body=f"Cancel: {result.get('status', 'unknown')}",
-        ask_id=env.ask_id, data=result,
-    )
+    return _ack(env, f"Cancel: {result.get('status', 'unknown')}", result)
 
 
 def handle_command(

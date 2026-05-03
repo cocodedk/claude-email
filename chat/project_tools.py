@@ -127,25 +127,30 @@ def retry_task_tool(
     }
 
 
+def _last_activity(task: dict | None) -> str | None:
+    """Most-recent timestamp from a task row: completed_at → started_at →
+    created_at. Returns None when the task is missing entirely (idle
+    project)."""
+    return (
+        (task or {}).get("completed_at")
+        or (task or {}).get("started_at")
+        or (task or {}).get("created_at")
+    )
+
+
 def where_am_i_tool(queue: TaskQueue, manager: WorkerManager) -> dict:
     """Cross-project dashboard: one row per project with recent activity."""
     projects = []
     for path in queue.list_project_paths():
-        running = queue.get_running(path)
-        pending = queue.list_pending(path)
         latest = queue.latest_task(path)
         projects.append({
             "project_path": path,
             "project_name": Path(path).name,
             "worker_pid": manager.pid_of(path),
-            "running_task": running,
-            "pending_count": len(pending),
+            "running_task": queue.get_running(path),
+            "pending_count": len(queue.list_pending(path)),
             "last_task_status": (latest or {}).get("status"),
-            "last_activity_at": (
-                (latest or {}).get("completed_at")
-                or (latest or {}).get("started_at")
-                or (latest or {}).get("created_at")
-            ),
+            "last_activity_at": _last_activity(latest),
         })
     return {"projects": projects}
 
@@ -153,35 +158,31 @@ def where_am_i_tool(queue: TaskQueue, manager: WorkerManager) -> dict:
 def list_projects_tool(queue: TaskQueue, *, allowed_base: str) -> dict:
     """Discover git repos under ``allowed_base`` + merge with task state.
 
-    Powers the Android app's Projects tab (``kind=list_projects``).
-
-    Project = a top-level directory under ``allowed_base`` containing a
-    ``.git/`` entry. Hidden directories and plain files are skipped. The
-    response is sorted by name so the app's row order is stable across
-    polls.
+    Project = a top-level directory containing a ``.git/`` entry. Hidden
+    directories and plain files are skipped. Sorted by name so the row
+    order is stable across polls.
     """
-    if not allowed_base or not os.path.isdir(allowed_base):
+    if not allowed_base:
         return {"projects": []}
     base = Path(allowed_base).resolve()
+    try:
+        entries = sorted(os.listdir(base))
+    except OSError:
+        return {"projects": []}
     rows = []
-    for entry in sorted(os.listdir(base)):
+    for entry in entries:
         if entry.startswith("."):
             continue
         path = base / entry
         if not path.is_dir() or not (path / ".git").exists():
             continue
-        resolved = str(path.resolve())
+        resolved = str(path)  # ``base`` is already resolve()d
         running = queue.get_running(resolved)
-        latest = queue.latest_task(resolved)
         rows.append({
             "name": entry,
             "path": resolved,
             "running_task_id": running["id"] if running else None,
             "queue_depth": len(queue.list_pending(resolved)),
-            "last_activity_at": (
-                (latest or {}).get("completed_at")
-                or (latest or {}).get("started_at")
-                or (latest or {}).get("created_at")
-            ),
+            "last_activity_at": _last_activity(queue.latest_task(resolved)),
         })
     return {"projects": rows}
