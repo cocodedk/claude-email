@@ -31,6 +31,7 @@ CONTENT_TYPE = "application/json"
 INBOUND_KINDS = {
     "command", "reply", "status", "cancel",
     "retry", "commit", "reset", "confirm_reset",
+    "list_projects",
 }
 
 

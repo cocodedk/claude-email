@@ -159,6 +159,7 @@ from chat.project_mutations import (  # noqa: E402
 from chat.project_tools import (  # noqa: E402
     cancel_task_tool,
     enqueue_task_tool,
+    list_projects_tool,
     queue_status_tool,
     retry_task_tool,
     where_am_i_tool,
