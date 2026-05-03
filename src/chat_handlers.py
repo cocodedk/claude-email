@@ -10,11 +10,13 @@ from src.chat_db import ChatDB
 from src.chat_relay import (  # noqa: F401 — re-export for back-compat
     maybe_cleanup_db, relay_outbound_messages,
 )
+from src.agent_name import validated_agent_name
 from src.chat_router import Route, classify_email
 from src.email_format import prepend_tag, with_footer
 from src.email_extract import extract_command
 from src.mailer import send_reply
 from src.reply_router import apply_reply
+from src.spawn_args import parse_spawn_args
 from src.spawner import spawn_agent
 from src.task_queue import TaskQueue
 from src.worker_manager import WorkerManager
@@ -137,12 +139,18 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
         )
 
     elif route.meta_command == "spawn":
-        parts = route.meta_args.split(None, 1)
-        project_dir = parts[0] if parts else ""
-        instruction = parts[1] if len(parts) > 1 else ""
+        project_dir, agent_name, instruction = parse_spawn_args(route.meta_args)
         if not project_dir:
             send_threaded_reply(
-                config, message, "Usage: spawn <name-or-path> [instruction]",
+                config, message,
+                "Usage: spawn <name-or-path> [as <agent-name>] [instruction]",
+                tag="Error", chat_db=chat_db, kind="error",
+            )
+            return
+        if agent_name is not None and validated_agent_name(agent_name, "") != agent_name:
+            send_threaded_reply(
+                config, message,
+                f"Spawn rejected: invalid agent name {agent_name!r}",
                 tag="Error", chat_db=chat_db, kind="error",
             )
             return
@@ -155,6 +163,7 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
                 extra_env=config.get("claude_extra_env") or None,
                 model=config.get("claude_model"), effort=config.get("claude_effort"),
                 max_budget_usd=config.get("claude_max_budget_usd"),
+                agent_name=agent_name,
             )
         except ValueError as exc:
             send_threaded_reply(
