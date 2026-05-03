@@ -838,7 +838,7 @@ class TestSpawnAgentName:
         assert name == "agent-fall-back-target"
         assert "rejecting invalid name" in capsys.readouterr().err
 
-    def test_extra_env_merged_with_clause_agent_name(
+    def test_explicit_agent_name_wins_over_extra_env_collision(
         self, db, tmp_path, mocker,
     ):
         """extra_env values must still flow to the child; CLAUDE_AGENT_NAME wins on collision."""
@@ -860,3 +860,22 @@ class TestSpawnAgentName:
         assert env["FOO"] == "bar"
         # Explicit agent_name overrides any CLAUDE_AGENT_NAME extra_env.
         assert env["CLAUDE_AGENT_NAME"] == "agent-winner"
+
+    def test_explicit_agent_name_none_matches_omitted(self, db, tmp_path, mocker):
+        """agent_name=None must behave identically to the kwarg being omitted —
+        falls through validated_agent_name's empty-input branch silently."""
+        from src.spawner import spawn_agent
+
+        mock_proc = mocker.MagicMock()
+        mock_proc.pid = 1
+        mock_popen = mocker.patch("src.spawner.subprocess.Popen", return_value=mock_proc)
+        mocker.patch("src.spawner.inject_mcp_config")
+
+        project_dir = tmp_path / "explicit-none"
+        project_dir.mkdir()
+        name, _ = spawn_agent(
+            db, str(project_dir), "http://chat", agent_name=None,
+        )
+        assert name == "agent-explicit-none"
+        env = mock_popen.call_args.kwargs["env"]
+        assert env["CLAUDE_AGENT_NAME"] == "agent-explicit-none"
