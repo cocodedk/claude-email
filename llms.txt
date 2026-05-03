@@ -14,7 +14,7 @@ claude-email polls an IMAP mailbox for authorized commands, executes them via `c
 - Spawn, message, and manage Claude Code agents from any email client
 - User-level systemd services (no sudo required)
 - SQLite with WAL mode for safe concurrent access
-- 204 tests with 99% code coverage
+- 1108 tests with 100% code coverage
 
 ## Links
 
