@@ -78,6 +78,14 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
 - Agent status tracking (running, idle, disconnected, deregistered)
 - Agent PIDs recorded in the database
 
+### Idle auto-drain cron (live-but-idle gap)
+Hooks only fire on session events — `SessionStart` at boot, `UserPromptSubmit` on each user turn, `Stop` at end-of-response. A live Claude Code session that's idle between user prompts has no event firing, so peer messages arriving in that window wait for the next user turn. The optional auto-drain cron closes that gap: it fires an `[auto-drain tick]` prompt on a fixed cadence, which triggers `UserPromptSubmit` and drains any queued bus messages into the next turn.
+
+- Default cadence: every 5 minutes (`*/5 * * * *`); adjustable per session via Claude Code's `CronCreate` / `CronDelete` tools.
+- Opt-in — not auto-installed by `SessionStart`. Run the `/chat-rejoin` skill to install it (idempotent — skips if already present).
+- When the inbox is empty the agent replies `quiet` and burns no further context; queued messages are surfaced verbatim by the same drain script the hooks use.
+- Complements the wake watcher below: that one handles "session not running", this one handles "session running but no event has fired recently".
+
 ### Wake watcher (idle-agent gap)
 Hooks only fire on session events. When a peer message arrives for an agent whose Claude Code session is idle (or not running), there is no hook to fire. The wake watcher lives inside `claude-chat.service`, polls the `messages` table once per second, and spawns a short-lived `claude --print` subprocess in the recipient's `project_path` so the existing `SessionStart` drain hook can surface the queued messages.
 
