@@ -32,10 +32,10 @@ A single new environment variable, `CLAUDE_AGENT_NAME`, threads through three si
 ### Name format
 
 ```
-^agent-[a-z0-9][a-z0-9_-]{0,62}$
+^agent-[a-z0-9][a-z0-9_-]{0,57}$
 ```
 
-Lowercase ASCII, must start with `agent-` followed by alphanumeric, then up to 62 hyphen/underscore/alphanumeric chars (max 64 total). Validated at every read site; invalid input falls back to the cwd-derived default with a stderr warning. Centralized in a small helper (e.g., `src/agent_name.py::validated_agent_name(raw, fallback) -> str`) to keep the rule in one place.
+Lowercase ASCII, must start with `agent-` followed by alphanumeric, then up to 57 hyphen/underscore/alphanumeric chars (max 64 total: `agent-` is 6 chars + 1 anchor + up to 57). Validated at every read site; invalid input falls back to the cwd-derived default with a stderr warning. Centralized in a small helper (e.g., `src/agent_name.py::validated_agent_name(raw, fallback) -> str`) to keep the rule in one place.
 
 ## Touch points
 

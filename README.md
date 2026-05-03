@@ -203,9 +203,9 @@ In **GPG mode** the Subject fallback is disabled — the GPG signature only cove
 | `spawn <name-or-path> [instruction]` | Spawn an agent. Bare names resolve against `CLAUDE_CWD`; absolute paths also accepted. The agent's bus name defaults to `agent-<basename(path)>`. | `AUTH:secret spawn babakcast` |
 | `spawn <name-or-path> as <agent-name> [instruction]` | Spawn under an explicit `agent-name` instead of the cwd-derived default. Use this to run **multiple agents in the same project** (e.g. one main, one optimizer). Names must match `^agent-[a-z0-9][a-z0-9_-]{0,57}$`. | `AUTH:secret spawn babakcast as agent-bc-optimizer` |
 | `restart chat` | Restart the claude-chat service | `AUTH:secret restart chat` |
-
-> **Multi-agent per project.** Both spawn forms set the `CLAUDE_AGENT_NAME` env var on the spawned `claude` process. The SessionStart hook reads it (validated against the regex above) so each session registers under the right name even when N agents share a project directory. Manually-launched sessions can also export `CLAUDE_AGENT_NAME=agent-foo` before running `claude` to claim a non-default name.
 | `restart self` | Restart the claude-email service | `AUTH:secret restart self` |
+
+> **Multi-agent per project.** Both spawn forms set the `CLAUDE_AGENT_NAME` env var on the spawned `claude` process. The SessionStart hook reads it (validated against the regex above) so each session registers under the right name even when N agents share a project directory. Manually-launched sessions can also export `CLAUDE_AGENT_NAME=agent-foo` before running `claude` to claim a non-default name. Note: nested `claude` sessions inherit `CLAUDE_AGENT_NAME` from their parent — `unset` it before starting an unrelated agent in a different project.
 
 ### Replying to Agents
 
