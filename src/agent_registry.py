@@ -6,7 +6,7 @@ Methods operate on the connection (`self._conn`) owned by the host class.
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from src.chat_errors import AgentNameTaken, AgentProjectTaken
+from src.chat_errors import AgentNameTaken
 from src.process_liveness import is_alive
 
 
@@ -30,12 +30,13 @@ class AgentRegistryMixin:
     ) -> dict:
         """Register or take over an agent slot.
 
-        When pid is provided, enforces at-most-one-live-owner per name AND
-        per project_path: if another live process holds either slot, raise
-        AgentNameTaken / AgentProjectTaken. Stale (dead-pid) rows are
-        transparently taken over.
+        When pid is provided, enforces at-most-one-live-owner per name:
+        if another live process holds the name, raise AgentNameTaken.
+        Stale (dead-pid) rows are transparently taken over. Multiple live
+        agents may share the same project_path — each must have a
+        distinct name.
 
-        The liveness checks and the upsert run inside a single
+        The liveness check and the upsert run inside a single
         IMMEDIATE transaction so a concurrent register_agent cannot
         squeeze a conflicting row in between our SELECT and INSERT.
         """
@@ -69,16 +70,6 @@ class AgentRegistryMixin:
                     and is_alive(existing["pid"])
                 ):
                     raise AgentNameTaken(name, existing["pid"])
-                conflicts = self._conn.execute(
-                    "SELECT name, pid FROM agents "
-                    "WHERE project_path=? AND name!=? AND pid IS NOT NULL",
-                    (project_path, name),
-                ).fetchall()
-                for conflict in conflicts:
-                    if is_alive(conflict["pid"]):
-                        raise AgentProjectTaken(
-                            project_path, conflict["name"], conflict["pid"],
-                        )
                 self._conn.execute(insert_sql, insert_args)
                 self._conn.commit()
             except Exception:
@@ -133,7 +124,11 @@ class AgentRegistryMixin:
     ) -> dict | None:
         """Return the newest-registered live agent for ``project_path``
         (live = status='running' + last_seen_at within ``freshness_sec``;
-        tiebreak is ORDER BY registered_at DESC per v1 design)."""
+        tiebreak is ORDER BY registered_at DESC per v1 design).
+
+        NOTE: When multiple live agents share a project (legal post-2026-05-03),
+        only the most-recently-registered one is returned. Callers needing
+        disambiguation must use the explicit agent name."""
         cutoff = _cutoff(freshness_sec)
         row = self._conn.execute(
             "SELECT * FROM agents WHERE project_path=? "

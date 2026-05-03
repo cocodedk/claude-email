@@ -147,6 +147,130 @@ class TestHandleMetaSpawnValueError:
         assert "path not allowed" in kwargs["body"]
 
 
+class TestSpawnAsName:
+    """`spawn <path> as <name>` routes the explicit name through to spawn_agent."""
+
+    def test_as_name_passes_agent_name_to_spawner(self, mocker):
+        from src.chat_handlers import _handle_meta
+        from src.chat_router import Route
+
+        captured = {}
+
+        def fake_spawn(*args, **kwargs):
+            captured["agent_name"] = kwargs.get("agent_name")
+            return ("agent-custom", 42)
+
+        mocker.patch("src.chat_handlers.spawn_agent", side_effect=fake_spawn)
+        mocker.patch("src.chat_handlers.send_reply", return_value="<r@mail>")
+
+        config = _base_config()
+        msg = _make_message()
+        route = Route(
+            kind="meta",
+            meta_command="spawn",
+            meta_args="/some/path as agent-custom",
+            agent_name=None,
+            body=None,
+            original_message_id=None,
+        )
+        _handle_meta(route, config, msg, MagicMock())
+        assert captured["agent_name"] == "agent-custom"
+
+    def test_as_name_with_instruction_passes_both(self, mocker):
+        from src.chat_handlers import _handle_meta
+        from src.chat_router import Route
+
+        captured = {}
+
+        def fake_spawn(*args, **kwargs):
+            captured["agent_name"] = kwargs.get("agent_name")
+            captured["instruction"] = kwargs.get("instruction")
+            return ("agent-custom", 42)
+
+        mocker.patch("src.chat_handlers.spawn_agent", side_effect=fake_spawn)
+        mocker.patch("src.chat_handlers.send_reply", return_value="<r@mail>")
+
+        config = _base_config()
+        route = Route(
+            kind="meta", meta_command="spawn",
+            meta_args="/p as agent-custom run all tests",
+            agent_name=None, body=None, original_message_id=None,
+        )
+        _handle_meta(route, config, _make_message(), MagicMock())
+        assert captured["agent_name"] == "agent-custom"
+        assert captured["instruction"] == "run all tests"
+
+    def test_invalid_agent_name_rejected_with_error_reply(self, mocker):
+        from src.chat_handlers import _handle_meta
+        from src.chat_router import Route
+
+        spawn_mock = mocker.patch("src.chat_handlers.spawn_agent")
+        reply_mock = mocker.patch("src.chat_handlers.send_reply", return_value="<r@mail>")
+
+        config = _base_config()
+        route = Route(
+            kind="meta", meta_command="spawn",
+            meta_args="/p as Not-Valid",
+            agent_name=None, body=None, original_message_id=None,
+        )
+        _handle_meta(route, config, _make_message(), MagicMock())
+
+        spawn_mock.assert_not_called()
+        reply_mock.assert_called_once()
+        body = reply_mock.call_args.kwargs["body"]
+        assert "invalid agent name" in body.lower()
+        assert "'Not-Valid'" in body or '"Not-Valid"' in body
+
+    def test_dangling_as_replies_error(self, mocker):
+        """`spawn <path> as` with no name token is a typo — the handler
+        must NOT spawn the default agent with instruction "as"; it must
+        reply with an Error so the user catches the mistake."""
+        from src.chat_handlers import _handle_meta
+        from src.chat_router import Route
+
+        spawn_mock = mocker.patch("src.chat_handlers.spawn_agent")
+        reply_mock = mocker.patch("src.chat_handlers.send_reply", return_value="<r@mail>")
+
+        config = _base_config()
+        route = Route(
+            kind="meta", meta_command="spawn",
+            meta_args="/p as",
+            agent_name=None, body=None, original_message_id=None,
+        )
+        _handle_meta(route, config, _make_message(), MagicMock())
+
+        spawn_mock.assert_not_called()
+        reply_mock.assert_called_once()
+        body = reply_mock.call_args.kwargs["body"]
+        assert body.startswith("Spawn rejected: ")
+        assert "missing agent name after 'as'" in body
+
+    def test_legacy_no_as_clause_passes_none_agent_name(self, mocker):
+        """The existing `spawn <path> <instruction>` form must still work."""
+        from src.chat_handlers import _handle_meta
+        from src.chat_router import Route
+
+        captured = {}
+
+        def fake_spawn(*args, **kwargs):
+            captured["agent_name"] = kwargs.get("agent_name")
+            captured["instruction"] = kwargs.get("instruction")
+            return ("agent-default", 42)
+
+        mocker.patch("src.chat_handlers.spawn_agent", side_effect=fake_spawn)
+        mocker.patch("src.chat_handlers.send_reply", return_value="<r@mail>")
+
+        config = _base_config()
+        route = Route(
+            kind="meta", meta_command="spawn",
+            meta_args="/p run something",
+            agent_name=None, body=None, original_message_id=None,
+        )
+        _handle_meta(route, config, _make_message(), MagicMock())
+        assert captured["agent_name"] is None
+        assert captured["instruction"] == "run something"
+
+
 class TestMaybeCleanupDbExceptionBranch:
     """maybe_cleanup_db (now in src.chat_relay) swallows cleanup_old errors."""
 

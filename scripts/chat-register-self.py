@@ -29,8 +29,9 @@ except ImportError:
 
 from src.chat_db import AgentNameTaken, AgentProjectTaken, ChatDB  # noqa: E402
 from src.process_liveness import (  # noqa: E402
-    find_ancestor_pid_matching, is_ancestor_or_self,
+    find_ancestor_pid_matching, is_alive, is_ancestor_or_self,
 )
+from src.agent_name import ENV_VAR_NAME, validated_agent_name  # noqa: E402
 
 
 _CLAUDE_CMDLINE_MARKER = os.environ.get("CLAUDE_PROCESS_MARKER", "claude")
@@ -90,7 +91,8 @@ def main() -> int:
         # register again under the same cwd-derived name.
         return 0
     cwd = os.getcwd()
-    name = "agent-" + PurePosixPath(cwd).name
+    fallback = "agent-" + PurePosixPath(cwd).name
+    name = validated_agent_name(os.environ.get(ENV_VAR_NAME), fallback)
     try:
         db_path = _resolved_db_path()
     except RuntimeError as exc:
@@ -108,7 +110,7 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"chat-register-self: cannot open DB: {exc}", file=sys.stderr)
         return 1
-    if _master_already_owns(db, name, cwd):
+    if _master_already_owns(db, name):
         # Another live claude session or parent agent already holds this
         # slot — subagents and sibling sessions must stay silent.
         return 0
@@ -124,20 +126,22 @@ def main() -> int:
     return 0
 
 
-def _master_already_owns(db: ChatDB, name: str, cwd: str) -> bool:
+def _master_already_owns(db: ChatDB, name: str) -> bool:
     """True if another live process (not in our PPID chain) already owns
-    this agent name or project path. Uses PPID ancestry instead of PID
-    equality because hook helpers are short-lived — the hook's os.getpid()
-    is never what's stored in the DB for a properly-registered master.
+    this agent name. Multi-agent-per-project is legal post-2026-05-03,
+    so we only short-circuit on name collision — a co-located session
+    with a distinct name is welcome.
 
-    Delegates the DB scan to ChatDB.find_live_owner so all ownership
-    logic lives in one place and the script avoids reaching into
-    db._conn directly.
-    """
-    owner = db.find_live_owner(name, cwd)
-    if owner is None:
+    Uses PPID ancestry instead of PID equality because hook helpers are
+    short-lived — the hook's os.getpid() is never what's stored in the
+    DB for a properly-registered master."""
+    existing = db.get_agent(name)
+    if existing is None:
         return False
-    return not is_ancestor_or_self(owner["pid"])
+    pid = existing.get("pid")
+    if pid is None or not is_alive(pid):
+        return False
+    return not is_ancestor_or_self(pid)
 
 
 if __name__ == "__main__":

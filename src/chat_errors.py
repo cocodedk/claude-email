@@ -11,7 +11,10 @@ class AgentNameTaken(Exception):
 
 
 class AgentProjectTaken(Exception):
-    """Raised when another live agent already owns the project path."""
+    """Deprecated as of 2026-05-03 — register_agent no longer raises this.
+    Kept so existing 'except (AgentNameTaken, AgentProjectTaken)' clauses
+    in proc_reconcile.py, chat_pid_reclaim.py, and chat-register-self.py
+    remain safe. Will be removed in a follow-up cleanup pass."""
 
     def __init__(self, project_path: str, owner_name: str, owner_pid: int):
         self.project_path = project_path
