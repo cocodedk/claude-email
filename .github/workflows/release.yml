@@ -36,6 +36,24 @@ jobs:
           echo "version=$MAJOR.$MINOR.$PATCH" >> "$GITHUB_OUTPUT"
           echo "tag=v$MAJOR.$MINOR.$PATCH" >> "$GITHUB_OUTPUT"
 
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v5
+        with:
+          python-version: '3.12'
+
+      - name: Stamp pyproject.toml with computed version
+        run: |
+          # In-workspace bump only (not committed) — keeps the published
+          # wheel/sdist filenames in sync with the tag without forcing a
+          # version-bump commit on master.
+          sed -i "s/^version = \".*\"/version = \"${{ steps.version.outputs.version }}\"/" pyproject.toml
+          grep '^version' pyproject.toml
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+          ls -la dist/
+
       - name: Tag and push
         run: |
           git config user.email "github-actions@github.com"
@@ -48,3 +66,6 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.whl
