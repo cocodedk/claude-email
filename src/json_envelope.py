@@ -156,17 +156,14 @@ def build_envelope(
     kind: str, body: str = "", task_id: int | None = None,
     data: dict | None = None, error: dict | None = None,
     ask_id: int | None = None, routed_via: str | None = None,
-    progress: dict | None = None,
+    progress: dict | None = None, suggested_replies: list | None = None,
 ) -> str:
     """Build an outbound envelope as a JSON string.
 
-    `ask_id` echoes the inbound `meta.ask_id` so the app can match a reply
-    to the originating question and unblock the right chat_ask.
-    `routed_via` (when set) lands as ``meta.routed_via`` so the app can
-    show the user whether the command went to a live agent or a worker.
-    `progress` (when set) lands as ``meta.progress`` carrying optional
-    ``current/total/percent/label`` fields for the kind=progress path.
-    """
+    `ask_id` echoes the inbound `meta.ask_id` for chat_ask correlation.
+    `routed_via` lands as ``meta.routed_via`` (agent | worker).
+    `progress` lands as ``meta.progress`` for kind=progress (B5).
+    `suggested_replies` lands as ``meta.suggested_replies`` for kind=question (C2)."""
     out: dict[str, Any] = {
         "v": V,
         "kind": kind,
@@ -182,6 +179,8 @@ def build_envelope(
         out["meta"]["routed_via"] = routed_via
     if progress:
         out["meta"]["progress"] = progress
+    if suggested_replies:
+        out["meta"]["suggested_replies"] = suggested_replies
     if task_id is not None:
         out["task_id"] = int(task_id)
     if data:

@@ -10,6 +10,7 @@ import asyncio
 
 from src.chat_db import ChatDB
 from src.progress_envelope import build_progress_body
+from src.question_envelope import build_question_body
 from src.spawner import spawn_agent
 from src.status_envelope import clear_status_dedup, emit_status
 
@@ -67,16 +68,22 @@ _ASK_TIMEOUT = 3600  # 1 hour max wait
 async def ask_user(
     db: ChatDB, caller: str, message: str, *,
     poll_interval: float = 2.0, timeout: float = _ASK_TIMEOUT,
-    task_id: int | None = None,
+    task_id: int | None = None, suggested_replies=None,
 ) -> dict:
     """Send a question to user and block until user replies.
 
     Creates an ask message, then polls for a reply every poll_interval
-    seconds until one appears or timeout is reached.
-    """
+    seconds until one appears or timeout is reached. When
+    ``suggested_replies`` filters non-empty and the task is JSON-origin,
+    the body is wrapped in a kind=question envelope with
+    ``meta.suggested_replies`` so the app can render tappable chips."""
     db.touch_agent(caller)
     emit_status(db, task_id, "waiting-on-peer", reason="awaiting user answer")
-    msg = db.insert_message(caller, "user", message, "ask", task_id=task_id)
+    body, content_type = build_question_body(db, message, task_id, suggested_replies)
+    msg = db.insert_message(
+        caller, "user", body, "ask",
+        content_type=content_type, task_id=task_id,
+    )
     msg_id = msg["id"]
     elapsed = 0.0
     while elapsed < timeout:
