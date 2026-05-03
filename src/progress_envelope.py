@@ -1,12 +1,10 @@
-"""Build kind=progress envelopes for notify_user / chat_notify (B5).
+"""Build kind=progress envelopes for notify_user / chat_notify.
 
-Wire format locked with agent-Claude-Email-App on 2026-05-03:
-``meta.progress = {current?, total?, percent?, label?}``. Invalid
-entries are silently dropped (drift-tolerant). When filtering empties
-the dict, callers fall back to plain text. Plain-origin tasks always
-stay plain text — same branch-on-origin pattern as task_notifier."""
+``meta.progress = {current?, total?, percent?, label?}`` — see the
+``progress`` arg in chat_notify's MCP schema. Invalid entries are
+silently dropped (drift-tolerant). Plain-origin tasks stay plain text."""
 from src.chat_db import ChatDB
-from src.json_envelope import CONTENT_TYPE as _JSON_CT, build_envelope
+from src.origin_envelope import wrap_if_json_origin
 
 _LABEL_MAX = 200
 
@@ -40,19 +38,10 @@ def filter_progress(progress) -> dict:
 def build_progress_body(
     db: ChatDB, message: str, task_id: int | None, progress: dict | None,
 ) -> tuple[str, str]:
-    """Decide body + content_type for a notify_user message.
-
-    Returns ``(body, content_type)``. Wraps in a kind=progress JSON
-    envelope when ``progress`` filters non-empty AND the task is
-    JSON-origin. Otherwise returns ``(message, "")`` for plain text."""
+    """Plain text unless ``progress`` filters non-empty AND task is JSON-origin."""
     filtered = filter_progress(progress)
-    if not filtered or task_id is None:
+    if not filtered:
         return message, ""
-    row = db._conn.execute(  # noqa: SLF001
-        "SELECT origin_content_type FROM tasks WHERE id=?", (task_id,),
-    ).fetchone()
-    if not row or (row["origin_content_type"] or "") != _JSON_CT:
-        return message, ""
-    return build_envelope(
-        "progress", body=message, task_id=task_id, progress=filtered,
-    ), _JSON_CT
+    return wrap_if_json_origin(
+        db, "progress", message, task_id, progress=filtered,
+    )

@@ -35,6 +35,19 @@ _CORE_TOOLS = [
                 "message": {"type": "string", "description": "Question text"},
                 "_caller": _CALLER_PROP,
                 "task_id": {"type": "integer", "description": "Task ID this message belongs to (for email threading)"},
+                "suggested_replies": {
+                    "type": "array",
+                    "description": (
+                        "Optional list of short suggested replies (≤4 chips, "
+                        "≤30 chars each). Renders as tappable chips above the "
+                        "composer in the app on JSON-origin tasks. "
+                        "Trimmed/dedup'd; invalid entries silently dropped."
+                    ),
+                    # maxItems must match _REPLY_MAX_COUNT in src/question_envelope.py
+                    "maxItems": 4,
+                    # maxLength must match _REPLY_MAX_LEN in src/question_envelope.py
+                    "items": {"type": "string", "maxLength": 30},
+                },
             },
             "required": ["message", "_caller"],
         },

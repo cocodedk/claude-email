@@ -95,6 +95,7 @@ async def dispatch(
             _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
             _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
             task_id=_parse_task_id(arguments),
+            suggested_replies=arguments.get("suggested_replies"),
         )
     if name == "chat_notify":
         return tools.notify_user(
@@ -149,10 +150,9 @@ async def dispatch(
             body=_sanitize_str(arguments["body"], _MAX_MSG_LEN, "body"),
             priority=int(arguments.get("priority", 0)),
             plan_first=_parse_bool(arguments.get("plan_first", False)),
-            # ``.strip()`` because the LLM commonly reads the token via
-            # ``echo "$CLAUDE_EMAIL_DISPATCH_TOKEN"`` which appends a
-            # newline; persisting the raw \n breaks the fixup's exact
-            # match against the un-newlined UUID minted in main.py.
+            # .strip(): LLMs often read via `echo "$CLAUDE_EMAIL_DISPATCH_TOKEN"`
+            # which appends \n; persisting it would break the fixup's
+            # exact-match against the un-newlined UUID minted in main.py.
             dispatch_token=str(arguments.get("dispatch_token", "") or "").strip()[:64],
             allowed_base=os.environ.get("CLAUDE_CWD", ""),
         )
