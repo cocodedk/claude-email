@@ -17,12 +17,20 @@ def parse_spawn_args(raw: str) -> tuple[str, str | None, str]:
     ``as`` is a reserved keyword only at token position 1 (right after
     the path); everywhere else it's part of the instruction. Whitespace
     is collapsed in the returned instruction. Returns ("", None, "")
-    for empty / whitespace-only input."""
+    for empty / whitespace-only input. Raises ``ValueError`` when the
+    `as` keyword is present at position 1 with no following name token
+    — failing fast on a typo beats silently spawning the default agent
+    with instruction ``"as"``."""
     tokens = raw.split()
     if not tokens:
         return "", None, ""
     project_dir = tokens[0]
-    if len(tokens) >= 3 and tokens[1] == "as":
+    if len(tokens) >= 2 and tokens[1] == "as":
+        if len(tokens) < 3:
+            raise ValueError(
+                "missing agent name after 'as' — "
+                "use: spawn <path> as <agent-name> [instruction]",
+            )
         agent_name = tokens[2]
         instruction = " ".join(tokens[3:])
     else:

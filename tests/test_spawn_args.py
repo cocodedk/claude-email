@@ -1,4 +1,6 @@
 """Tests for src/spawn_args.py — meta-command argument parser for `spawn`."""
+import pytest
+
 from src.spawn_args import parse_spawn_args
 
 
@@ -33,6 +35,8 @@ class TestParseSpawnArgs:
             "/path", None, "do as previously",
         )
 
-    def test_as_without_following_token_treats_as_instruction(self):
-        """`spawn /path as` (no name) — `as` becomes part of the instruction."""
-        assert parse_spawn_args("/path as") == ("/path", None, "as")
+    def test_as_without_following_token_raises(self):
+        """`spawn /path as` is a typo (no name after `as`) — fail fast."""
+        with pytest.raises(ValueError) as excinfo:
+            parse_spawn_args("/path as")
+        assert "missing agent name after 'as'" in str(excinfo.value)

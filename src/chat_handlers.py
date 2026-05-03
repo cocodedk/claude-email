@@ -24,6 +24,12 @@ from src.worker_manager import WorkerManager
 logger = logging.getLogger(__name__)
 
 
+def _err_reply(config: dict, message, chat_db: ChatDB, body: str) -> None:
+    send_threaded_reply(
+        config, message, body, tag="Error", chat_db=chat_db, kind="error",
+    )
+
+
 def send_threaded_reply(
     config: dict, original_message, body: str,
     tag: str | None = None, footer: bool = True,
@@ -84,10 +90,9 @@ def handle_chat_email(
         if chat_db.get_agent(route.agent_name) is None:
             known = [a["name"] for a in chat_db.list_agents()]
             hint = ", ".join(known) if known else "(none registered)"
-            send_threaded_reply(
-                config, message,
+            _err_reply(
+                config, message, chat_db,
                 f"Unknown agent {route.agent_name}. Known agents: {hint}",
-                tag="Error", chat_db=chat_db, kind="error",
             )
             logger.warning("Agent command rejected — %s not registered", route.agent_name)
             return True
@@ -139,19 +144,21 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
         )
 
     elif route.meta_command == "spawn":
-        project_dir, agent_name, instruction = parse_spawn_args(route.meta_args)
+        try:
+            project_dir, agent_name, instruction = parse_spawn_args(route.meta_args)
+        except ValueError as exc:
+            _err_reply(config, message, chat_db, f"Spawn rejected: {exc}")
+            return
         if not project_dir:
-            send_threaded_reply(
-                config, message,
+            _err_reply(
+                config, message, chat_db,
                 "Usage: spawn <name-or-path> [as <agent-name>] [instruction]",
-                tag="Error", chat_db=chat_db, kind="error",
             )
             return
         if agent_name is not None and validated_agent_name(agent_name, "") != agent_name:
-            send_threaded_reply(
-                config, message,
+            _err_reply(
+                config, message, chat_db,
                 f"Spawn rejected: invalid agent name {agent_name!r}",
-                tag="Error", chat_db=chat_db, kind="error",
             )
             return
         try:
@@ -166,10 +173,7 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
                 agent_name=agent_name,
             )
         except ValueError as exc:
-            send_threaded_reply(
-                config, message, f"Spawn rejected: {exc}",
-                tag="Error", chat_db=chat_db, kind="error",
-            )
+            _err_reply(config, message, chat_db, f"Spawn rejected: {exc}")
             return
         send_threaded_reply(
             config, message, f"Spawned {name} (PID {pid})",
@@ -189,9 +193,6 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
             svc = config["service_name_email"]
             subprocess.run(["systemctl", "--user", "restart", svc], shell=False, check=False)
         else:
-            send_threaded_reply(
-                config, message, f"Unknown restart target: {target}",
-                tag="Error", chat_db=chat_db, kind="error",
-            )
+            _err_reply(config, message, chat_db, f"Unknown restart target: {target}")
 
 

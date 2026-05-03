@@ -221,6 +221,29 @@ class TestSpawnAsName:
         assert "invalid agent name" in body.lower()
         assert "'Not-Valid'" in body or '"Not-Valid"' in body
 
+    def test_dangling_as_replies_error(self, mocker):
+        """`spawn <path> as` with no name token — handler must NOT spawn,
+        must reply with an Error (regression for coderabbit comment #2)."""
+        from src.chat_handlers import _handle_meta
+        from src.chat_router import Route
+
+        spawn_mock = mocker.patch("src.chat_handlers.spawn_agent")
+        reply_mock = mocker.patch("src.chat_handlers.send_reply", return_value="<r@mail>")
+
+        config = _base_config()
+        route = Route(
+            kind="meta", meta_command="spawn",
+            meta_args="/p as",
+            agent_name=None, body=None, original_message_id=None,
+        )
+        _handle_meta(route, config, _make_message(), MagicMock())
+
+        spawn_mock.assert_not_called()
+        reply_mock.assert_called_once()
+        body = reply_mock.call_args.kwargs["body"]
+        assert body.startswith("Spawn rejected: ")
+        assert "missing agent name after 'as'" in body
+
     def test_legacy_no_as_clause_passes_none_agent_name(self, mocker):
         """The existing `spawn <path> <instruction>` form must still work."""
         from src.chat_handlers import _handle_meta
