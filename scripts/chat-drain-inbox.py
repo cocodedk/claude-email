@@ -34,6 +34,7 @@ try:
 except ImportError:
     pass
 
+from src.agent_name import ENV_VAR_NAME, validated_agent_name  # noqa: E402
 from src.chat_db import ChatDB  # noqa: E402
 from src.chat_pid_reclaim import reclaim_pid_best_effort  # noqa: E402
 from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
@@ -50,7 +51,15 @@ def _resolved_db_path() -> Path:
 
 
 def _caller_name() -> str:
-    return "agent-" + PurePosixPath(os.getcwd()).name
+    """Return the bus identity to drain mail for.
+
+    Honors CLAUDE_AGENT_NAME (set by the spawner / SessionStart-time
+    shell export) so a session that registered under a non-default name
+    drains its OWN inbox, not the cwd-default name's inbox. Falls back
+    to ``agent-<basename(cwd)>`` when the env var is unset or invalid —
+    matching what the SessionStart hook would have registered."""
+    fallback = "agent-" + PurePosixPath(os.getcwd()).name
+    return validated_agent_name(os.environ.get(ENV_VAR_NAME), fallback)
 
 
 def _read_hook_payload() -> dict:

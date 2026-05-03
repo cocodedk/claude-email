@@ -20,7 +20,7 @@ _SCRIPT_PATH = _REPO_ROOT / "scripts" / "chat-drain-inbox.py"
 
 @pytest.fixture
 def drain_mod(monkeypatch):
-    for key in ("CHAT_DB_PATH",):
+    for key in ("CHAT_DB_PATH", "CLAUDE_AGENT_NAME"):
         monkeypatch.delenv(key, raising=False)
     spec = importlib.util.spec_from_file_location("chat_drain_inbox", _SCRIPT_PATH)
     mod = importlib.util.module_from_spec(spec)
@@ -298,6 +298,46 @@ class TestMain:
         drain_mod.main()
         payload = json.loads(capsys.readouterr().out)
         assert 'agent-my-project' in payload["hookSpecificOutput"]["additionalContext"]
+
+    def test_env_var_drains_named_agent_inbox(self, drain_mod, tmp_path, monkeypatch, capsys):
+        """When CLAUDE_AGENT_NAME is set, drain consumes that agent's
+        inbox — not the cwd-default. Without this, two agents in the
+        same project silently steal each other's messages."""
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "shared"
+        project.mkdir()
+        # One message for the explicit name, one for the cwd-default.
+        db.insert_message("user", "agent-supervisor", "for-supervisor", "reply")
+        db.insert_message("user", "agent-shared", "for-default", "reply")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        monkeypatch.setenv("CLAUDE_AGENT_NAME", "agent-supervisor")
+
+        drain_mod.main()
+        ctx = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+        assert "for-supervisor" in ctx
+        assert "for-default" not in ctx
+        # Default-named inbox is untouched and still pending.
+        from src.chat_db import ChatDB as _DB
+        remaining = _DB(str(db_file)).get_pending_messages_for("agent-shared")
+        assert any(m["body"] == "for-default" for m in remaining)
+
+    def test_invalid_env_var_falls_back_to_cwd_basename(self, drain_mod, tmp_path, monkeypatch, capsys):
+        db_file = tmp_path / "bus.db"
+        db = ChatDB(str(db_file))
+        project = tmp_path / "fallback"
+        project.mkdir()
+        db.insert_message("user", "agent-fallback", "ok", "reply")
+        monkeypatch.chdir(project)
+        monkeypatch.setenv("CHAT_DB_PATH", str(db_file))
+        monkeypatch.setenv("CLAUDE_AGENT_NAME", "Not Valid")
+
+        drain_mod.main()
+        out = capsys.readouterr()
+        ctx = json.loads(out.out)["hookSpecificOutput"]["additionalContext"]
+        assert "agent-fallback" in ctx
+        assert "rejecting invalid name 'Not Valid'" in out.err
 
     def test_import_does_not_crash_when_dotenv_missing(self, monkeypatch):
         real_dotenv = sys.modules.pop("dotenv", None)
