@@ -2,7 +2,7 @@
 import pytest
 
 from src.error_codes import (
-    ERROR_CODES, ProjectNotFound, ProjectOutsideBase,
+    DEFAULT_HINTS, ERROR_CODES, ProjectNotFound, ProjectOutsideBase,
     error_result_from_exc, make_error,
 )
 
@@ -29,32 +29,54 @@ class TestErrorCodesTable:
 
 
 class TestMakeError:
-    def test_minimal_payload(self):
+    def test_payload_always_carries_default_hint(self):
+        """An error flag is useless without informative content. Every
+        kind=error envelope must carry a hint the client can render
+        verbatim — so when no per-call hint is supplied, the table
+        default fills in."""
         payload = make_error("unauthorized", "auth failed")
         assert payload == {
             "code": "unauthorized",
             "message": "auth failed",
             "retryable": False,
+            "hint": DEFAULT_HINTS["unauthorized"],
         }
 
     def test_retryable_from_table_for_transient(self):
         payload = make_error("internal", "boom")
         assert payload["retryable"] is True
 
-    def test_optional_hint_included_when_set(self):
-        payload = make_error(
-            "project_not_found", "nope",
-            hint="Check the project name in Settings.",
-        )
-        assert payload["hint"] == "Check the project name in Settings."
-
-    def test_hint_omitted_when_not_set(self):
-        payload = make_error("unauthorized", "auth failed")
-        assert "hint" not in payload
+    def test_per_call_hint_overrides_default(self):
+        custom = "Use the link in your inbox to authorize this device."
+        payload = make_error("unauthorized", "auth failed", hint=custom)
+        assert payload["hint"] == custom
 
     def test_unknown_code_raises_loudly(self):
         with pytest.raises(ValueError, match="unknown error code"):
             make_error("teapot", "short and stout")
+
+
+class TestDefaultHintCoverage:
+    """Every contracted error code must have a default hint so no
+    code path can emit an envelope-status=error without informative
+    content. New codes added to ERROR_CODES without a matching hint
+    fail this test."""
+
+    def test_every_code_has_a_default_hint(self):
+        missing = sorted(c for c in ERROR_CODES if c not in DEFAULT_HINTS)
+        assert not missing, f"missing DEFAULT_HINTS for: {missing}"
+
+    def test_no_orphan_hints(self):
+        """A hint without a code in ERROR_CODES means a stale rename."""
+        orphans = sorted(c for c in DEFAULT_HINTS if c not in ERROR_CODES)
+        assert not orphans, f"DEFAULT_HINTS for unknown codes: {orphans}"
+
+    def test_hints_are_actionable_text(self):
+        """Empty / whitespace-only / placeholder hints defeat the point."""
+        for code, hint in DEFAULT_HINTS.items():
+            assert hint and hint.strip(), code
+            assert "TODO" not in hint, code
+            assert "FIXME" not in hint, code
 
 
 class TestErrorResultFromExc:
