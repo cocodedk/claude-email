@@ -52,8 +52,26 @@ class TestListProjectsKind:
         body = json.loads(mock_send.call_args.kwargs["body"])
         row = body["data"]["projects"][0]
         assert set(row.keys()) == {
-            "name", "path", "running_task_id", "queue_depth", "last_activity_at",
+            "name", "path", "running_task_id", "queue_depth",
+            "last_activity_at", "agent_status",
         }
+
+    def test_agent_status_reflects_registry(self, resources, tmp_path, mocker):
+        """End-to-end: a registered agent for a project's resolved path
+        surfaces as ``agent_status: "connected"`` on its row."""
+        cdb, tq, wm = resources
+        cfg = base_config(tmp_path)
+        proj = make_git_dir(tmp_path, "alpha")
+        cdb.register_agent("agent-alpha", str(proj.resolve()))
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = json_email({
+            "v": 1, "kind": "list_projects",
+            "meta": {"auth": "s3cret"},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        row = next(p for p in body["data"]["projects"] if p["name"] == "alpha")
+        assert row["agent_status"] == "connected"
 
     def test_unauthorized_returns_error(self, resources, tmp_path, mocker):
         cdb, tq, wm = resources

@@ -94,3 +94,43 @@ class TestListProjectsTool:
             make_git_dir(tmp_path, n)
         names = [p["name"] for p in list_projects_tool(tq, allowed_base=str(tmp_path))["projects"]]
         assert names == ["alpha", "mike", "zulu"]
+
+
+class TestAgentStatusField:
+    """``agent_status`` is always present in each row. Reads from chat_db
+    when supplied; defaults to ``"absent"`` when caller didn't pass one
+    so the wire shape stays stable for legacy/test callers."""
+
+    def test_absent_when_no_chat_db_passed(self, tmp_path, tq):
+        make_git_dir(tmp_path, "alpha")
+        row = list_projects_tool(tq, allowed_base=str(tmp_path))["projects"][0]
+        assert row["agent_status"] == "absent"
+
+    def test_connected_when_live_agent_registered(self, tmp_path, tq):
+        proj = make_git_dir(tmp_path, "alpha")
+        cdb = ChatDB(str(tmp_path / "x.db"))  # same DB the tq fixture made
+        cdb.register_agent("agent-alpha", str(proj.resolve()))
+        row = list_projects_tool(
+            tq, allowed_base=str(tmp_path), chat_db=cdb,
+        )["projects"][0]
+        assert row["agent_status"] == "connected"
+
+    def test_absent_when_chat_db_has_no_row(self, tmp_path, tq):
+        make_git_dir(tmp_path, "alpha")
+        cdb = ChatDB(str(tmp_path / "x.db"))
+        row = list_projects_tool(
+            tq, allowed_base=str(tmp_path), chat_db=cdb,
+        )["projects"][0]
+        assert row["agent_status"] == "absent"
+
+    def test_per_project_state_is_independent(self, tmp_path, tq):
+        proj_a = make_git_dir(tmp_path, "alpha")
+        make_git_dir(tmp_path, "beta")  # no agent registered
+        cdb = ChatDB(str(tmp_path / "x.db"))
+        cdb.register_agent("agent-alpha", str(proj_a.resolve()))
+        rows = list_projects_tool(
+            tq, allowed_base=str(tmp_path), chat_db=cdb,
+        )["projects"]
+        by_name = {r["name"]: r for r in rows}
+        assert by_name["alpha"]["agent_status"] == "connected"
+        assert by_name["beta"]["agent_status"] == "absent"

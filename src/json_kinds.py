@@ -60,10 +60,14 @@ def handle_status(env: Envelope, task_queue, allowed_base: str) -> str:
     })
 
 
-def handle_list_projects(env: Envelope, task_queue, allowed_base: str) -> str:
+def handle_list_projects(
+    env: Envelope, task_queue, allowed_base: str, chat_db=None,
+) -> str:
     if list_projects_tool is None:  # pragma: no cover — chat package import broken
         return _server_uninitialized(env, "list_projects_tool")
-    result = list_projects_tool(task_queue, allowed_base=allowed_base)
+    result = list_projects_tool(
+        task_queue, allowed_base=allowed_base, chat_db=chat_db,
+    )
     return _ack(env, f"{len(result['projects'])} project(s)", result)
 
 
