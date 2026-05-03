@@ -37,3 +37,5 @@ claude-email.log*
 .vscode/
 *.swp
 *.swo
+.claude/tasks.jsonl
+.claude/CHANGELOG-claude.md

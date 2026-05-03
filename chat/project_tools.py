@@ -75,7 +75,7 @@ def cancel_task_tool(
     try:
         resolved = resolve_project(project, allowed_base)
     except ValueError as exc:
-        return {"error": str(exc)}
+        return error_result_from_exc(exc)
     return cancel_running_task(queue, resolved, drain_queue=drain_queue)
 
 
@@ -85,7 +85,7 @@ def queue_status_tool(
     try:
         resolved = resolve_project(project, allowed_base)
     except ValueError as exc:
-        return {"error": str(exc)}
+        return error_result_from_exc(exc)
     return queue_status(queue, resolved)
 
 
