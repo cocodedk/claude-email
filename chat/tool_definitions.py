@@ -67,6 +67,16 @@ _CORE_TOOLS = [
                     "description": "Recipient agent name (must be registered)",
                 },
                 "message": {"type": "string", "description": "Message body"},
+                "task_id": {
+                    "type": "integer",
+                    "description": (
+                        "Task ID to thread this message under. When replying "
+                        "to a peer message that arrived with a task_id (e.g. "
+                        "an email-routed command), echo it here so SMTP relay "
+                        "addresses the eventual user-facing reply via "
+                        "tasks.origin_from instead of the canonical sender."
+                    ),
+                },
                 "_caller": _CALLER_PROP,
             },
             "required": ["to_agent", "message", "_caller"],

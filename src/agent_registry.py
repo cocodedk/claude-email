@@ -10,15 +10,16 @@ from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.process_liveness import is_alive
 
 
+DEFAULT_AGENT_FRESHNESS_SEC = 60  # 60s heartbeat window — agents touch on every MCP call
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# Default freshness window for "is this agent still around?" — agents
-# touch ``last_seen_at`` on every MCP call (heartbeat), so 60s is a
-# generous cushion that catches both actively-working sessions and
-# idle-but-cron-draining ones.
-DEFAULT_AGENT_FRESHNESS_SEC = 60
+def _cutoff(seconds_ago: int) -> str:
+    """ISO-8601 UTC timestamp ``seconds_ago`` in the past — lower-bound for ``last_seen_at`` freshness."""
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat()
 
 
 class AgentRegistryMixin:
@@ -93,14 +94,9 @@ class AgentRegistryMixin:
         self, name: str, project_path: str, *,
         exclude_pid: int | None = None,
     ) -> dict | None:
-        """Return the live-process owner of the name or project slot, if any.
-
-        Returns a row with ``name`` and ``pid`` of the first live owner
-        found — checked via is_alive. ``exclude_pid`` (and, via
-        is_ancestor_or_self at the caller) can be used to filter out our
-        own session from the probe. Keeps ownership logic in one place
-        so scripts can avoid touching ``db._conn`` directly.
-        """
+        """Return the first live-process owner ({name, pid}) of the name
+        or project slot — checked via is_alive. ``exclude_pid`` filters
+        out our own session. Keeps ownership probing off ``db._conn``."""
         by_name = self.get_agent(name)
         if (
             by_name
@@ -131,27 +127,35 @@ class AgentRegistryMixin:
         rows = self._conn.execute("SELECT * FROM agents").fetchall()
         return [dict(r) for r in rows]
 
+    def find_live_agent_for_project(
+        self, project_path: str,
+        freshness_sec: int = DEFAULT_AGENT_FRESHNESS_SEC,
+    ) -> dict | None:
+        """Return the newest-registered live agent for ``project_path``
+        (live = status='running' + last_seen_at within ``freshness_sec``;
+        tiebreak is ORDER BY registered_at DESC per v1 design)."""
+        cutoff = _cutoff(freshness_sec)
+        row = self._conn.execute(
+            "SELECT * FROM agents WHERE project_path=? "
+            "AND status='running' AND last_seen_at >= ? "
+            "ORDER BY registered_at DESC LIMIT 1",
+            (project_path, cutoff),
+        ).fetchone()
+        return dict(row) if row else None
+
     def agent_status_for_project(
         self, project_path: str,
         freshness_sec: int = DEFAULT_AGENT_FRESHNESS_SEC,
     ) -> str:
-        """Three-state liveness for a project: ``connected`` (at least one
-        agent registered for the path with ``status='running'`` and
-        ``last_seen_at`` within ``freshness_sec``), ``disconnected``
-        (some agent is registered but none are live + fresh), or
-        ``absent`` (no agent ever registered for this path).
-
-        Powers the ``list_projects`` envelope's ``agent_status`` field.
-        """
+        """3-state liveness for ``list_projects.agent_status``:
+        connected | disconnected | absent."""
         rows = self._conn.execute(
             "SELECT status, last_seen_at FROM agents WHERE project_path=?",
             (project_path,),
         ).fetchall()
         if not rows:
             return "absent"
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(seconds=freshness_sec)
-        ).isoformat()
+        cutoff = _cutoff(freshness_sec)
         for row in rows:
             if row["status"] == "running" and (row["last_seen_at"] or "") >= cutoff:
                 return "connected"

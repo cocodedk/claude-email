@@ -59,6 +59,37 @@ class TaskQueue:
         self._conn.commit()
         return cur.lastrowid
 
+    def enqueue_routed(
+        self, project_path: str, body: str, *,
+        origin_content_type: str = "", origin_message_id: str = "",
+        origin_subject: str = "", origin_from: str = "",
+    ) -> int:
+        """Insert a virtual task row carrying origin metadata for the
+        ``meta.prefer_live_agent`` routing path.
+
+        The row's status is ``routed_via_agent`` (outside the worker's
+        ``WHERE status='pending'`` claim filter and the ghost reaper's
+        ``WHERE status='running'`` filter), so no worker spawns and no
+        reaper alarms. ``completed_at`` is set up-front since there's
+        no lifecycle to track. The row exists purely to give the live
+        agent a ``task_id`` to thread back on its reply, so the relay's
+        ``recipient_for_message`` can look up ``tasks.origin_from`` and
+        address the SMTP reply to the actual inbound sender.
+        """
+        now = _now()
+        cur = self._conn.execute(
+            "INSERT INTO tasks (project_path, body, status, priority, "
+            "created_at, started_at, completed_at, "
+            "origin_content_type, origin_message_id, origin_subject, "
+            "origin_from) "
+            "VALUES (?, ?, 'routed_via_agent', 0, ?, ?, ?, ?, ?, ?, ?)",
+            (project_path, body, now, now, now,
+             origin_content_type or None, origin_message_id or None,
+             origin_subject or None, origin_from or None),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
     def claim_next(self, project_path: str) -> dict | None:
         """Atomically move the oldest pending task for a project to running."""
         cur = self._conn.execute(

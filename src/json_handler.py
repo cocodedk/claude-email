@@ -74,6 +74,7 @@ def _dispatch(
         return handle_command(
             env, task_queue, worker_manager, allowed_base,
             inbound_msg_id, inbound_subject, inbound_from,
+            chat_db=chat_db,
         )
     if env.kind == "status":
         return handle_status(env, task_queue, allowed_base)
