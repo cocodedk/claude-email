@@ -48,6 +48,21 @@ _CORE_TOOLS = [
                 "message": {"type": "string", "description": "Notification text"},
                 "_caller": _CALLER_PROP,
                 "task_id": {"type": "integer", "description": "Task ID this message belongs to (for email threading)"},
+                "progress": {
+                    "type": "object",
+                    "description": (
+                        "Optional progress indicator. Renders as a progress "
+                        "bar in the app when present (JSON-origin tasks only). "
+                        "All sub-fields optional; invalid entries silently dropped."
+                    ),
+                    "properties": {
+                        "current": {"type": "integer", "minimum": 0},
+                        "total": {"type": "integer", "minimum": 1},
+                        "percent": {"type": "number", "minimum": 0, "maximum": 100},
+                        # maxLength must match _LABEL_MAX in src/progress_envelope.py
+                        "label": {"type": "string", "maxLength": 200},
+                    },
+                },
             },
             "required": ["message", "_caller"],
         },

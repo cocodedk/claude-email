@@ -193,3 +193,37 @@ class TestHeartbeat:
         ))
         assert result == {"status": "sent"}
         assert db.get_agent("bot")["last_seen_at"] > "1970-01-01T00:00:00+00:00"
+
+    def test_dispatch_chat_notify_forwards_progress(self, db, tmp_path):
+        """chat_notify with progress arg must reach notify_user so the
+        envelope wrap kicks in for JSON-origin tasks (B5)."""
+        import json
+        from src.task_queue import TaskQueue
+        from src.worker_manager import WorkerManager
+        from src.reset_control import TokenStore
+        db.register_agent("bot", "/p")
+        queue = TaskQueue(db.path)
+        task_id = queue.enqueue(
+            "/p", "work", origin_content_type="application/json",
+        )
+        queue.claim_next("/p")
+        manager = WorkerManager(
+            db_path=db.path, project_root=str(tmp_path),
+        )
+        tokens = TokenStore()
+        asyncio.run(dispatch(
+            db, queue, manager, tokens,
+            "chat_notify",
+            {
+                "_caller": "bot", "message": "Running tests",
+                "task_id": task_id,
+                "progress": {"current": 3, "total": 7, "label": "passed"},
+            },
+        ))
+        msg = db.get_pending_messages_for("user")[0]
+        assert msg["content_type"] == "application/json"
+        env = json.loads(msg["body"])
+        assert env["kind"] == "progress"
+        assert env["meta"]["progress"] == {
+            "current": 3, "total": 7, "label": "passed",
+        }

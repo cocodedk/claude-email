@@ -156,6 +156,7 @@ def build_envelope(
     kind: str, body: str = "", task_id: int | None = None,
     data: dict | None = None, error: dict | None = None,
     ask_id: int | None = None, routed_via: str | None = None,
+    progress: dict | None = None,
 ) -> str:
     """Build an outbound envelope as a JSON string.
 
@@ -163,6 +164,8 @@ def build_envelope(
     to the originating question and unblock the right chat_ask.
     `routed_via` (when set) lands as ``meta.routed_via`` so the app can
     show the user whether the command went to a live agent or a worker.
+    `progress` (when set) lands as ``meta.progress`` carrying optional
+    ``current/total/percent/label`` fields for the kind=progress path.
     """
     out: dict[str, Any] = {
         "v": V,
@@ -177,6 +180,8 @@ def build_envelope(
         out["meta"]["ask_id"] = int(ask_id)
     if routed_via:
         out["meta"]["routed_via"] = routed_via
+    if progress:
+        out["meta"]["progress"] = progress
     if task_id is not None:
         out["task_id"] = int(task_id)
     if data:
