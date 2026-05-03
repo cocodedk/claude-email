@@ -28,6 +28,9 @@ from typing import Any
 V = 1
 CONTENT_TYPE = "application/json"
 
+ROUTED_VIA_AGENT = "agent"
+ROUTED_VIA_WORKER = "worker"
+
 INBOUND_KINDS = {
     "command", "reply", "status", "cancel",
     "retry", "commit", "reset", "confirm_reset",
@@ -65,6 +68,7 @@ class Envelope:
     client: str = ""
     sent_at: str = ""
     ask_id: int | None = None
+    prefer_live_agent: bool = False
     extras: dict[str, Any] = field(default_factory=dict)
 
 
@@ -134,6 +138,7 @@ def parse_envelope(message: email.message.Message) -> Envelope:
         client=str(meta.get("client") or ""),
         sent_at=str(meta.get("sent_at") or ""),
         ask_id=ask_id,
+        prefer_live_agent=bool(meta.get("prefer_live_agent", False)),
         extras=data,
     )
 
@@ -150,12 +155,14 @@ def _int_or_none(value) -> int | None:
 def build_envelope(
     kind: str, body: str = "", task_id: int | None = None,
     data: dict | None = None, error: dict | None = None,
-    ask_id: int | None = None,
+    ask_id: int | None = None, routed_via: str | None = None,
 ) -> str:
     """Build an outbound envelope as a JSON string.
 
     `ask_id` echoes the inbound `meta.ask_id` so the app can match a reply
     to the originating question and unblock the right chat_ask.
+    `routed_via` (when set) lands as ``meta.routed_via`` so the app can
+    show the user whether the command went to a live agent or a worker.
     """
     out: dict[str, Any] = {
         "v": V,
@@ -168,6 +175,8 @@ def build_envelope(
     }
     if ask_id is not None:
         out["meta"]["ask_id"] = int(ask_id)
+    if routed_via:
+        out["meta"]["routed_via"] = routed_via
     if task_id is not None:
         out["task_id"] = int(task_id)
     if data:
