@@ -123,13 +123,18 @@ class TestAgents:
 
     def test_register_different_name_same_project_live_pid_allowed(self, db):
         """Multiple agents may live in the same project directory."""
-        db.register_agent("agent-one", "/shared/project", pid=os.getpid())
-        # Different name, same project, both live → must succeed.
-        db.register_agent("agent-two", "/shared/project", pid=os.getpid())
-        assert db.get_agent("agent-one")["pid"] == os.getpid()
-        assert db.get_agent("agent-two")["pid"] == os.getpid()
-        assert db.get_agent("agent-one")["project_path"] == "/shared/project"
-        assert db.get_agent("agent-two")["project_path"] == "/shared/project"
+        import subprocess
+        sibling = subprocess.Popen(["sleep", "5"])
+        try:
+            db.register_agent("agent-one", "/shared/project", pid=os.getpid())
+            db.register_agent("agent-two", "/shared/project", pid=sibling.pid)
+            assert db.get_agent("agent-one")["pid"] == os.getpid()
+            assert db.get_agent("agent-two")["pid"] == sibling.pid
+            assert db.get_agent("agent-one")["project_path"] == "/shared/project"
+            assert db.get_agent("agent-two")["project_path"] == "/shared/project"
+        finally:
+            sibling.kill()
+            sibling.wait()
 
     def test_register_different_name_same_project_dead_pid_allowed(self, db):
         db.register_agent("agent-one", "/shared/project", pid=99_999_999)

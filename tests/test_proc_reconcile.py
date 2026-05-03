@@ -145,8 +145,7 @@ class TestReconcileLiveAgents:
         parent-qualified name so both live sessions stay visible.
 
         Both PIDs must report alive so the second register_agent raises
-        AgentNameTaken / AgentProjectTaken instead of silently taking over
-        a stale slot.
+        AgentNameTaken instead of silently taking over a stale slot.
         """
         from src import proc_reconcile
         import src.agent_registry

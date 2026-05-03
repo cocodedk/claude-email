@@ -124,7 +124,11 @@ class AgentRegistryMixin:
     ) -> dict | None:
         """Return the newest-registered live agent for ``project_path``
         (live = status='running' + last_seen_at within ``freshness_sec``;
-        tiebreak is ORDER BY registered_at DESC per v1 design)."""
+        tiebreak is ORDER BY registered_at DESC per v1 design).
+
+        NOTE: When multiple live agents share a project (legal post-2026-05-03),
+        only the most-recently-registered one is returned. Callers needing
+        disambiguation must use the explicit agent name."""
         cutoff = _cutoff(freshness_sec)
         row = self._conn.execute(
             "SELECT * FROM agents WHERE project_path=? "
