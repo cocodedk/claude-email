@@ -3,7 +3,7 @@ import asyncio
 import os
 import sqlite3
 import pytest
-from src.chat_db import ChatDB, AgentNameTaken, AgentProjectTaken
+from src.chat_db import ChatDB, AgentNameTaken
 
 
 @pytest.fixture
@@ -121,15 +121,15 @@ class TestAgents:
         db.register_agent("a1", "/new")
         assert db.get_agent("a1")["project_path"] == "/new"
 
-    def test_register_different_name_same_project_live_pid_raises(self, db):
+    def test_register_different_name_same_project_live_pid_allowed(self, db):
+        """Multiple agents may live in the same project directory."""
         db.register_agent("agent-one", "/shared/project", pid=os.getpid())
-        with pytest.raises(AgentProjectTaken) as excinfo:
-            db.register_agent(
-                "agent-two", "/shared/project", pid=os.getpid() + 10_000_000,
-            )
-        assert excinfo.value.project_path == "/shared/project"
-        assert excinfo.value.owner_name == "agent-one"
-        assert excinfo.value.owner_pid == os.getpid()
+        # Different name, same project, both live → must succeed.
+        db.register_agent("agent-two", "/shared/project", pid=os.getpid())
+        assert db.get_agent("agent-one")["pid"] == os.getpid()
+        assert db.get_agent("agent-two")["pid"] == os.getpid()
+        assert db.get_agent("agent-one")["project_path"] == "/shared/project"
+        assert db.get_agent("agent-two")["project_path"] == "/shared/project"
 
     def test_register_different_name_same_project_dead_pid_allowed(self, db):
         db.register_agent("agent-one", "/shared/project", pid=99_999_999)
