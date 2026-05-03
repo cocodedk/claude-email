@@ -15,6 +15,7 @@ import logging
 import os
 from pathlib import PurePosixPath
 
+from src.agent_name import validated_agent_name
 from src.chat_errors import AgentNameTaken, AgentProjectTaken
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,27 @@ def _cwd_of(pid: int) -> str | None:
         return None
 
 
+def _read_agent_name_from_environ(pid: int) -> str | None:
+    """Return the value of CLAUDE_AGENT_NAME from /proc/<pid>/environ, if any.
+
+    /proc/<pid>/environ is a null-separated bytes blob of KEY=VALUE pairs.
+    Returns None when the file is unreadable, the variable is absent, or
+    the value can't be decoded as UTF-8. Validation is the caller's job —
+    this helper just extracts the raw string."""
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as f:
+            data = f.read()
+    except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
+        return None
+    for entry in data.split(b"\x00"):
+        if entry.startswith(b"CLAUDE_AGENT_NAME="):
+            try:
+                return entry.split(b"=", 1)[1].decode("utf-8")
+            except UnicodeDecodeError:
+                return None
+    return None
+
+
 def _fallback_name(cwd: str, pid: int) -> str:
     """Disambiguator for basename collisions across projects.
 
@@ -81,7 +103,9 @@ def reconcile_live_agents(db, *, marker: str = _DEFAULT_MARKER) -> list[str]:
         cwd = _cwd_of(pid)
         if not cwd:
             continue
-        name = "agent-" + PurePosixPath(cwd).name
+        fallback = "agent-" + PurePosixPath(cwd).name
+        env_name = _read_agent_name_from_environ(pid)
+        name = validated_agent_name(env_name, fallback)
         try:
             db.register_agent(name, cwd, pid=pid)
         except (AgentNameTaken, AgentProjectTaken):
