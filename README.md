@@ -200,8 +200,11 @@ In **GPG mode** the Subject fallback is disabled — the GPG signature only cove
 |---|---|---|
 | `@agent-name <instruction>` | Send instruction to a specific agent | `AUTH:secret @agent-fits run the tests` |
 | `status` | List all registered agents and their state | `AUTH:secret status` |
-| `spawn <name-or-path> [instruction]` | Spawn an agent. Bare names resolve against `CLAUDE_CWD`; absolute paths also accepted. | `AUTH:secret spawn babakcast` |
+| `spawn <name-or-path> [instruction]` | Spawn an agent. Bare names resolve against `CLAUDE_CWD`; absolute paths also accepted. The agent's bus name defaults to `agent-<basename(path)>`. | `AUTH:secret spawn babakcast` |
+| `spawn <name-or-path> as <agent-name> [instruction]` | Spawn under an explicit `agent-name` instead of the cwd-derived default. Use this to run **multiple agents in the same project** (e.g. one main, one optimizer). Names must match `^agent-[a-z0-9][a-z0-9_-]{0,57}$`. | `AUTH:secret spawn babakcast as agent-bc-optimizer` |
 | `restart chat` | Restart the claude-chat service | `AUTH:secret restart chat` |
+
+> **Multi-agent per project.** Both spawn forms set the `CLAUDE_AGENT_NAME` env var on the spawned `claude` process. The SessionStart hook reads it (validated against the regex above) so each session registers under the right name even when N agents share a project directory. Manually-launched sessions can also export `CLAUDE_AGENT_NAME=agent-foo` before running `claude` to claim a non-default name.
 | `restart self` | Restart the claude-email service | `AUTH:secret restart self` |
 
 ### Replying to Agents
@@ -427,7 +430,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 1108 pytest tests (100% coverage)
+├── tests/                 # 1153 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -501,7 +504,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1108 tests, 100% coverage)
+# Run all tests (1153 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -519,7 +522,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1108 tests** with **100% code coverage** across all modules
+- **1153 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
