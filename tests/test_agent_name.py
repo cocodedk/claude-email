@@ -1,6 +1,4 @@
 """Tests for src/agent_name.py — central validator for bus identities."""
-import pytest
-
 from src.agent_name import validated_agent_name
 
 
@@ -42,4 +40,14 @@ class TestValidatedAgentName:
 
     def test_disallowed_char_falls_back(self, capsys):
         assert validated_agent_name("agent-foo bar", "agent-fb") == "agent-fb"
+        assert "rejecting invalid name" in capsys.readouterr().err
+
+    def test_minimum_length_passes(self):
+        assert validated_agent_name("agent-a", "agent-fb") == "agent-a"
+
+    def test_digit_first_char_passes(self):
+        assert validated_agent_name("agent-7omid", "agent-fb") == "agent-7omid"
+
+    def test_trailing_newline_falls_back(self, capsys):
+        assert validated_agent_name("agent-foo\n", "agent-fb") == "agent-fb"
         assert "rejecting invalid name" in capsys.readouterr().err

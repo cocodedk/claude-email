@@ -19,7 +19,7 @@ def validated_agent_name(raw: str | None, fallback: str) -> str:
     """
     if not raw:
         return fallback
-    if _AGENT_NAME_RE.match(raw):
+    if _AGENT_NAME_RE.fullmatch(raw):
         return raw
     print(
         f"validated_agent_name: rejecting invalid name {raw!r} — "
