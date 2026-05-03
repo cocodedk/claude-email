@@ -1,25 +1,17 @@
 """Inbound JSON-envelope dispatch: parse → act → reply in JSON.
 
-Separated from chat_handlers to keep the two wire formats cleanly
-distinct. Only the `command` kind has a full handler today; the others
-are wired to clear "not-yet-implemented" error envelopes so the app
-sees a deterministic stable-code response and doesn't think its message
-was dropped.
+Per-kind handlers live in ``src/json_kinds.py`` so this file stays
+focused on entry, auth, dispatch routing, and the SMTP reply send.
 """
-import json as _json
 import logging
 
 from src.chat_db import ChatDB
 from src.error_codes import make_error
 from src.json_envelope import Envelope, EnvelopeError, build_envelope, parse_envelope
+from src.json_kinds import handle_cancel, handle_command, handle_status
 from src.mailer import send_reply
 from src.task_queue import TaskQueue
 from src.worker_manager import WorkerManager
-
-try:
-    from chat.project_tools import enqueue_task_tool  # noqa: E402
-except ImportError:  # pragma: no cover
-    enqueue_task_tool = None
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +54,7 @@ def handle_json_email(
     inbound_subject = message.get("Subject", "")
     inbound_from = config.get("reply_to") or config.get("authorized_sender", "")
     reply = _dispatch(
-        env, config, chat_db, task_queue, worker_manager,
+        env, config, task_queue, worker_manager,
         inbound_msg_id, inbound_subject, inbound_from,
     )
     _send_json_reply(config, message, reply, chat_db=chat_db)
@@ -70,72 +62,26 @@ def handle_json_email(
 
 
 def _dispatch(
-    env: Envelope, config, chat_db, task_queue, worker_manager,
+    env: Envelope, config, task_queue, worker_manager,
     inbound_msg_id: str = "", inbound_subject: str = "",
     inbound_from: str = "",
 ) -> str:
     universe = config.get("_universe")
     allowed_base = universe.allowed_base if universe else config.get("claude_cwd", "")
     if env.kind == "command":
-        return _handle_command(
+        return handle_command(
             env, task_queue, worker_manager, allowed_base,
             inbound_msg_id, inbound_subject, inbound_from,
         )
+    if env.kind == "status":
+        return handle_status(env, task_queue, allowed_base)
+    if env.kind == "cancel":
+        return handle_cancel(env, task_queue, allowed_base)
     msg = f"kind {env.kind!r} comes online in a later phase"
     return build_envelope(
         "error", body=f"kind {env.kind!r} not yet implemented",
         error=make_error("not_implemented", msg),
         ask_id=env.ask_id,
-    )
-
-
-def _handle_command(
-    env, task_queue, worker_manager, allowed_base,
-    inbound_msg_id="", inbound_subject="", inbound_from="",
-) -> str:
-    if not env.project or not env.body:
-        return build_envelope(
-            "error", body="command requires project + body",
-            error=make_error("bad_envelope", "missing project or body"),
-            ask_id=env.ask_id,
-        )
-    if enqueue_task_tool is None:  # pragma: no cover
-        return build_envelope(
-            "error", body="server not fully initialized",
-            error=make_error("internal", "enqueue_task_tool unavailable"),
-            ask_id=env.ask_id,
-        )
-    result = enqueue_task_tool(
-        task_queue, worker_manager,
-        project=env.project, body=env.body,
-        priority=env.priority or 0, plan_first=env.plan_first,
-        allowed_base=allowed_base,
-        origin_content_type="application/json",
-        origin_message_id=inbound_msg_id,
-        origin_subject=inbound_subject,
-        origin_from=inbound_from,
-    )
-    if "error" in result:
-        code = result.get("error_code", "invalid_state")
-        hint = (
-            "Check the project name in Settings."
-            if code == "project_not_found" else None
-        )
-        return build_envelope(
-            "error", body=result["error"],
-            error=make_error(code, result["error"], hint=hint),
-            ask_id=env.ask_id,
-        )
-    return build_envelope(
-        "ack", body=f"Queued as task #{result['task_id']}.",
-        task_id=result["task_id"],
-        ask_id=env.ask_id,
-        data={
-            "status": "queued",
-            "branch": result["planned_branch"],
-            "worker_pid": result["worker_pid"],
-            "plan_first": result.get("plan_first", False),
-        },
     )
 
 
