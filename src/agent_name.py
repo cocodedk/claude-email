@@ -7,6 +7,8 @@ all read CLAUDE_AGENT_NAME and must agree on what's accepted.
 import re
 import sys
 
+ENV_VAR_NAME = "CLAUDE_AGENT_NAME"
+
 _AGENT_NAME_RE = re.compile(r"^agent-[a-z0-9][a-z0-9_-]{0,57}$")
 
 

@@ -15,12 +15,13 @@ import logging
 import os
 from pathlib import PurePosixPath
 
-from src.agent_name import validated_agent_name
+from src.agent_name import ENV_VAR_NAME, validated_agent_name
 from src.chat_errors import AgentNameTaken, AgentProjectTaken
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MARKER = "claude"
+_ENV_VAR_PREFIX = ENV_VAR_NAME.encode() + b"="
 
 
 def _iter_claude_pids(marker: str = _DEFAULT_MARKER) -> list[int]:
@@ -73,9 +74,9 @@ def _read_agent_name_from_environ(pid: int) -> str | None:
     except (FileNotFoundError, PermissionError, ProcessLookupError, OSError):
         return None
     for entry in data.split(b"\x00"):
-        if entry.startswith(b"CLAUDE_AGENT_NAME="):
+        if entry.startswith(_ENV_VAR_PREFIX):
             try:
-                return entry.split(b"=", 1)[1].decode("utf-8")
+                return entry[len(_ENV_VAR_PREFIX):].decode("utf-8")
             except UnicodeDecodeError:
                 return None
     return None

@@ -11,7 +11,7 @@ from src.agent_bootstrap import (
     inject_mcp_config,
     inject_session_start_hook,
 )
-from src.agent_name import validated_agent_name
+from src.agent_name import ENV_VAR_NAME, validated_agent_name
 
 __all__ = [
     "CHAT_MCP_SERVER_NAME",
@@ -101,8 +101,8 @@ def spawn_agent(
     inject_mcp_config(project_dir, chat_url)
     inject_session_start_hook(project_dir, HOOK_SCRIPT)
 
-    merged_env = {**os.environ, **(extra_env or {})}
-    agent_config_dir = merged_env.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~")
+    child_env = {**os.environ, **(extra_env or {}), ENV_VAR_NAME: name}
+    agent_config_dir = child_env.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~")
     approve_mcp_server_for_project(agent_config_dir, project_dir, CHAT_MCP_SERVER_NAME)
 
     cmd = [claude_bin]
@@ -122,7 +122,6 @@ def spawn_agent(
             " (only applies when --print is used)",
         )
 
-    child_env = {**os.environ, **(extra_env or {}), "CLAUDE_AGENT_NAME": name}
     proc = subprocess.Popen(
         cmd, cwd=project_dir, shell=False,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
