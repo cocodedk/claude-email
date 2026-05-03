@@ -12,6 +12,12 @@ validating the name format via src.agent_name.validated_agent_name."""
 
 
 def parse_spawn_args(raw: str) -> tuple[str, str | None, str]:
+    """Tokenize ``raw`` into (project_dir, agent_name, instruction).
+
+    ``as`` is a reserved keyword only at token position 1 (right after
+    the path); everywhere else it's part of the instruction. Whitespace
+    is collapsed in the returned instruction. Returns ("", None, "")
+    for empty / whitespace-only input."""
     tokens = raw.split()
     if not tokens:
         return "", None, ""
