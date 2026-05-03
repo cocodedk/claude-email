@@ -9,6 +9,7 @@ files stay under the 200-line cap.
 import asyncio
 
 from src.chat_db import ChatDB
+from src.progress_envelope import build_progress_body
 from src.spawner import spawn_agent
 from src.status_envelope import clear_status_dedup, emit_status
 
@@ -19,10 +20,21 @@ def register_agent(db: ChatDB, name: str, project_path: str) -> dict:
     return {"status": "registered", "name": name}
 
 
-def notify_user(db: ChatDB, caller: str, message: str, task_id: int | None = None) -> dict:
-    """Send a one-way notification from caller to user."""
+def notify_user(
+    db: ChatDB, caller: str, message: str,
+    task_id: int | None = None, progress: dict | None = None,
+) -> dict:
+    """Send a one-way notification from caller to user.
+
+    When ``progress`` is provided AND the task is JSON-origin, the body
+    is wrapped in a kind=progress envelope with meta.progress so the app
+    can render a progress indicator. See src/progress_envelope.py."""
     db.touch_agent(caller)
-    db.insert_message(caller, "user", message, "notify", task_id=task_id)
+    body, content_type = build_progress_body(db, message, task_id, progress)
+    db.insert_message(
+        caller, "user", body, "notify",
+        content_type=content_type, task_id=task_id,
+    )
     return {"status": "sent"}
 
 

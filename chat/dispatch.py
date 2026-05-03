@@ -102,6 +102,7 @@ async def dispatch(
             _sanitize_str(arguments["_caller"], _MAX_NAME_LEN, "_caller"),
             _sanitize_str(arguments["message"], _MAX_MSG_LEN, "message"),
             task_id=_parse_task_id(arguments),
+            progress=arguments.get("progress"),
         )
     if name == "chat_message_agent":
         return tools.message_agent(
