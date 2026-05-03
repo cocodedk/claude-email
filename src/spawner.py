@@ -11,6 +11,7 @@ from src.agent_bootstrap import (
     inject_mcp_config,
     inject_session_start_hook,
 )
+from src.agent_name import validated_agent_name
 
 __all__ = [
     "CHAT_MCP_SERVER_NAME",
@@ -69,6 +70,7 @@ def spawn_agent(
     model: str | None = None,
     effort: str | None = None,
     max_budget_usd: str | None = None,
+    agent_name: str | None = None,
 ) -> tuple[str, int]:
     """Spawn a Claude CLI agent in the given project directory.
 
@@ -76,9 +78,12 @@ def spawn_agent(
     Raises ValueError if the path is invalid or outside allowed_base.
     When yolo is True, appends --dangerously-skip-permissions.
     extra_env is merged over os.environ for the spawned process.
+    agent_name overrides the cwd-derived default; invalid names fall
+    back to the default with a stderr warning.
     """
     project_dir = validate_project_path(project_dir, allowed_base)
-    name = build_agent_name(project_dir)
+    default_name = build_agent_name(project_dir)
+    name = validated_agent_name(agent_name, default_name)
 
     # Basename collision guard: two dirs sharing a basename (/work/app and
     # /backup/app) both resolve to agent-app. Without this check, the second
@@ -117,11 +122,11 @@ def spawn_agent(
             " (only applies when --print is used)",
         )
 
-    env = {**os.environ, **extra_env} if extra_env else None
+    child_env = {**os.environ, **(extra_env or {}), "CLAUDE_AGENT_NAME": name}
     proc = subprocess.Popen(
         cmd, cwd=project_dir, shell=False,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        env=env,
+        env=child_env,
     )
 
     db.register_agent(name, project_dir)
