@@ -10,7 +10,7 @@ from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.process_liveness import is_alive
 
 
-DEFAULT_AGENT_FRESHNESS_SEC = 60  # 60s heartbeat window — agents touch on every MCP call
+DEFAULT_AGENT_FRESHNESS_SEC = 300  # 5min heartbeat window — covers SMTP→IMAP poll latency between agent's last MCP touch and routing decision; reap_dead_agents handles true crashes via is_alive(pid)
 
 
 def _now() -> str:
