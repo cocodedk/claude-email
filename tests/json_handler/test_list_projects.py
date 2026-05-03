@@ -1,26 +1,18 @@
-"""``kind=list_projects`` returns the discoverable git-repo set under
-``allowed_base`` with per-project task state — powers the Projects tab."""
+"""``kind=list_projects`` JSON-envelope handler tests."""
 import json
 
 from src.json_handler import handle_json_email
+from tests._fs_helpers import make_git_dir
 
 from .conftest import base_config, json_email
-
-
-def _git_dir(parent, name: str):
-    d = parent / name
-    d.mkdir()
-    (d / ".git").mkdir()
-    return d
 
 
 class TestListProjectsKind:
     def test_returns_ack_with_projects_array(self, resources, tmp_path, mocker):
         cdb, tq, wm = resources
         cfg = base_config(tmp_path)
-        # Note: the conftest already mkdir'd ``tmp_path/p`` (no .git) — that
-        # one will be excluded by the git-repo filter.
-        _git_dir(tmp_path, "alpha")
+        # The conftest mkdir'd ``tmp_path/p`` without .git — git filter excludes it.
+        make_git_dir(tmp_path, "alpha")
         mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
         msg = json_email({
             "v": 1, "kind": "list_projects",
@@ -31,14 +23,11 @@ class TestListProjectsKind:
         assert body["kind"] == "ack"
         assert isinstance(body["data"]["projects"], list)
         names = [p["name"] for p in body["data"]["projects"]]
-        assert names == ["alpha"]  # the non-git ``p`` is excluded
+        assert names == ["alpha"]
 
     def test_empty_universe_returns_empty_list(self, resources, tmp_path, mocker):
-        """Universe with no git repos under allowed_base — ack with empty
-        list, NOT an error."""
         cdb, tq, wm = resources
         cfg = base_config(tmp_path)
-        # Remove the conftest-created ``p`` and don't make any git repos.
         (tmp_path / "p").rmdir()
         mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
         msg = json_email({
@@ -53,7 +42,7 @@ class TestListProjectsKind:
     def test_per_project_shape_matches_spec(self, resources, tmp_path, mocker):
         cdb, tq, wm = resources
         cfg = base_config(tmp_path)
-        _git_dir(tmp_path, "alpha")
+        make_git_dir(tmp_path, "alpha")
         mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
         msg = json_email({
             "v": 1, "kind": "list_projects",
@@ -62,7 +51,6 @@ class TestListProjectsKind:
         handle_json_email(msg, cfg, cdb, tq, wm)
         body = json.loads(mock_send.call_args.kwargs["body"])
         row = body["data"]["projects"][0]
-        # Five fields the app contract pinned:
         assert set(row.keys()) == {
             "name", "path", "running_task_id", "queue_depth", "last_activity_at",
         }
@@ -82,7 +70,7 @@ class TestListProjectsKind:
     def test_echoes_meta_ask_id(self, resources, tmp_path, mocker):
         cdb, tq, wm = resources
         cfg = base_config(tmp_path)
-        _git_dir(tmp_path, "alpha")
+        make_git_dir(tmp_path, "alpha")
         mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
         msg = json_email({
             "v": 1, "kind": "list_projects",
