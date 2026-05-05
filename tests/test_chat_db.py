@@ -121,6 +121,43 @@ class TestAgents:
         db.register_agent("a1", "/new")
         assert db.get_agent("a1")["project_path"] == "/new"
 
+    def test_register_agent_recovers_failed_messages(self, db):
+        """Re-register reclaims escalated mail (closes permanent-loss incident)."""
+        m1 = db.insert_message("p", "agent-recover", "lost-1", "notify")
+        m2 = db.insert_message("p", "agent-recover", "lost-2", "notify")
+        db.mark_message_failed(m1["id"])
+        db.mark_message_failed(m2["id"])
+        assert db.get_pending_messages_for("agent-recover") == []
+
+        db.register_agent("agent-recover", "/projects/recover")
+
+        pending = db.get_pending_messages_for("agent-recover")
+        assert {m["body"] for m in pending} == {"lost-1", "lost-2"}
+
+    def test_register_agent_logs_messages_recovered_event(self, db):
+        """Recovery event lets operators correlate with bus-incident windows."""
+        m = db.insert_message("p", "agent-log", "lost", "notify")
+        db.mark_message_failed(m["id"])
+
+        # First registration — nothing failed yet for a fresh name; no
+        # recovery event.
+        db.register_agent("agent-other", "/p")
+        events = db._conn.execute(
+            "SELECT event_type FROM events WHERE participant=?",
+            ("agent-other",),
+        ).fetchall()
+        assert all(e["event_type"] != "messages_recovered" for e in events)
+
+        # Re-register agent-log with one failed message → event fires.
+        db.register_agent("agent-log", "/projects/log")
+        events = db._conn.execute(
+            "SELECT event_type, summary FROM events "
+            "WHERE participant=? AND event_type='messages_recovered'",
+            ("agent-log",),
+        ).fetchall()
+        assert len(events) == 1
+        assert "1" in events[0]["summary"]
+
     def test_register_different_name_same_project_live_pid_allowed(self, db):
         """Multiple agents may live in the same project directory."""
         import subprocess
@@ -358,6 +395,54 @@ class TestMessages:
             "SELECT status FROM messages WHERE id=?", (msg["id"],)
         ).fetchone()
         assert row["status"] == "failed"
+
+    def test_recover_failed_messages_for_flips_only_failed_to_pending(
+        self, db,
+    ):
+        """Idempotent: delivered/pending must not be touched (only failed flips)."""
+        delivered = db.insert_message("a", "agent-x", "delivered", "notify")
+        pending = db.insert_message("a", "agent-x", "pending", "notify")
+        failed = db.insert_message("a", "agent-x", "failed", "notify")
+        db.mark_message_delivered(delivered["id"])
+        db.mark_message_failed(failed["id"])
+
+        db.recover_failed_messages_for("agent-x")
+
+        statuses = {
+            row["id"]: row["status"]
+            for row in db._conn.execute(
+                "SELECT id, status FROM messages WHERE to_name=?",
+                ("agent-x",),
+            ).fetchall()
+        }
+        assert statuses[delivered["id"]] == "delivered"
+        assert statuses[pending["id"]] == "pending"
+        assert statuses[failed["id"]] == "pending"
+
+    def test_recover_failed_messages_for_returns_count(self, db):
+        """register_agent uses the count to gate the messages_recovered event."""
+        assert db.recover_failed_messages_for("agent-y") == 0
+
+        m1 = db.insert_message("a", "agent-y", "one", "notify")
+        m2 = db.insert_message("a", "agent-y", "two", "notify")
+        db.mark_message_failed(m1["id"])
+        db.mark_message_failed(m2["id"])
+        assert db.recover_failed_messages_for("agent-y") == 2
+        # Idempotent — second call finds nothing to flip.
+        assert db.recover_failed_messages_for("agent-y") == 0
+
+    def test_recover_failed_messages_for_scoped_to_agent(self, db):
+        """Recovery is per-agent — never resurrects another agent's escalated mail."""
+        a = db.insert_message("p", "agent-a", "for-a", "notify")
+        b = db.insert_message("p", "agent-b", "for-b", "notify")
+        db.mark_message_failed(a["id"])
+        db.mark_message_failed(b["id"])
+
+        db.recover_failed_messages_for("agent-a")
+
+        assert db.get_pending_messages_for("agent-a")[0]["body"] == "for-a"
+        # Agent-b's failed message still failed.
+        assert db.get_pending_messages_for("agent-b") == []
 
     def test_set_email_message_id(self, db):
         msg = db.insert_message("a", "b", "hi", "ask")

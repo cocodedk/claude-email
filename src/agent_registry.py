@@ -79,6 +79,12 @@ class AgentRegistryMixin:
             self._conn.execute(insert_sql, insert_args)
             self._conn.commit()
         self._log_event(name, "register", f"Agent {name} registered")
+        recovered = self.recover_failed_messages_for(name)
+        if recovered > 0:
+            self._log_event(
+                name, "messages_recovered",
+                f"Recovered {recovered} failed messages on re-register",
+            )
         return self.get_agent(name)
 
     def find_live_owner(
