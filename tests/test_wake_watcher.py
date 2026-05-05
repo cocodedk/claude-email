@@ -223,6 +223,36 @@ async def test_process_agent_escalates_and_rate_limits(live_db, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_escalated_messages_recoverable_after_reregister(
+    live_db, tmp_path,
+):
+    """Escalation is no longer permanent loss — re-register reclaims abandoned mail."""
+    live_db.register_agent("agent-foo", str(tmp_path))
+    for i in range(3):
+        live_db.insert_message("bar", "agent-foo", f"lost-{i}", "notify")
+    locks = _AgentLocks()
+    cache = _SessionCache(idle_secs=900)
+    tracker = _FailureTracker(max_failures=1, rate_limit_secs=3600)
+
+    async def failing_spawn(cmd, cwd, timeout):
+        return WakeTurnResult(exit_code=-1, timed_out=False, error="boom")
+
+    # One failure trips escalation (max_failures=1).
+    await process_agent(
+        "agent-foo", live_db, locks, cache, tracker,
+        spawn_fn=failing_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    assert live_db.get_pending_messages_for("agent-foo") == []
+
+    # Agent re-registers → previously-failed messages flip to pending
+    # and become deliverable on the next drain.
+    live_db.register_agent("agent-foo", str(tmp_path))
+    pending = live_db.get_pending_messages_for("agent-foo")
+    assert {m["body"] for m in pending} == {"lost-0", "lost-1", "lost-2"}
+
+
+@pytest.mark.asyncio
 async def test_process_agent_skips_when_already_locked(live_db, tmp_path):
     live_db.register_agent("agent-foo", str(tmp_path))
     live_db.insert_message("bar", "agent-foo", "hi", "notify")

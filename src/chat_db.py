@@ -1,11 +1,12 @@
 """Shared SQLite database layer for the claude-chat system."""
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from src.agent_registry import AgentRegistryMixin
 from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.chat_schema import MIGRATIONS as _MIGRATIONS, SCHEMA as _SCHEMA
 from src.dashboard_queries import DashboardQueriesMixin
+from src.db_maintenance import MaintenanceMixin
 from src.wake_session_store import WakeSessionStoreMixin
 
 __all__ = ["AgentNameTaken", "AgentProjectTaken", "ChatDB"]
@@ -15,7 +16,10 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-class ChatDB(AgentRegistryMixin, DashboardQueriesMixin, WakeSessionStoreMixin):
+class ChatDB(
+    AgentRegistryMixin, DashboardQueriesMixin, MaintenanceMixin,
+    WakeSessionStoreMixin,
+):
     """Single entry-point for all chat DB operations."""
 
     def __init__(self, path: str):
@@ -107,6 +111,18 @@ class ChatDB(AgentRegistryMixin, DashboardQueriesMixin, WakeSessionStoreMixin):
         self._conn.execute("UPDATE messages SET status='failed' WHERE id=?", (msg_id,))
         self._conn.commit()
 
+    def recover_failed_messages_for(self, to_name: str) -> int:
+        # `failed` is a wake-watcher respawn-loop guard, not a permanent
+        # loss signal — register_agent calls this so the agent reclaims
+        # abandoned mail when it comes back.
+        cur = self._conn.execute(
+            "UPDATE messages SET status='pending' "
+            "WHERE to_name=? AND status='failed'",
+            (to_name,),
+        )
+        self._conn.commit()
+        return cur.rowcount
+
     def set_email_message_id(self, msg_id: int, email_message_id: str) -> None:
         self._conn.execute(
             "UPDATE messages SET email_message_id=? WHERE id=?",
@@ -171,23 +187,6 @@ class ChatDB(AgentRegistryMixin, DashboardQueriesMixin, WakeSessionStoreMixin):
             (msg_id,),
         ).fetchone()
         return dict(row) if row else None
-
-    def cleanup_old(self, days: int = 30) -> dict:
-        """Prune delivered/failed messages, old events, and stale outbound
-        Message-IDs. Pending rows preserved."""
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        m = self._conn.execute(
-            "DELETE FROM messages WHERE status IN ('delivered','failed') AND created_at < ?",
-            (cutoff,),
-        ).rowcount
-        e = self._conn.execute(
-            "DELETE FROM events WHERE created_at < ?", (cutoff,)
-        ).rowcount
-        o = self._conn.execute(
-            "DELETE FROM outbound_emails WHERE sent_at < ?", (cutoff,)
-        ).rowcount
-        self._conn.commit()
-        return {"messages": m, "events": e, "outbound_emails": o}
 
     # ── Events (internal) ──────────────────────────────────
 

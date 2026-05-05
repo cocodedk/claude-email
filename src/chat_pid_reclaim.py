@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sys
 
+from src.agent_name import ENV_VAR_NAME, validated_agent_name
 from src.chat_db import ChatDB
 from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.process_liveness import find_ancestor_pid_matching
@@ -49,7 +50,15 @@ def reclaim_pid_best_effort(db: ChatDB, caller: str, cwd: str) -> None:
             return
         try:
             db.register_agent(caller, cwd, pid=claude_pid)
-        except (AgentNameTaken, AgentProjectTaken):
-            return
+        except (AgentNameTaken, AgentProjectTaken) as exc:
+            # Without this force-path, a resumed session whose row still
+            # holds a (live-looking) sibling pid would silently skip drain
+            # forever (the silent-drain-skip incident).
+            if (
+                isinstance(exc, AgentNameTaken)
+                and validated_agent_name(os.environ.get(ENV_VAR_NAME), "") == caller
+            ):
+                db.update_agent_pid(caller, claude_pid)
+                db.update_agent_status(caller, "running")
     except Exception as exc:  # noqa: BLE001
         print(f"chat-drain-inbox: pid reclaim failed: {exc}", file=sys.stderr)
