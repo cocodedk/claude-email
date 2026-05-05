@@ -762,3 +762,99 @@ class TestPidReclaim:
             f"claim_pending_messages_for saw pid={snapshots} — "
             "reclaim must run before drain"
         )
+
+    def test_env_var_set_force_reclaims_over_live_sibling(
+        self, drain_mod, tmp_path, monkeypatch, capsys,
+    ):
+        """Env-var-bound resumed session must overtake a stale sibling-pid row
+        (otherwise mail rots — the silent-drain-skip incident)."""
+        import subprocess
+        sibling = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(5)"],
+        )
+        try:
+            assert sibling.pid != os.getpid()
+            me = os.getpid()
+            db, project = self._prepare(drain_mod, tmp_path, monkeypatch, me)
+            db.register_agent(
+                "agent-reclaim", str(project), pid=sibling.pid,
+            )
+            db.insert_message(
+                "peer", "agent-reclaim", "deliver-to-resumed", "notify",
+            )
+            monkeypatch.setenv("CLAUDE_AGENT_NAME", "agent-reclaim")
+            rc = drain_mod.main()
+            assert rc == 0
+            # Force-reclaim updated the row to the current claude pid.
+            assert db.get_agent("agent-reclaim")["pid"] == me
+            # Sibling-gate now sees self → drain proceeds → message delivered.
+            payload = json.loads(capsys.readouterr().out)
+            assert (
+                "deliver-to-resumed"
+                in payload["hookSpecificOutput"]["additionalContext"]
+            )
+            assert db.get_pending_messages_for("agent-reclaim") == []
+        finally:
+            sibling.kill()
+            sibling.wait()
+
+    def test_invalid_env_var_does_not_force_reclaim(
+        self, drain_mod, tmp_path, monkeypatch,
+    ):
+        """A typo'd env var must not grant cross-name authority over a sibling."""
+        import subprocess
+        sibling = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(5)"],
+        )
+        try:
+            me = os.getpid()
+            db, project = self._prepare(drain_mod, tmp_path, monkeypatch, me)
+            db.register_agent(
+                "agent-reclaim", str(project), pid=sibling.pid,
+            )
+            db.insert_message(
+                "peer", "agent-reclaim", "for-sibling", "notify",
+            )
+            monkeypatch.setenv("CLAUDE_AGENT_NAME", "Not Valid")
+            rc = drain_mod.main()
+            assert rc == 0
+            # Sibling still owns the row — invalid env var did not force.
+            assert db.get_agent("agent-reclaim")["pid"] == sibling.pid
+            assert len(db.get_pending_messages_for("agent-reclaim")) == 1
+        finally:
+            sibling.kill()
+            sibling.wait()
+
+    def test_force_reclaim_uses_update_agent_pid_when_register_blocked(
+        self, drain_mod, tmp_path, monkeypatch,
+    ):
+        """Force path goes through update_agent_pid, bypassing the AgentNameTaken
+        guard that would re-fire if we routed via register_agent."""
+        from src.chat_errors import AgentNameTaken
+        me = os.getpid()
+        db, project = self._prepare(drain_mod, tmp_path, monkeypatch, me)
+        db.register_agent("agent-reclaim", str(project), pid=99_999_999)
+        db.insert_message("peer", "agent-reclaim", "force-pid", "notify")
+        monkeypatch.setenv("CLAUDE_AGENT_NAME", "agent-reclaim")
+
+        def always_taken(self, name, cwd, pid=None):
+            raise AgentNameTaken(name, 12345)
+
+        update_pid_calls: list[tuple[str, int]] = []
+        orig_update_pid = drain_mod.ChatDB.update_agent_pid
+
+        def spy_update_pid(self, name, pid):
+            update_pid_calls.append((name, pid))
+            return orig_update_pid(self, name, pid)
+
+        monkeypatch.setattr(
+            drain_mod.ChatDB, "register_agent", always_taken,
+        )
+        monkeypatch.setattr(
+            drain_mod.ChatDB, "update_agent_pid", spy_update_pid,
+        )
+        rc = drain_mod.main()
+        assert rc == 0
+        assert update_pid_calls == [("agent-reclaim", me)]
+        # And the row reflects the rewrite.
+        assert db.get_agent("agent-reclaim")["pid"] == me
