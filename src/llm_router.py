@@ -116,6 +116,21 @@ _DISPATCH_TOKEN_BLOCK = (
 )
 
 
+_QUESTION_ANSWER_PROMPT = (
+    "You are answering a plain question via email. Reply concisely (1-3 "
+    "sentences). If you need to look something up — git log, gh, a file — "
+    "do it briefly. Never call chat_enqueue_task or any task-creation "
+    "tool; questions don't need a branch."
+)
+
+
+def build_question_answer_prompt() -> str:
+    """Sibling to ``build_email_router_prompt`` — used by the question
+    short-circuit in ``main.process_email`` to answer obvious plain
+    questions inline without the task pipeline."""
+    return _QUESTION_ANSWER_PROMPT
+
+
 def build_email_router_prompt(reply_to: str = "") -> str:
     """Compose the email-router system prompt for one inbound email.
 
