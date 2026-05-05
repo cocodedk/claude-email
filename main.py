@@ -23,6 +23,7 @@ from src.json_envelope import is_json_email
 from src.json_handler import handle_json_email
 from src.llm_router import build_email_router_prompt
 from src.poller import EmailPoller
+from src.question_handler import maybe_answer_question
 from src.reply_routing_fixup import run_router_with_fixup
 from src.security import identify_sender, is_authorized
 
@@ -73,10 +74,14 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
         message, config, chat_db, task_queue=task_queue, worker_manager=worker_manager,
     ):
         return
-    command = extract_command(message, strip_secret=config["shared_secret"])
-    if not command:
+    if not (command := extract_command(message, strip_secret=config["shared_secret"])):
         logger.warning("Authorized email has empty command body — skipping")
         return
+    on, u = config.get("llm_router"), config.get("_universe")
+    base = u.allowed_base if u else config.get("claude_cwd", "")
+    if maybe_answer_question(message, config, command, chat_db, base, u):
+        return
+    reply_to = config.get("reply_to") or config.get("authorized_sender", "")
     timeout = config["claude_timeout"]
     try:
         send_threaded_reply(
@@ -85,11 +90,6 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
         )
     except Exception:
         logger.exception("Failed to send progress ack — continuing with execution")
-    logger.info("Executing command from authorized sender")
-    on = config.get("llm_router")
-    u = config.get("_universe")
-    reply_to = config.get("reply_to") or config.get("authorized_sender", "")
-    base = u.allowed_base if u else config.get("claude_cwd", "")
     token = uuid.uuid4().hex if on else ""
     env = {**(config.get("claude_extra_env") or {})}
     if token: env["CLAUDE_EMAIL_DISPATCH_TOKEN"] = token
