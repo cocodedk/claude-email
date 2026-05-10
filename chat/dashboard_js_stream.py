@@ -66,6 +66,7 @@ const FLOW_EVENT_MAP = {
   wake_spawn_end:     { lane: '02', steps: ['04'] },
   hook_drain_stop:    { lane: '01', steps: ['03','04','05'] },
   hook_drain_session: { lane: '02', steps: ['05','06'] },
+  hook_precompact:    { lane: '02', steps: [] },
 };
 const FLOW_LIVE_MS = 2400;
 let flowBusyTimer = null;
@@ -97,7 +98,9 @@ function fireLaneStart(lane) {
 function onFlowEvent(ev) {
   const map = FLOW_EVENT_MAP[ev.event_type];
   if (!map) return;
-  map.steps.forEach((s, i) => fireStep(map.lane, s, i * 220));
+  if (map.steps && map.steps.length) {
+    map.steps.forEach((s, i) => fireStep(map.lane, s, i * 220));
+  }
   markFlowBusy(ev.event_type.replace(/_/g, ' '));
 }
 function onMessageFlow() {

@@ -19,6 +19,7 @@ FLOW_EVENT_TYPES = (
     "hook_drain_session",    # SessionStart / UserPromptSubmit drain — lane 02
     "wake_spawn_start",      # wake_watcher is about to boot an agent — lane 02
     "wake_spawn_end",        # wake_watcher subprocess finished — lane 02
+    "hook_precompact",       # PreCompact heartbeat across compaction — lane 02
 )
 
 

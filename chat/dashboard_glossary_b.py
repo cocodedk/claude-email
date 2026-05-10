@@ -115,9 +115,9 @@ GLOSSARY_B: list[tuple[str, list[tuple[str, str]]]] = [
          "project uses so a newcomer doesn't need to grep the code."),
         ("FLOW_EVENT_TYPES",
          "The event_type values (hook_drain_stop, hook_drain_session, "
-         "wake_spawn_start, wake_spawn_end) the dashboard cares about. "
-         "All other events table rows (message, register, disconnect) are "
-         "ignored."),
+         "wake_spawn_start, wake_spawn_end, hook_precompact) the dashboard "
+         "cares about. All other events table rows (message, register, "
+         "disconnect) are ignored."),
         ("heat edge",
          "A persistent arc between two nodes on the radar. Stroke width "
          "and opacity scale logarithmically with traffic volume."),

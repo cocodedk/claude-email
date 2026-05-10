@@ -73,6 +73,7 @@ class TestFlowPanel:
         for event_type in (
             "wake_spawn_start", "wake_spawn_end",
             "hook_drain_stop", "hook_drain_session",
+            "hook_precompact",
         ):
             assert event_type in DASHBOARD_HTML, f"missing: {event_type}"
         assert "FLOW_EVENT_MAP" in DASHBOARD_HTML
@@ -103,6 +104,7 @@ class TestGlossaryPanel:
             "MCP", "SSE", "IMAP", "SMTP", "GPG", "SQLite", "WAL",
             "PID", "PPID", "TDD", "shell=False",
             "SessionStart hook", "UserPromptSubmit hook", "Stop hook",
+            "PreCompact hook",
             "wake_watcher", "nudge Event",
             "chat_ask", "chat_notify", "chat_check_messages",
             "chat_message_agent", "chat_register",

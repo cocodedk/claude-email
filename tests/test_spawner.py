@@ -84,7 +84,10 @@ class TestInjectSessionStartHook:
 
     def test_creates_settings_file_with_all_events(self, tmp_path):
         from src.spawner import inject_session_start_hook
-        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        precompact = "/opt/claude-email/scripts/chat-precompact-hook.py"
+        inject_session_start_hook(
+            str(tmp_path), self.HOOK, self.DRAIN, precompact,
+        )
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         assert data == {
             "hooks": {
@@ -103,58 +106,90 @@ class TestInjectSessionStartHook:
                     "matcher": "",
                     "hooks": [{"type": "command", "command": self.DRAIN}],
                 }],
+                "PreCompact": [{
+                    "matcher": "",
+                    "hooks": [{"type": "command", "command": precompact}],
+                }],
             }
         }
 
-    def test_stop_event_wired_to_drain_script(self, tmp_path):
-        """Stop hook closes the gap between 'peer sent message mid-response'
-        and 'next user prompt' — it reinjects pending messages as a block
-        reason before the session idles."""
-        from src.spawner import inject_session_start_hook
-        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-        stop_entries = data["hooks"]["Stop"]
-        assert len(stop_entries) == 1
-        cmds = [h["command"] for h in stop_entries[0]["hooks"]]
-        assert cmds == [self.DRAIN]
+    PRECOMPACT = "/opt/claude-email/scripts/chat-precompact-hook.py"
 
-    def test_stop_replaces_stale_drain_path_on_reinstall(self, tmp_path):
-        from src.spawner import inject_session_start_hook
-        old_drain = "/old/install/scripts/chat-drain-inbox.py"
-        inject_session_start_hook(str(tmp_path), self.HOOK, old_drain)
-        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-        stop_cmds = [h["command"] for h in data["hooks"]["Stop"][0]["hooks"]]
-        assert stop_cmds == [self.DRAIN]
-        assert old_drain not in stop_cmds
+    EVENT_SHAPE_PARAMS = [
+        ("Stop", "DRAIN", "/old/install/scripts/chat-drain-inbox.py",
+         "stop-third-party", "/opt/other/notify.sh"),
+        ("PreCompact", "PRECOMPACT", "/old/install/scripts/chat-precompact-hook.py",
+         "precompact-third-party", "/opt/other/log.sh"),
+    ]
 
-    def test_stop_preserves_third_party_hooks(self, tmp_path):
-        """Third-party Stop hook entries keep their own matcher and hooks —
-        our drain lands as a separate entry, not merged into theirs."""
+    def _inject(self, project_dir: str, *, precompact: str | None = None):
         from src.spawner import inject_session_start_hook
+        inject_session_start_hook(
+            project_dir, self.HOOK, self.DRAIN, precompact or self.PRECOMPACT,
+        )
+
+    @pytest.mark.parametrize(
+        "event,script_attr,_old,_matcher,_cmd", EVENT_SHAPE_PARAMS,
+    )
+    def test_event_wired_to_its_script(
+        self, tmp_path, event, script_attr, _old, _matcher, _cmd,
+    ):
+        """The two side-effect hook events (Stop, PreCompact) each get
+        their own dedicated entry under the empty matcher with exactly
+        one command pointing at the right script."""
+        self._inject(str(tmp_path))
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        entries = data["hooks"][event]
+        assert len(entries) == 1
+        assert entries[0]["matcher"] == ""
+        cmds = [h["command"] for h in entries[0]["hooks"]]
+        assert cmds == [getattr(self, script_attr)]
+
+    @pytest.mark.parametrize(
+        "event,script_attr,old_path,_matcher,_cmd", EVENT_SHAPE_PARAMS,
+    )
+    def test_event_replaces_stale_path_on_reinstall(
+        self, tmp_path, event, script_attr, old_path, _matcher, _cmd,
+    ):
+        from src.spawner import inject_session_start_hook
+        if event == "Stop":
+            inject_session_start_hook(str(tmp_path), self.HOOK, old_path)
+        else:
+            inject_session_start_hook(
+                str(tmp_path), self.HOOK, self.DRAIN, old_path,
+            )
+        self._inject(str(tmp_path))
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        cmds = [h["command"] for h in data["hooks"][event][0]["hooks"]]
+        assert cmds == [getattr(self, script_attr)]
+        assert old_path not in cmds
+
+    @pytest.mark.parametrize(
+        "event,script_attr,_old,matcher,cmd", EVENT_SHAPE_PARAMS,
+    )
+    def test_event_preserves_third_party_hooks(
+        self, tmp_path, event, script_attr, _old, matcher, cmd,
+    ):
+        """Third-party hook entries keep their own matcher and hooks —
+        our script lands as a separate entry, not merged into theirs."""
         (tmp_path / ".claude").mkdir()
         existing = {
-            "hooks": {
-                "Stop": [{"matcher": "my-matcher", "hooks": [
-                    {"type": "command", "command": "/opt/other/notify.sh"},
-                ]}],
-            },
+            "hooks": {event: [{"matcher": matcher, "hooks": [
+                {"type": "command", "command": cmd},
+            ]}]},
         }
         (tmp_path / ".claude" / "settings.json").write_text(json.dumps(existing))
-        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        self._inject(str(tmp_path))
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-        stop_entries = data["hooks"]["Stop"]
-        # Our entry is first, third-party entry preserved second with its
-        # original matcher + remaining hooks intact.
-        our_cmds = [h["command"] for h in stop_entries[0]["hooks"]]
-        assert our_cmds == [self.DRAIN]
+        entries = data["hooks"][event]
+        assert [h["command"] for h in entries[0]["hooks"]] == [
+            getattr(self, script_attr),
+        ]
         kept = next(
-            (e for e in stop_entries[1:] if e.get("matcher") == "my-matcher"),
-            None,
+            (e for e in entries[1:] if e.get("matcher") == matcher), None,
         )
         assert kept is not None
-        kept_cmds = [h["command"] for h in kept["hooks"]]
-        assert kept_cmds == ["/opt/other/notify.sh"]
+        assert [h["command"] for h in kept["hooks"]] == [cmd]
 
     def test_preserves_third_party_hooks(self, tmp_path):
         from src.spawner import inject_session_start_hook
@@ -190,6 +225,31 @@ class TestInjectSessionStartHook:
         ups_cmds = [h["command"] for h in data["hooks"]["UserPromptSubmit"][0]["hooks"]]
         assert ss_cmds == [self.HOOK, self.DRAIN]
         assert ups_cmds == [self.DRAIN]
+
+    def test_precompact_relative_path_raises(self, tmp_path):
+        """All hook paths in settings.json must be absolute — Claude Code
+        resolves them relative to nothing useful otherwise."""
+        from src.spawner import inject_session_start_hook
+        with pytest.raises(ValueError, match="precompact_script_path"):
+            inject_session_start_hook(
+                str(tmp_path), self.HOOK, self.DRAIN,
+                "scripts/chat-precompact-hook.py",
+            )
+
+    def test_precompact_default_path_resolves_alongside_drain(self, tmp_path):
+        """Calling inject_session_start_hook without an explicit
+        precompact_script_path uses the default that ships with
+        claude-email — the chat-precompact-hook.py sibling of the drain
+        script in this repo's scripts/ directory."""
+        from src.spawner import inject_session_start_hook
+        inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
+        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        pc_entries = data["hooks"].get("PreCompact")
+        assert pc_entries is not None
+        cmds = [h["command"] for h in pc_entries[0]["hooks"]]
+        assert len(cmds) == 1
+        assert cmds[0].endswith("chat-precompact-hook.py")
+        assert os.path.isabs(cmds[0])
 
     def test_replaces_stale_paths_when_install_moves(self, tmp_path):
         """When the claude-email repo is moved, re-running the injector

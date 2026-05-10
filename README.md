@@ -71,15 +71,16 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
 
 ### Agent Management
 - Spawn Claude Code agents in any project directory via email
-- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.json` wires three Claude Code hooks:
+- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.json` wires four Claude Code hooks:
   - `SessionStart` runs `scripts/chat-session-start-hook.sh` (pre-registers server-side via `chat-register-self.py` + injects the bus guide from `chat-agent-instruction.txt`) and `scripts/chat-drain-inbox.py` (drains any queued mail into the session's opening context).
   - `UserPromptSubmit` runs `chat-drain-inbox.py` again so every user turn auto-delivers messages that arrived mid-session — messages you send while the agent is idle get picked up on its next turn without relying on the model to poll.
   - `Stop` runs `chat-drain-inbox.py` at the end of every agent response; when peer messages are pending it emits `{"decision":"block","reason":...}`, cancelling the stop and reinjecting the messages as the agent's next turn. Closes the "peer sent something while I was mid-response" gap without polling.
+  - `PreCompact` runs `scripts/chat-precompact-hook.py` to log a `hook_precompact` flow event whenever Claude Code rotates its working memory (manual `/compact` or automatic). Best-effort telemetry only — it keeps the dashboard's flow panel pulsing across compaction so a long-running agent doesn't look dead during the gap.
 - Agent status tracking (running, idle, disconnected, deregistered)
 - Agent PIDs recorded in the database
 
 ### Idle auto-drain cron (live-but-idle gap)
-Hooks only fire on session events — `SessionStart` at boot, `UserPromptSubmit` on each user turn, `Stop` at end-of-response. A live Claude Code session that's idle between user prompts has no event firing, so peer messages arriving in that window wait for the next user turn. The optional auto-drain cron closes that gap: it fires an `[auto-drain tick]` prompt on a fixed cadence, which triggers `UserPromptSubmit` and drains any queued bus messages into the next turn.
+Hooks only fire on session events — `SessionStart` at boot, `UserPromptSubmit` on each user turn, `Stop` at end-of-response, `PreCompact` at compaction. A live Claude Code session that's idle between user prompts has no event firing, so peer messages arriving in that window wait for the next user turn. The optional auto-drain cron closes that gap: it fires an `[auto-drain tick]` prompt on a fixed cadence, which triggers `UserPromptSubmit` and drains any queued bus messages into the next turn.
 
 - Default cadence: every 5 minutes (`*/5 * * * *`); adjustable per session via Claude Code's `CronCreate` / `CronDelete` tools.
 - Opt-in — not auto-installed by `SessionStart`. Run the `/chat-rejoin` skill to install it (idempotent — skips if already present).
@@ -430,7 +431,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 1192 pytest tests (100% coverage)
+├── tests/                 # 1212 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -452,7 +453,7 @@ real time as a node-graph, not a text timeline.
 - **Filter by click** — clicking an agent node narrows the feed to that agent's traffic and dims the other nodes.
 - **Live stream** — `EventSource` on `/events` pushes new messages the instant they land in SQLite; the page auto-reconnects on disconnect.
 - **Top bar** — UTC clock, operator count, running event counter, and a `LINK LIVE` LED. Typography: `Major Mono Display` for headers, `IBM Plex Mono` for body.
-- **Flow view** — a topbar toggle flips the stage from the live observatory to a technical-flow diagram that traces how a peer message reaches an idle agent through the two internal code paths: the Stop-hook self-poll (the agent drains its own inbox at end-of-turn) and the wake_watcher cold-spawn (a fresh CLI is booted so its `SessionStart` hook can drain). The panel is **live**: `wake_spawn_start`/`wake_spawn_end` emit from `wake_watcher`, `hook_drain_stop`/`hook_drain_session` emit from `chat-drain-inbox.py`, and each event lights up the matching step card on the diagram.
+- **Flow view** — a topbar toggle flips the stage from the live observatory to a technical-flow diagram that traces how a peer message reaches an idle agent through the two internal code paths: the Stop-hook self-poll (the agent drains its own inbox at end-of-turn) and the wake_watcher cold-spawn (a fresh CLI is booted so its `SessionStart` hook can drain). The panel is **live**: `wake_spawn_start`/`wake_spawn_end` emit from `wake_watcher`, `hook_drain_stop`/`hook_drain_session` emit from `chat-drain-inbox.py`, `hook_precompact` emits a heartbeat from `chat-precompact-hook.py` across compaction, and each event lights up the matching step card on the diagram.
 - **Glossary view** — a third topbar toggle opens a searchable, click-to-expand index of every acronym and term the project uses (MCP, SSE, WAL, IMAP, PPID, Stop hook, nudge Event, …). The search input filters entries in-place across categories.
 - **Ghost filter** — agents whose `last_seen_at` is older than 30 minutes are dropped from the dashboard projection. Keeps stale pid=NULL MCP registrations (that `reap_dead_agents` can't see) off the radar.
 
@@ -504,7 +505,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1192 tests, 100% coverage)
+# Run all tests (1212 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -522,7 +523,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1192 tests** with **100% code coverage** across all modules
+- **1212 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit

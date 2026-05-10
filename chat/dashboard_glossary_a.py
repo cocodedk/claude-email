@@ -133,6 +133,11 @@ GLOSSARY_A: list[tuple[str, list[tuple[str, str]]]] = [
          "drain the inbox and emit decision:\"block\" so peer messages "
          "that arrived mid-response become the next turn instead of going "
          "unread until the next user prompt."),
+        ("PreCompact hook",
+         "Fires before Claude Code compacts its working memory (manual "
+         "/compact or automatic). chat-precompact-hook.py logs a single "
+         "hook_precompact flow event so the dashboard's flow panel keeps "
+         "pulsing across compaction instead of going silent."),
         ("decision: \"block\"",
          "The Stop-hook response shape that cancels the stop. Claude keeps "
          "going, with the reason field surfaced as the next turn's content."),

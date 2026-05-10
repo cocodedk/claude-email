@@ -3,6 +3,8 @@ import json
 import logging
 import os
 
+from src.hook_merge import _merge_hook_event
+
 logger = logging.getLogger(__name__)
 
 CHAT_MCP_SERVER_NAME = "claude-chat"
@@ -11,6 +13,7 @@ _SCRIPTS = os.path.join(
 )
 HOOK_SCRIPT = os.path.join(_SCRIPTS, "chat-session-start-hook.sh")
 DRAIN_SCRIPT = os.path.join(_SCRIPTS, "chat-drain-inbox.py")
+PRECOMPACT_SCRIPT = os.path.join(_SCRIPTS, "chat-precompact-hook.py")
 
 
 def _load_json_dict(path: str) -> dict:
@@ -77,61 +80,11 @@ def inject_mcp_config(project_dir: str, chat_url: str) -> None:
     logger.info("Wrote MCP config to %s", mcp_path)
 
 
-def _merge_hook_event(
-    hooks: dict, event: str, matcher: str, our_commands: list[str],
-) -> None:
-    """Ensure `event` has our commands while preserving every third-party
-    entry verbatim (matcher + remaining hooks).
-
-    A command is "ours" if its basename matches our script names — stale
-    paths from a prior install layout are dropped while genuine third-party
-    hooks survive. Each third-party entry keeps its own matcher and any
-    remaining hooks, so installing into a project with a custom Stop matcher
-    (for example) does not collapse it into our generic block.
-    """
-    entries = hooks.get(event)
-    if not isinstance(entries, list):
-        entries = []
-    kept_entries: list[dict] = []
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        entry_hooks = entry.get("hooks")
-        if not isinstance(entry_hooks, list):
-            continue
-        kept_hooks = [
-            h for h in entry_hooks
-            if not (
-                isinstance(h, dict)
-                and h.get("type") == "command"
-                and _is_ours(h.get("command", ""))
-            )
-        ]
-        if kept_hooks:
-            kept_entry = dict(entry)
-            kept_entry["hooks"] = kept_hooks
-            kept_entries.append(kept_entry)
-    our_entry = {
-        "matcher": matcher,
-        "hooks": [{"type": "command", "command": c} for c in our_commands],
-    }
-    hooks[event] = [our_entry, *kept_entries]
-
-
-def _is_ours(command: str) -> bool:
-    """A hook command is claude-email's if it points at a script whose
-    basename matches our known script names. Prefix-based discrimination
-    would mis-tag third-party paths that also live under similar roots,
-    so match by basename instead.
-    """
-    base = os.path.basename(command)
-    return base in {"chat-session-start-hook.sh", "chat-drain-inbox.py"}
-
-
 def inject_session_start_hook(
     project_dir: str,
     hook_script_path: str,
     drain_script_path: str | None = None,
+    precompact_script_path: str | None = None,
 ) -> None:
     """Write .claude/settings.json wiring the chat-bus hooks for this project.
 
@@ -151,8 +104,13 @@ def inject_session_start_hook(
     for the Stop event, cancelling the stop so the agent stays conversant
     without needing to poll chat_check_messages itself.
 
-    Both paths MUST be absolute. drain_script_path defaults to DRAIN_SCRIPT
-    (sibling of hook_script_path in the claude-email install).
+    PreCompact: runs precompact_script_path to log a hook_precompact flow
+    event so the dashboard's flow panel keeps pulsing across compaction.
+    Best-effort telemetry — never blocks the session.
+
+    All paths MUST be absolute. drain_script_path defaults to DRAIN_SCRIPT;
+    precompact_script_path defaults to PRECOMPACT_SCRIPT (siblings of
+    hook_script_path in the claude-email install).
     """
     if not os.path.isabs(hook_script_path):
         raise ValueError(
@@ -163,6 +121,13 @@ def inject_session_start_hook(
     if not os.path.isabs(drain_script_path):
         raise ValueError(
             f"drain_script_path must be absolute; got {drain_script_path!r}"
+        )
+    if precompact_script_path is None:
+        precompact_script_path = PRECOMPACT_SCRIPT
+    if not os.path.isabs(precompact_script_path):
+        raise ValueError(
+            f"precompact_script_path must be absolute; "
+            f"got {precompact_script_path!r}"
         )
     settings_dir = os.path.join(project_dir, ".claude")
     settings_path = os.path.join(settings_dir, "settings.json")
@@ -183,8 +148,13 @@ def inject_session_start_hook(
         hooks, "Stop", "",
         [drain_script_path],
     )
+    _merge_hook_event(
+        hooks, "PreCompact", "",
+        [precompact_script_path],
+    )
     _write_json(settings_path, data)
     logger.info(
-        "Wrote SessionStart + UserPromptSubmit + Stop hooks to %s",
+        "Wrote SessionStart + UserPromptSubmit + Stop + PreCompact "
+        "hooks to %s",
         settings_path,
     )
