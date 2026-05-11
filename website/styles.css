@@ -364,6 +364,9 @@ section { position: relative; }
 
 /* ─── Prose blocks (shared by How It Works + Comparison) ─── */
 
+.prose {
+  text-align: start;
+}
 .prose p {
   margin-bottom: 18px;
   font-size: 1.02rem;
@@ -378,7 +381,7 @@ section { position: relative; }
 }
 .prose ul {
   margin: 0 0 22px;
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
   list-style: disc;
 }
 .prose li {
@@ -541,8 +544,6 @@ p code, li code {
 [dir="rtl"] .features-list h3 { order: 2; }
 [dir="rtl"] .features-list p { order: 1; }
 [dir="rtl"] .how-it-works .content { grid-template-columns: 3fr 2fr; }
-[dir="rtl"] .prose { text-align: right; }
-[dir="rtl"] .prose ul { padding-left: 0; padding-right: 1.5em; }
 [dir="rtl"] pre, [dir="rtl"] code, [dir="rtl"] .arch-block {
   direction: ltr; text-align: left;
 }
