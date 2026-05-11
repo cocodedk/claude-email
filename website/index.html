@@ -190,10 +190,43 @@
     </div>
   </section>
 
-  <section class="installation">
+  <section class="comparison">
     <div class="container">
       <div class="section-head">
         <div class="section-num">03</div>
+        <h2 class="section-title">
+          <small>Positioning</small>
+          Compared to Claude Code's Agent View
+        </h2>
+      </div>
+
+      <div class="content">
+        <div class="prose">
+          <p>
+            Claude Code now ships a built-in
+            <a href="https://claude.com/blog/agent-view-in-claude-code">Agent View</a>
+            — a terminal-side overview of every concurrent session, with inline replies
+            and <code>claude --bg</code> for backgrounded tasks. It is excellent when you
+            are at the laptop. <code>claude-email</code> starts where Agent View stops.
+          </p>
+          <ul>
+            <li><strong>Remote-first.</strong> Drive every agent from any inbox — phone, web, <code>mutt</code> — without ssh, VPN, or a terminal open. Agent View is local to one machine; an email is not.</li>
+            <li><strong>Inter-agent bus.</strong> Agents talk to <em>each other</em> over the MCP chat bus via <code>chat_message_agent</code>, not just to you. Agent View has no agent-to-agent channel.</li>
+            <li><strong>Persistent, multi-surface state.</strong> Conversations, task history, and liveness live in SQLite (WAL) and surface on a graphical CRT dashboard at <code>/dashboard</code>, the Android companion (in progress), and the same email thread you started in — across reboots and bus restarts.</li>
+          </ul>
+          <p>
+            In short: Agent View is the cockpit when you're at the laptop;
+            <code>claude-email</code> is the radio when you're not.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="installation">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-num">04</div>
         <h2 class="section-title">
           <small>Getting Started</small>
           Install &amp; post your first letter
