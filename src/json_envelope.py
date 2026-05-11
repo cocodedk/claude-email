@@ -5,13 +5,18 @@ Detection: inbound email whose Content-Type is `application/json`
 Backend replies with the same Content-Type. Anything else stays
 plain-text — zero impact on existing clients.
 
-Envelope shape (v=1):
+Envelope shape (v range 1..V):
 
-    {"v": 1,
+    {"v": 1 | 2,
      "kind": "...",
      "task_id": 42,
      "body": "...",
      "meta": {"client":"...", "sent_at":"...", "auth":"..."}}
+
+The server accepts any v in ``[1, V]`` on parse, and emits the
+negotiated version on build (``v = negotiate_v(client_v)``). v:1
+clients keep the legacy shape; v:2 unlocks the two-axis status fields
+on ``list_projects`` (see ``chat/project_tools.py``).
 
 Parser is permissive on unknown fields, strict on required fields for
 each kind. Errors surface via KINDS-specific codes so the app can
@@ -19,14 +24,24 @@ branch programmatically instead of regex-matching prose.
 """
 import email.message
 import json
-import re as _re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from typing import Any
 
 
-V = 1
+V = 2
 CONTENT_TYPE = "application/json"
+
+
+def negotiate_v(client_v: int) -> int:
+    """Return the envelope version to use in the response.
+
+    Caps at the server's ``V``; floors at 1 so a malformed or missing
+    inbound ``v`` falls back to legacy shape rather than crashing or
+    silently advertising support the server can't honor.
+    """
+    if client_v < 1:
+        return 1
+    return min(client_v, V)
 
 ROUTED_VIA_AGENT = "agent"
 ROUTED_VIA_WORKER = "worker"
@@ -117,8 +132,12 @@ def parse_envelope(message: email.message.Message) -> Envelope:
     ask_id = _int_or_none(meta.get("ask_id"))
 
     v = data.get("v")
-    if v != V:
-        raise EnvelopeError("bad_envelope", f"unsupported version {v!r}; expected {V}", ask_id=ask_id)
+    if not isinstance(v, int) or v < 1 or v > V:
+        raise EnvelopeError(
+            "bad_envelope",
+            f"unsupported version {v!r}; supported range is 1..{V}",
+            ask_id=ask_id,
+        )
 
     kind = data.get("kind")
     if kind not in INBOUND_KINDS:
@@ -152,47 +171,8 @@ def _int_or_none(value) -> int | None:
         return None
 
 
-def build_envelope(
-    kind: str, body: str = "", task_id: int | None = None,
-    data: dict | None = None, error: dict | None = None,
-    ask_id: int | None = None, routed_via: str | None = None,
-    progress: dict | None = None, suggested_replies: list | None = None,
-) -> str:
-    """Build an outbound envelope as a JSON string.
-
-    `ask_id` echoes the inbound `meta.ask_id` for chat_ask correlation.
-    `routed_via` lands as ``meta.routed_via`` (agent | worker).
-    `progress` lands as ``meta.progress`` for kind=progress (B5).
-    `suggested_replies` lands as ``meta.suggested_replies`` for kind=question (C2)."""
-    out: dict[str, Any] = {
-        "v": V,
-        "kind": kind,
-        "body": body,
-        "meta": {
-            "server": "claude-email/1.0",
-            "sent_at": datetime.now(timezone.utc).isoformat(),
-        },
-    }
-    if ask_id is not None:
-        out["meta"]["ask_id"] = int(ask_id)
-    if routed_via:
-        out["meta"]["routed_via"] = routed_via
-    if progress:
-        out["meta"]["progress"] = progress
-    if suggested_replies:
-        out["meta"]["suggested_replies"] = suggested_replies
-    if task_id is not None:
-        out["task_id"] = int(task_id)
-    if data:
-        out["data"] = data
-    if error:
-        out["error"] = error
-    return json.dumps(out, separators=(",", ":"))
-
-
-def strip_auth_from_body(body: str, secret: str) -> str:
-    """Same guarantee as executor.extract_command's strip_secret — never
-    let the auth token live in downstream storage/logs."""
-    if not secret:
-        return body
-    return _re.sub(_re.escape(f"AUTH:{secret}"), "", body)
+# Outbound construction lives in src/envelope_builder.py; re-exported
+# below for back-compat with existing importers.
+from src.envelope_builder import (  # noqa: E402
+    build_envelope, strip_auth_from_body,
+)

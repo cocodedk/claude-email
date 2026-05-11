@@ -7,7 +7,7 @@ from email.mime.text import MIMEText
 
 import pytest
 from src.json_envelope import (
-    CONTENT_TYPE, Envelope, EnvelopeError,
+    CONTENT_TYPE, V, Envelope, EnvelopeError,
     build_envelope, is_json_email, parse_envelope,
 )
 
@@ -87,10 +87,24 @@ class TestParseEnvelope:
         assert env.kind == "status"
         assert env.project == "test-01"
 
-    def test_version_mismatch_rejected(self):
+    def test_version_above_server_ceiling_rejected(self):
         with pytest.raises(EnvelopeError) as ei:
-            parse_envelope(_json_msg({"v": 2, "kind": "command"}))
+            parse_envelope(_json_msg({"v": V + 1, "kind": "command"}))
         assert ei.value.code == "bad_envelope"
+
+    def test_version_below_floor_rejected(self):
+        with pytest.raises(EnvelopeError) as ei:
+            parse_envelope(_json_msg({"v": 0, "kind": "command"}))
+        assert ei.value.code == "bad_envelope"
+
+    def test_non_int_version_rejected(self):
+        with pytest.raises(EnvelopeError) as ei:
+            parse_envelope(_json_msg({"v": "one", "kind": "command"}))
+        assert ei.value.code == "bad_envelope"
+
+    def test_v2_accepted_at_v2_ceiling(self):
+        env = parse_envelope(_json_msg({"v": 2, "kind": "command", "body": "hi"}))
+        assert env.v == 2
 
     def test_unknown_kind_rejected(self):
         with pytest.raises(EnvelopeError) as ei:
@@ -123,7 +137,7 @@ class TestBuildEnvelope:
             data={"status": "queued", "branch": "claude/task-42-x"},
         )
         parsed = json.loads(out)
-        assert parsed["v"] == 1
+        assert parsed["v"] == V
         assert parsed["kind"] == "ack"
         assert parsed["task_id"] == 42
         assert parsed["data"]["status"] == "queued"
