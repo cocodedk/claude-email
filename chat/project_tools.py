@@ -155,46 +155,7 @@ def where_am_i_tool(queue: TaskQueue, manager: WorkerManager) -> dict:
     return {"projects": projects}
 
 
-def list_projects_tool(
-    queue: TaskQueue, *, allowed_base: str, chat_db=None,
-) -> dict:
-    """Discover git repos under ``allowed_base`` + merge with task state.
-
-    Project = a top-level directory containing a ``.git/`` entry. Hidden
-    directories and plain files are skipped. Sorted by name so the row
-    order is stable across polls.
-
-    When ``chat_db`` is provided, each row carries an ``agent_status``
-    field (``connected`` / ``disconnected`` / ``absent``) reflecting the
-    chat-bus agent registry's liveness for that project_path. Older
-    callers that don't pass chat_db get the field as ``"absent"``
-    everywhere — the field is always present for shape stability.
-    """
-    if not allowed_base:
-        return {"projects": []}
-    base = Path(allowed_base).resolve()
-    try:
-        entries = sorted(os.listdir(base))
-    except OSError:
-        return {"projects": []}
-    rows = []
-    for entry in entries:
-        if entry.startswith("."):
-            continue
-        path = base / entry
-        if not path.is_dir() or not (path / ".git").exists():
-            continue
-        resolved = str(path)  # ``base`` is already resolve()d
-        running = queue.get_running(resolved)
-        rows.append({
-            "name": entry,
-            "path": resolved,
-            "running_task_id": running["id"] if running else None,
-            "queue_depth": len(queue.list_pending(resolved)),
-            "last_activity_at": _last_activity(queue.latest_task(resolved)),
-            "agent_status": (
-                chat_db.agent_status_for_project(resolved)
-                if chat_db is not None else "absent"
-            ),
-        })
-    return {"projects": rows}
+# list_projects_tool lives in chat/project_listing.py (split to stay
+# under the 200-line cap). Re-exported here so existing importers
+# (chat.tools, src.json_kinds) keep working without churn.
+from chat.project_listing import list_projects_tool  # noqa: E402, F401
