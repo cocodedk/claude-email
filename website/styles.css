@@ -362,28 +362,26 @@ section { position: relative; }
   color: var(--ink);
 }
 
-/* ─── Comparison ─────────────────────────────────────────── */
+/* ─── Prose blocks (shared by How It Works + Comparison) ─── */
 
-.comparison { padding-bottom: 80px; }
-.comparison .content { margin-top: 40px; padding-top: 20px; }
-.comparison .prose p {
+.prose p {
   margin-bottom: 18px;
   font-size: 1.02rem;
   line-height: 1.7;
   color: var(--ink-2);
 }
-.comparison .prose strong {
+.prose strong {
   font-variation-settings: "wght" 700;
   color: var(--ink);
   background: linear-gradient(transparent 60%, rgba(195,46,56,0.25) 60%);
   padding: 0 2px;
 }
-.comparison .prose ul {
+.prose ul {
   margin: 0 0 22px;
   padding-left: 1.5em;
   list-style: disc;
 }
-.comparison .prose li {
+.prose li {
   margin: 0.5em 0;
   font-size: 1.02rem;
   line-height: 1.7;
@@ -400,18 +398,11 @@ section { position: relative; }
   margin-top: 40px;
   padding-top: 20px;
 }
-.how-it-works .prose p {
-  margin-bottom: 18px;
-  font-size: 1.02rem;
-  line-height: 1.7;
-  color: var(--ink-2);
-}
-.how-it-works .prose strong {
-  font-variation-settings: "wght" 700;
-  color: var(--ink);
-  background: linear-gradient(transparent 60%, rgba(195,46,56,0.25) 60%);
-  padding: 0 2px;
-}
+
+/* ─── Comparison ─────────────────────────────────────────── */
+
+.comparison { padding-bottom: 80px; }
+.comparison .content { margin-top: 40px; padding-top: 20px; }
 
 .arch-block {
   font-family: var(--font-mono);
@@ -550,9 +541,8 @@ p code, li code {
 [dir="rtl"] .features-list h3 { order: 2; }
 [dir="rtl"] .features-list p { order: 1; }
 [dir="rtl"] .how-it-works .content { grid-template-columns: 3fr 2fr; }
-[dir="rtl"] .how-it-works .prose { text-align: right; }
-[dir="rtl"] .comparison .prose { text-align: right; }
-[dir="rtl"] .comparison .prose ul { padding-left: 0; padding-right: 1.5em; }
+[dir="rtl"] .prose { text-align: right; }
+[dir="rtl"] .prose ul { padding-left: 0; padding-right: 1.5em; }
 [dir="rtl"] pre, [dir="rtl"] code, [dir="rtl"] .arch-block {
   direction: ltr; text-align: left;
 }
