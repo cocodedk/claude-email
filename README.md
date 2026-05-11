@@ -76,7 +76,10 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
   - `UserPromptSubmit` runs `chat-drain-inbox.py` again so every user turn auto-delivers messages that arrived mid-session — messages you send while the agent is idle get picked up on its next turn without relying on the model to poll.
   - `Stop` runs `chat-drain-inbox.py` at the end of every agent response; when peer messages are pending it emits `{"decision":"block","reason":...}`, cancelling the stop and reinjecting the messages as the agent's next turn. Closes the "peer sent something while I was mid-response" gap without polling.
   - `PreCompact` runs `scripts/chat-precompact-hook.py` to log a `hook_precompact` flow event whenever Claude Code rotates its working memory (manual `/compact` or automatic). Best-effort telemetry only — it keeps the dashboard's flow panel pulsing across compaction so a long-running agent doesn't look dead during the gap.
-- Agent status tracking (running, idle, disconnected, deregistered)
+- Agent status tracked along two axes for envelope `v >= 2` consumers:
+  - **Process-state** (`online` / `stale` / `offline`) — derived from `last_seen_at` heartbeat (5-min window), `is_alive(pid)` when set, and a 30-min ghost threshold.
+  - **Task-state** (`waiting` / `working` / `completed` / `error` / `null`) — derived from the tasks table with a configurable fade window (`TASK_STATE_FADE_SEC`, default 30 s).
+- Envelope `v: 1` clients keep the legacy 3-state vocabulary (`connected` / `disconnected` / `absent`) and never see `task_state`.
 - Agent PIDs recorded in the database
 
 ### Idle auto-drain cron (live-but-idle gap)
