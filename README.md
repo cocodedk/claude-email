@@ -51,6 +51,18 @@ An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with a
     └────────────┘   └────────────┘  └────────────┘
 ```
 
+## Compared to Claude Code's Agent View
+
+Claude Code now ships a built-in [Agent View](https://claude.com/blog/agent-view-in-claude-code) — a terminal-side overview of every concurrent session, with inline replies and `claude --bg` for backgrounded tasks. It is excellent when you are at the laptop.
+
+`claude-email` starts where Agent View stops:
+
+- **Remote-first.** Drive every agent from any inbox — phone, web, `mutt` — without ssh, VPN, or a terminal open. Agent View is local to one machine; an email is not.
+- **Inter-agent bus.** Agents talk to *each other* over the MCP chat bus via `chat_message_agent`, not just to you. Agent View has no agent-to-agent channel.
+- **Persistent, multi-surface state.** Conversations, task history, and liveness live in SQLite (WAL) and surface on a graphical CRT dashboard at `/dashboard`, the Android companion (in progress), and the same email thread you started in — across reboots and bus restarts.
+
+In short: Agent View is the cockpit when you're at the laptop; `claude-email` is the radio when you're not.
+
 ## Features
 
 ### Email Agent
