@@ -7,6 +7,7 @@ that ``_send_json_reply`` will SMTP back to the client.
 from src.error_codes import make_error
 from src.json_envelope import (
     ROUTED_VIA_AGENT, ROUTED_VIA_WORKER, Envelope, build_envelope,
+    negotiate_v,
 )
 
 try:
@@ -23,7 +24,7 @@ def _bad_envelope(env: Envelope, body: str, message: str) -> str:
     return build_envelope(
         "error", body=body,
         error=make_error("bad_envelope", message),
-        ask_id=env.ask_id,
+        ask_id=env.ask_id, v=negotiate_v(env.v),
     )
 
 
@@ -32,7 +33,7 @@ def _tool_error(env: Envelope, result: dict) -> str:
     return build_envelope(
         "error", body=result["error"],
         error=make_error(code, result["error"]),
-        ask_id=env.ask_id,
+        ask_id=env.ask_id, v=negotiate_v(env.v),
     )
 
 
@@ -40,13 +41,14 @@ def _server_uninitialized(env: Envelope, missing: str) -> str:  # pragma: no cov
     return build_envelope(
         "error", body="server not fully initialized",
         error=make_error("internal", f"{missing} unavailable"),
-        ask_id=env.ask_id,
+        ask_id=env.ask_id, v=negotiate_v(env.v),
     )
 
 
 def _ack(env: Envelope, body: str, data: dict, routed_via: str | None = None) -> str:
     return build_envelope(
         "ack", body=body, ask_id=env.ask_id, data=data, routed_via=routed_via,
+        v=negotiate_v(env.v),
     )
 
 
@@ -71,6 +73,7 @@ def handle_list_projects(
         return _server_uninitialized(env, "list_projects_tool")
     result = list_projects_tool(
         task_queue, allowed_base=allowed_base, chat_db=chat_db,
+        envelope_version=env.v,
     )
     return _ack(env, f"{len(result['projects'])} project(s)", result)
 
