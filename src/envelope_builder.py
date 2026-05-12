@@ -6,7 +6,7 @@ import re as _re
 from datetime import datetime, timezone
 from typing import Any
 
-from src.json_envelope import V
+from src.envelope_v import V
 
 
 def build_envelope(

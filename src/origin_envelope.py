@@ -21,10 +21,12 @@ def wrap_if_json_origin(
     if task_id is None:
         return message, ""
     row = db._conn.execute(  # noqa: SLF001
-        "SELECT origin_content_type FROM tasks WHERE id=?", (task_id,),
+        "SELECT origin_content_type, origin_envelope_v FROM tasks WHERE id=?",
+        (task_id,),
     ).fetchone()
     if not row or (row["origin_content_type"] or "") != _JSON_CT:
         return message, ""
     return build_envelope(
-        kind, body=message, task_id=task_id, **envelope_kwargs,
+        kind, body=message, task_id=task_id,
+        v=row["origin_envelope_v"], **envelope_kwargs,
     ), _JSON_CT

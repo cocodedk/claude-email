@@ -42,8 +42,8 @@ def emit_status(
     if task_id is None:
         return False
     row = db._conn.execute(  # noqa: SLF001 — same-package coupling
-        "SELECT project_path, last_sent_status, origin_content_type "
-        "FROM tasks WHERE id=?",
+        "SELECT project_path, last_sent_status, origin_content_type, "
+        "origin_envelope_v FROM tasks WHERE id=?",
         (task_id,),
     ).fetchone()
     if row is None:
@@ -62,7 +62,7 @@ def emit_status(
     if is_json:
         body = build_envelope(
             "status", body=f"Task #{task_id} {status}",
-            task_id=task_id, data=data,
+            task_id=task_id, data=data, v=row["origin_envelope_v"],
         )
         content_type = _JSON_CT
     else:

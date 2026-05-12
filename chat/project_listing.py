@@ -4,7 +4,7 @@ state plus envelope-version-gated agent_status + task_state."""
 import os
 from pathlib import Path
 
-from chat.project_tools import _last_activity
+from chat.project_helpers import last_activity
 from src.task_queue import TaskQueue
 from src.task_state import task_state_for_project
 
@@ -53,7 +53,7 @@ def list_projects_tool(
             "path": resolved,
             "running_task_id": running["id"] if running else None,
             "queue_depth": len(queue.list_pending(resolved)),
-            "last_activity_at": _last_activity(queue.latest_task(resolved)),
+            "last_activity_at": last_activity(queue.latest_task(resolved)),
             "agent_status": _agent_status(chat_db, resolved, use_v2),
         }
         if use_v2:

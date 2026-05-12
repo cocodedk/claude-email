@@ -12,6 +12,7 @@ from src.error_codes import (
     ProjectNotFound, ProjectOutsideBase, error_result_from_exc,
 )
 from src.git_ops import task_branch_name
+from chat.project_helpers import last_activity
 from src.task_control import cancel_running_task, queue_status
 from src.task_queue import TaskQueue
 from src.worker_manager import WorkerManager
@@ -43,7 +44,7 @@ def enqueue_task_tool(
     allowed_base: str, plan_first: bool = False,
     origin_content_type: str = "", origin_message_id: str = "",
     origin_subject: str = "", origin_from: str = "",
-    dispatch_token: str = "",
+    dispatch_token: str = "", origin_envelope_v: int | None = None,
 ) -> dict:
     try:
         resolved = resolve_project(project, allowed_base)
@@ -58,6 +59,7 @@ def enqueue_task_tool(
         origin_content_type=origin_content_type,
         origin_message_id=origin_message_id, origin_subject=origin_subject,
         origin_from=origin_from, dispatch_token=dispatch_token,
+        origin_envelope_v=origin_envelope_v,
     )
     return {
         "status": "enqueued",
@@ -127,17 +129,6 @@ def retry_task_tool(
     }
 
 
-def _last_activity(task: dict | None) -> str | None:
-    """Most-recent timestamp from a task row: completed_at → started_at →
-    created_at. Returns None when the task is missing entirely (idle
-    project)."""
-    return (
-        (task or {}).get("completed_at")
-        or (task or {}).get("started_at")
-        or (task or {}).get("created_at")
-    )
-
-
 def where_am_i_tool(queue: TaskQueue, manager: WorkerManager) -> dict:
     """Cross-project dashboard: one row per project with recent activity."""
     projects = []
@@ -150,7 +141,7 @@ def where_am_i_tool(queue: TaskQueue, manager: WorkerManager) -> dict:
             "running_task": queue.get_running(path),
             "pending_count": len(queue.list_pending(path)),
             "last_task_status": (latest or {}).get("status"),
-            "last_activity_at": _last_activity(latest),
+            "last_activity_at": last_activity(latest),
         })
     return {"projects": projects}
 

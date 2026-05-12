@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     origin_subject TEXT,
     origin_from TEXT,
     dispatch_token TEXT,
-    last_sent_status TEXT
+    last_sent_status TEXT,
+    origin_envelope_v INTEGER
 );
 -- The tasks_dispatch_token_idx index is created via _MIGRATIONS so the
 -- index DDL doesn't precede the ALTER TABLE on existing DBs that
@@ -94,6 +95,7 @@ MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS tasks_dispatch_token_idx "
     "ON tasks(dispatch_token) WHERE dispatch_token IS NOT NULL",
     "ALTER TABLE tasks ADD COLUMN last_sent_status TEXT",
+    "ALTER TABLE tasks ADD COLUMN origin_envelope_v INTEGER",
     "ALTER TABLE messages ADD COLUMN content_type TEXT",
     "ALTER TABLE messages ADD COLUMN task_id INTEGER",
     "CREATE INDEX IF NOT EXISTS messages_in_reply_to_idx "

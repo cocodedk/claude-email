@@ -127,6 +127,7 @@ def _route_to_live_agent(
         origin_message_id=inbound_msg_id,
         origin_subject=inbound_subject,
         origin_from=inbound_from,
+        origin_envelope_v=env.v,
     )
     chat_db.insert_message(
         "user", agent["name"],
@@ -168,6 +169,7 @@ def handle_command(
         origin_message_id=inbound_msg_id,
         origin_subject=inbound_subject,
         origin_from=inbound_from,
+        origin_envelope_v=env.v,
     )
     if "error" in result:
         code = result.get("error_code", "invalid_state")
