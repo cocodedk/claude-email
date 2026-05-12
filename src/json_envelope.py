@@ -28,20 +28,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-V = 2
+# V + negotiate_v live in src/envelope_v.py to avoid an import cycle
+# with src/envelope_builder.py. Re-exported here so existing importers
+# (`from src.json_envelope import V, negotiate_v`) keep working.
+from src.envelope_v import V, negotiate_v  # noqa: F401, E402
+
 CONTENT_TYPE = "application/json"
-
-
-def negotiate_v(client_v: int) -> int:
-    """Return the envelope version to use in the response.
-
-    Caps at the server's ``V``; floors at 1 so a malformed or missing
-    inbound ``v`` falls back to legacy shape rather than crashing or
-    silently advertising support the server can't honor.
-    """
-    if client_v < 1:
-        return 1
-    return min(client_v, V)
 
 ROUTED_VIA_AGENT = "agent"
 ROUTED_VIA_WORKER = "worker"
