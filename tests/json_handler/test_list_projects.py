@@ -97,3 +97,39 @@ class TestListProjectsKind:
         handle_json_email(msg, cfg, cdb, tq, wm)
         body = json.loads(mock_send.call_args.kwargs["body"])
         assert body["meta"]["ask_id"] == 42
+
+    def test_v1_request_gets_v1_response_and_legacy_shape(
+        self, resources, tmp_path, mocker,
+    ):
+        cdb, tq, wm = resources
+        cfg = base_config(tmp_path)
+        make_git_dir(tmp_path, "alpha")
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = json_email({
+            "v": 1, "kind": "list_projects",
+            "meta": {"auth": "s3cret"},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["v"] == 1
+        row = body["data"]["projects"][0]
+        assert "task_state" not in row
+        assert row["agent_status"] in ("connected", "disconnected", "absent")
+
+    def test_v2_request_gets_v2_response_with_new_shape(
+        self, resources, tmp_path, mocker,
+    ):
+        cdb, tq, wm = resources
+        cfg = base_config(tmp_path)
+        make_git_dir(tmp_path, "alpha")
+        mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
+        msg = json_email({
+            "v": 2, "kind": "list_projects",
+            "meta": {"auth": "s3cret"},
+        })
+        handle_json_email(msg, cfg, cdb, tq, wm)
+        body = json.loads(mock_send.call_args.kwargs["body"])
+        assert body["v"] == 2
+        row = body["data"]["projects"][0]
+        assert row["agent_status"] in ("online", "stale", "offline")
+        assert "task_state" in row

@@ -3,6 +3,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from src.agent_registry import AgentRegistryMixin
+from src.agent_state import AgentStateMixin
 from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.chat_schema import MIGRATIONS as _MIGRATIONS, SCHEMA as _SCHEMA
 from src.dashboard_queries import DashboardQueriesMixin
@@ -17,8 +18,8 @@ def _now() -> str:
 
 
 class ChatDB(
-    AgentRegistryMixin, DashboardQueriesMixin, MaintenanceMixin,
-    WakeSessionStoreMixin,
+    AgentRegistryMixin, AgentStateMixin, DashboardQueriesMixin,
+    MaintenanceMixin, WakeSessionStoreMixin,
 ):
     """Single entry-point for all chat DB operations."""
 
