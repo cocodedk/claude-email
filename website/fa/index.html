@@ -189,10 +189,43 @@
     </div>
   </section>
 
-  <section class="installation">
+  <section class="comparison">
     <div class="container">
       <div class="section-head">
         <div class="section-num">۰۳</div>
+        <h2 class="section-title">
+          <small>جایگاه</small>
+          در مقایسه با Agent View کلود کد
+        </h2>
+      </div>
+
+      <div class="content">
+        <div class="prose">
+          <p>
+            کلود کد اکنون قابلیتی به نام
+            <a href="https://claude.com/blog/agent-view-in-claude-code">Agent View</a>
+            دارد — یک نمای ترمینالی از همه نشست‌های هم‌زمان، با پاسخ درون‌خطی و
+            <code>claude --bg</code> برای کارهای پس‌زمینه. وقتی پای لپ‌تاپ نشسته‌اید عالی است.
+            <code>claude-email</code> دقیقاً از همان‌جایی شروع می‌کند که Agent View تمام می‌شود.
+          </p>
+          <ul>
+            <li><strong>اول از همه از راه دور.</strong> هر عامل را از هر صندوق ایمیلی — موبایل، وب، <code>mutt</code> — هدایت کنید، بی‌نیاز از ssh، VPN یا ترمینال باز. Agent View محدود به یک ماشین است؛ یک ایمیل نیست.</li>
+            <li><strong>گذرگاه میان عامل‌ها.</strong> عامل‌ها می‌توانند با <code>chat_message_agent</code> روی گذرگاه چت MCP <em>به یکدیگر</em> پیام بدهند، نه فقط به شما. Agent View هیچ کانال عامل‌به‌عامل ندارد.</li>
+            <li><strong>وضعیت پایدار و چندسطحی.</strong> گفت‌وگوها، تاریخچه وظایف و وضعیت زنده‌بودن در SQLite (حالت WAL) ذخیره می‌شوند و در یک داشبورد گرافیکی CRT روی <code>/dashboard</code>، در همراه اندروید (در دست ساخت)، و در همان رشته ایمیلی که آغاز کرده‌اید نمایان می‌گردند — حتی پس از ری‌استارت سیستم یا گذرگاه.</li>
+          </ul>
+          <p>
+            خلاصه: Agent View کابینِ خلبان شماست وقتی پای لپ‌تاپ‌اید؛
+            <code>claude-email</code> بی‌سیمِ شماست وقتی نیستید.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="installation">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-num">۰۴</div>
         <h2 class="section-title">
           <small>شروع کار</small>
           نصب و ارسال نخستین نامه
