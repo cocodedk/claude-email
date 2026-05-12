@@ -44,17 +44,18 @@ class TaskQueue:
         retry_of: int | None = None, plan_first: bool = False,
         origin_content_type: str = "", origin_message_id: str = "",
         origin_subject: str = "", origin_from: str = "",
-        dispatch_token: str = "",
+        dispatch_token: str = "", origin_envelope_v: int | None = None,
     ) -> int:
         cur = self._conn.execute(
             "INSERT INTO tasks (project_path, body, priority, created_at, retry_of, "
             "plan_first, origin_content_type, origin_message_id, origin_subject, "
-            "origin_from, dispatch_token) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "origin_from, dispatch_token, origin_envelope_v) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (project_path, body, priority, _now(), retry_of,
              1 if plan_first else 0, origin_content_type or None,
              origin_message_id or None, origin_subject or None,
-             origin_from or None, dispatch_token or None),
+             origin_from or None, dispatch_token or None,
+             origin_envelope_v),
         )
         self._conn.commit()
         return cur.lastrowid
@@ -63,6 +64,7 @@ class TaskQueue:
         self, project_path: str, body: str, *,
         origin_content_type: str = "", origin_message_id: str = "",
         origin_subject: str = "", origin_from: str = "",
+        origin_envelope_v: int | None = None,
     ) -> int:
         """Insert a virtual task row carrying origin metadata for the
         ``meta.prefer_live_agent`` routing path.
@@ -81,11 +83,12 @@ class TaskQueue:
             "INSERT INTO tasks (project_path, body, status, priority, "
             "created_at, started_at, completed_at, "
             "origin_content_type, origin_message_id, origin_subject, "
-            "origin_from) "
-            "VALUES (?, ?, 'routed_via_agent', 0, ?, ?, ?, ?, ?, ?, ?)",
+            "origin_from, origin_envelope_v) "
+            "VALUES (?, ?, 'routed_via_agent', 0, ?, ?, ?, ?, ?, ?, ?, ?)",
             (project_path, body, now, now, now,
              origin_content_type or None, origin_message_id or None,
-             origin_subject or None, origin_from or None),
+             origin_subject or None, origin_from or None,
+             origin_envelope_v),
         )
         self._conn.commit()
         return cur.lastrowid

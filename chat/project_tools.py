@@ -44,7 +44,7 @@ def enqueue_task_tool(
     allowed_base: str, plan_first: bool = False,
     origin_content_type: str = "", origin_message_id: str = "",
     origin_subject: str = "", origin_from: str = "",
-    dispatch_token: str = "",
+    dispatch_token: str = "", origin_envelope_v: int | None = None,
 ) -> dict:
     try:
         resolved = resolve_project(project, allowed_base)
@@ -59,6 +59,7 @@ def enqueue_task_tool(
         origin_content_type=origin_content_type,
         origin_message_id=origin_message_id, origin_subject=origin_subject,
         origin_from=origin_from, dispatch_token=dispatch_token,
+        origin_envelope_v=origin_envelope_v,
     )
     return {
         "status": "enqueued",

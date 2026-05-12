@@ -62,6 +62,7 @@ def _json_body(task_row: dict) -> str:
         body=f"Task #{task_row.get('id')} {status}",
         task_id=task_row.get("id"),
         data=data,
+        v=task_row.get("origin_envelope_v"),
     )
 
 
