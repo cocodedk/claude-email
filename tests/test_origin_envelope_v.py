@@ -3,6 +3,7 @@ and echoed by every async envelope emitter (result / status / origin
 wrap). Regression coverage for the Codex P1 finding: v:1 inbound was
 producing v:2 outbound for non-ack envelopes."""
 import json
+import os
 import subprocess
 import sys
 
@@ -13,6 +14,8 @@ from src.origin_envelope import wrap_if_json_origin
 from src.status_envelope import emit_status
 from src.task_notifier import _json_body
 from src.task_queue import TaskQueue
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 @pytest.fixture
@@ -112,7 +115,7 @@ def test_envelope_builder_import_order_clean(tmp_path):
     module cache."""
     r = subprocess.run(
         [sys.executable, "-c", "import src.envelope_builder"],
-        cwd="/home/cocodedk/0-projects/claude-email",
+        cwd=PROJECT_ROOT,
         capture_output=True, text=True,
     )
     assert r.returncode == 0, r.stderr
@@ -123,7 +126,7 @@ def test_project_listing_import_order_clean(tmp_path):
     chat.project_tools must not raise."""
     r = subprocess.run(
         [sys.executable, "-c", "import chat.project_listing"],
-        cwd="/home/cocodedk/0-projects/claude-email",
+        cwd=PROJECT_ROOT,
         capture_output=True, text=True,
     )
     assert r.returncode == 0, r.stderr
