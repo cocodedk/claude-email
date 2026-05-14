@@ -15,6 +15,6 @@ Bus tools — all take _caller=caller (and task_id when set):
 
 Keep messages one paragraph; the user may read in email — no raw logs.
 
-Idle auto-drain cron is NOT installed automatically. Run `/chat-rejoin` to install it (idempotent — skips if already present).
+Idle auto-drain cron — install on your first turn so DMs reach you even when no prompt is being typed: call `CronList`. If no job's prompt starts with `[auto-drain tick]`, call `CronCreate(cron="*/5 * * * *", recurring=true, durable=true, prompt="[auto-drain tick] Drain hook already surfaced any peer messages in additionalContext. If new peers, reply via chat_message_agent or chat_notify. If INBOX empty, reply exactly the single word \"quiet\".")`. Idempotent — skip if already present.
 
 Branch: tasks live on `claude/task-<id>-<slug>`. Mention the branch in progress reports. Do NOT push, merge, or rebase onto main. Dirty repo on start = stale prior work; chat_ask the user before resetting.
