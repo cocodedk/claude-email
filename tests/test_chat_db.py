@@ -195,11 +195,38 @@ class TestAgents:
         agent = db.get_agent("agent-alive")
         assert agent["status"] == "disconnected"
 
-    def test_reap_dead_agents_skips_no_pid(self, db):
+    def test_reap_dead_agents_skips_no_pid_when_fresh(self, db):
         db.register_agent("agent-nopid", "/p2")
-        # pid is NULL — should not be reaped
+        # pid is NULL but row was just registered (last_seen_at = now) —
+        # protected from the no-pid sweep so live MCP-only agents survive.
         reaped = db.reap_dead_agents()
         assert reaped == []
+
+    def test_reap_dead_agents_reaps_no_pid_when_stale(self, db):
+        from datetime import datetime, timedelta, timezone
+        db.register_agent("agent-ghost-nopid", "/p-ghost")
+        stale = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        db._conn.execute(
+            "UPDATE agents SET last_seen_at=? WHERE name=?",
+            (stale, "agent-ghost-nopid"),
+        )
+        db._conn.commit()
+        reaped = db.reap_dead_agents()
+        assert reaped == ["agent-ghost-nopid"]
+        assert db.get_agent("agent-ghost-nopid")["status"] == "disconnected"
+
+    def test_reap_dead_agents_no_pid_threshold_configurable(self, db):
+        from datetime import datetime, timedelta, timezone
+        db.register_agent("agent-mid", "/p-mid")
+        # 10s old — stale under 5s threshold, fresh under 60s threshold.
+        ten_sec_ago = (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat()
+        db._conn.execute(
+            "UPDATE agents SET last_seen_at=? WHERE name=?",
+            (ten_sec_ago, "agent-mid"),
+        )
+        db._conn.commit()
+        assert db.reap_dead_agents(no_pid_idle_secs=60) == []
+        assert db.reap_dead_agents(no_pid_idle_secs=5) == ["agent-mid"]
 
     def test_reap_dead_agents_skips_already_disconnected(self, db):
         db.register_agent("agent-disc", "/p3")
