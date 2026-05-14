@@ -293,6 +293,38 @@ async def test_process_agent_skips_unknown_agent(live_db):
     assert called == []
 
 
+@pytest.mark.asyncio
+async def test_process_agent_fails_messages_for_disconnected_agent(live_db, tmp_path):
+    """Once an agent is marked disconnected (by reap_dead_agents or manually),
+    wake_watcher must not spawn — Claude is gone, the spawn would stall and
+    waste 90s before _handle_failure escalates. Pending DMs flip to failed
+    immediately; recover_failed_messages_for re-pendings them on re-register.
+    """
+    live_db.register_agent("agent-disc", str(tmp_path))
+    live_db.update_agent_status("agent-disc", "disconnected")
+    live_db.insert_message("bar", "agent-disc", "hi", "notify")
+    spawns = []
+
+    async def fake_spawn(cmd, cwd, timeout):
+        spawns.append(cmd)
+        return WakeTurnResult(exit_code=0, timed_out=False)
+
+    locks = _AgentLocks()
+    cache = _SessionCache(idle_secs=900)
+    tracker = _FailureTracker(max_failures=3, rate_limit_secs=3600)
+    await process_agent(
+        "agent-disc", live_db, locks, cache, tracker,
+        spawn_fn=fake_spawn, claude_bin="claude", prompt="drain",
+        timeout=300, user_avatar="user",
+    )
+    assert spawns == []
+    assert live_db.get_pending_messages_for("agent-disc") == []
+    failed = live_db._conn.execute(
+        "SELECT count(*) FROM messages WHERE to_name='agent-disc' AND status='failed'",
+    ).fetchone()[0]
+    assert failed == 1
+
+
 def _cfg(**over):
     base = dict(
         interval_secs=0.05, timeout_secs=5,

@@ -61,6 +61,11 @@ async def process_agent(
             # Drained by another consumer between recipient scan and entry.
             return
 
+        if agent.get("status") != "running":
+            # Reaped — spawn would stall. recover_failed_messages_for re-pendings on re-register.
+            for mid in pre_ids:
+                db.mark_message_failed(mid)
+            return
         if _has_live_owner(agent):
             return  # live session's own hook drain wins; don't race it
 
@@ -80,36 +85,25 @@ async def process_agent(
         db._log_event(agent_name, "wake_spawn_start", f"resume={is_resume} pending={len(pre_ids)}")
         result = await spawn_fn(cmd, cwd=project_path, timeout=timeout)
         exit_code = getattr(result, "exit_code", None)
-        db._log_event(
-            agent_name, "wake_spawn_end",
-            f"exit={exit_code} timeout={getattr(result, 'timed_out', '?')}",
-        )
-
+        timed_out = getattr(result, "timed_out", "?")
+        db._log_event(agent_name, "wake_spawn_end", f"exit={exit_code} timeout={timed_out}")
         if isinstance(result, WakeTurnResult) and result.exit_code == 0:
-            # Cache the session even on stall — if the user fixes the drain
-            # hook later, --resume keeps the prompt cache warm.
+            # Cache the session even on stall — --resume keeps the prompt cache warm.
             cache.set(agent_name, session_id)
             db.upsert_wake_session(agent_name, session_id)
             post_ids = {m["id"] for m in db.get_pending_messages_for(agent_name)}
             if pre_ids <= post_ids:
-                # No pre-spawn message was delivered — treat as a stall.
-                # Likely missing drain hook or dead session. Escalation
-                # fires after max_failures consecutive stalls.
-                _handle_failure(
-                    db, tracker, agent_name, project_path,
-                    WakeTurnResult(
-                        exit_code=0, timed_out=False,
-                        error=f"no progress ({len(pre_ids)} stuck)",
-                    ),
-                    user_avatar,
+                # No pre-spawn message delivered — stall. Escalates after max_failures.
+                stall = WakeTurnResult(
+                    exit_code=0, timed_out=False,
+                    error=f"no progress ({len(pre_ids)} stuck)",
                 )
+                _handle_failure(db, tracker, agent_name, project_path, stall, user_avatar)
             else:
                 tracker.record_success(agent_name)
                 clear_status_dedup_for_project(db, project_path)
         else:
-            _handle_failure(
-                db, tracker, agent_name, project_path, result, user_avatar,
-            )
+            _handle_failure(db, tracker, agent_name, project_path, result, user_avatar)
     finally:
         locks.release(agent_name)
 
