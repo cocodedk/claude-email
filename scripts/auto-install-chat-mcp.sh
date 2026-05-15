@@ -3,8 +3,9 @@
 #
 # Wired as a user-scope SessionStart hook (~/.claude/settings.json) so any
 # fresh Claude Code session in a project under $BASE picks up the chat-bus
-# config on first run. Skips fast for already-wired projects and for the
-# claude-email source tree itself (its .claude/settings.json is checked in).
+# config on first run. Runs on every SessionStart — inject_mcp_config and
+# inject_session_start_hook are idempotent so re-running is always safe.
+# Skips only the claude-email source tree itself (its config is checked in).
 #
 # Always exits 0 — a missing venv or transient error must not block the
 # session.
@@ -23,10 +24,9 @@ esac
 # Skip the source project — its config is git-tracked.
 [ "$PROJ" = "$EMAIL_PROJECT" ] && exit 0
 
-# Idempotency short-circuit: claude-chat already declared in .mcp.json.
-if [ -f "$PROJ/.mcp.json" ] && grep -q '"claude-chat"' "$PROJ/.mcp.json"; then
-  exit 0
-fi
+# Bail early if the venv is absent — avoids a silent failed spawn on every
+# SessionStart if the email project hasn't been installed yet.
+[ -x "$EMAIL_PROJECT/.venv/bin/python" ] || exit 0
 
 # Run the install via the email project's venv. Suppress output and any
 # error — the goal is silent first-time wiring, not a chatty hook.
