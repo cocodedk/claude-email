@@ -128,6 +128,11 @@ def retry_task_tool(
         project_path, body,
         priority=_clamp_priority(original.get("priority") or 0),
         retry_of=task_id,
+        branch_name=original.get("branch_name") or "",
+        mutates_repo=(
+            None if original.get("mutates_repo") is None
+            else bool(original.get("mutates_repo"))
+        ),
     )
     return {
         "status": "retried",
