@@ -82,9 +82,13 @@ class _FakeTaskQueue:
     def __init__(self):
         self.enqueued = []
 
-    def enqueue(self, path, body, priority=0):
-        self.enqueued.append((path, body, priority))
+    def enqueue(self, path, body, priority=0, branch_name="", mutates_repo=None,
+                **_):
+        self.enqueued.append((path, body, priority, branch_name, mutates_repo))
         return 42
+
+    def get(self, _task_id):
+        return None  # no prior task in the legacy fixtures
 
 
 class TestApplyReply:
@@ -103,7 +107,9 @@ class TestApplyReply:
         assert "#42" in ack and "555" in ack
         # Branch name is surfaced so the user knows where to look
         assert "claude/task-42-also-add-docs" in ack
-        assert tq.enqueued == [(proj, "also add docs", 0)]
+        assert tq.enqueued == [
+            (proj, "also add docs", 0, "", True),
+        ]
         assert wm.calls == [proj]
 
     def test_ask_reply_goes_to_bus(self, db, tmp_path):
