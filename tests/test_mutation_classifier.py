@@ -1,8 +1,4 @@
-"""Tests for src/mutation_classifier.py — read-only vs mutating intent.
-
-The classifier biases to 'mutates' on ambiguity. NULL (the None return)
-is reserved for bodies with zero signal so existing rows + ambiguous
-new rows stay safety-gated by the worker."""
+"""Tests for src/mutation_classifier.py."""
 import pytest
 
 from src.mutation_classifier import classify_mutation
@@ -28,10 +24,6 @@ class TestReadOnly:
 
 
 class TestPolitePrefixStrip:
-    """v1 reviewer catch: 'can you explain X' is read-only. The polite
-    prefix is stripped before classification, but the mutating-verb
-    check still runs against the *original* body so 'can you commit X'
-    stays mutating via the verb anywhere rule."""
 
     @pytest.mark.parametrize("body", [
         "can you explain the relay?",
@@ -49,7 +41,11 @@ class TestPolitePrefixStrip:
         "please push the branch",
         "could you delete the stale row?",
         "would you rewrite this please",
-        "tell me to fix the bus",  # 'fix' anywhere -> mutating
+        "tell me to fix the bus",
+        "can you fix the branch bug?",
+        "could you update the README?",
+        "please create the migration",
+        "will you commit the changes?",
     ])
     def test_polite_mutating_still_returns_true(self, body):
         assert classify_mutation(body) is True
@@ -87,11 +83,28 @@ class TestAmbiguity:
         # but it's not zero-signal — body has content. Bias to mutates.
         assert classify_mutation("thinking about the architecture") is True
 
-    def test_mixed_signals_bias_to_mutating(self):
-        assert classify_mutation("explain why we should fix the bus") is True
+    def test_question_shape_wins_over_mutating_topic(self):
+        assert classify_mutation("explain why we should fix the bus") is False
 
     def test_imperative_inside_question_still_mutates(self):
+        # Polite-strip removes 'can you', leaving 'commit the changes'.
         assert classify_mutation("can you commit the changes?") is True
+
+
+class TestYesNoQuestions:
+    @pytest.mark.parametrize("body", [
+        "is this expected?",
+        "does it still create a branch?",
+        "did the previous task finish?",
+        "has the worker stopped?",
+        "why did it create a new branch?",
+        "can it read the repo state?",
+        "are the relays running?",
+        "should I fix this now?",
+        "would the worker pick this up?",
+    ])
+    def test_yes_no_questions_are_read_only(self, body):
+        assert classify_mutation(body) is False
 
 
 class TestCaseAndPunctuation:
@@ -104,24 +117,16 @@ class TestCaseAndPunctuation:
         assert classify_mutation("fix: stop the leak") is True
 
     def test_leading_imperative_required_for_read_only(self):
-        # Mutating verb later in body still wins.
         assert classify_mutation("rewrite this to explain better") is True
 
 
 class TestStripIdempotent:
-    """Multiple polite prefixes stack — 'please can you explain' should
-    still strip down to 'explain'."""
-
     def test_stacked_prefixes_strip(self):
         assert classify_mutation("please can you explain the relay") is False
         assert classify_mutation("could you please show me the schema") is False
 
 
 class TestPoliteOnlyReturnsNone:
-    """Round-3 reviewer catch: body that is *only* a polite prefix
-    (no verb at all after stripping) is zero-signal and must return
-    None so the row stays NULL-gated, not bias-to-mutating."""
-
     @pytest.mark.parametrize("body", [
         "please",
         "Please.",
