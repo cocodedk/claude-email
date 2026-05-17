@@ -91,6 +91,36 @@ class TestAmbiguity:
         assert classify_mutation("can you commit the changes?") is True
 
 
+class TestShortAcknowledgments:
+    """The original user complaint: a polite ack reply ('I have received
+    it.') used to fall through to bias-to-mutates and burn a per-task
+    branch. Short bodies (≤8 tokens after polite-strip) containing an
+    acknowledgment word are now read-only."""
+
+    @pytest.mark.parametrize("body", [
+        "I have received it.",
+        "Thanks!",
+        "Got it",
+        "Noted, will check",
+        "Acknowledged",
+        "Understood",
+        "Seen",
+        "Confirmed",
+        "ok",
+        "okay thanks",
+    ])
+    def test_short_acknowledgments_are_read_only(self, body):
+        assert classify_mutation(body) is False
+
+    @pytest.mark.parametrize("body", [
+        "Thanks, please fix the bug",
+        "Got it, now ship the migration",
+        "Ok, update the README",
+    ])
+    def test_ack_plus_mutating_command_still_mutates(self, body):
+        assert classify_mutation(body) is True
+
+
 class TestYesNoQuestions:
     @pytest.mark.parametrize("body", [
         "is this expected?",

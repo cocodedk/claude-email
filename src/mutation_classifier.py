@@ -12,13 +12,21 @@ Server-side, regex-only. Maps to ``tasks.mutates_repo``:
 
 Decision order (after polite-prefix strip):
   1. Empty / polite-only body                  → None
-  2. Stripped first token is mutating          → True
+  2. Stripped first token is mutating          → True   (direct command)
   3. Stripped first token is read-only OR a    → False  (question shape
      yes/no question starter (is/does/can/...)          beats a mutating
                                                          word mentioned
                                                          later as the
                                                          topic)
-  4. Otherwise                                 → True   (bias to mutates)
+  4. Mutating verb anywhere in the body        → True   ('Thanks, please
+                                                         fix the bug')
+  5. Short body (≤8 tokens) contains an        → False  ('I have received
+     acknowledgment word                                 it.', 'Thanks!')
+  6. Otherwise                                 → True   (bias to mutates)
+
+Steps 4 and 5 are ordered so a mixed body like 'Got it, now ship the
+migration' still mutates — the explicit mutating verb wins over the
+acknowledgment marker.
 """
 import re
 
@@ -27,6 +35,17 @@ from src._verbs import MUTATING_VERBS, QUESTION_STARTERS, READ_ONLY_VERBS
 _MUTATING = MUTATING_VERBS
 _READ_ONLY = READ_ONLY_VERBS
 _QUESTION_STARTERS = QUESTION_STARTERS
+
+# Short bodies containing one of these tokens are classified read-only
+# so polite acknowledgment replies don't burn a per-task branch. Kept
+# narrow on purpose — anything not on this list falls through to the
+# conservative mutating default.
+_ACKNOWLEDGMENTS = frozenset({
+    "received", "got", "noted", "acknowledged", "understood",
+    "seen", "confirmed",
+    "thanks", "thank", "thx", "ty", "ok", "okay",
+})
+_ACK_MAX_TOKENS = 8
 
 # Sorted by length descending so 'could you' wins over 'could'.
 _POLITE_PREFIXES = (
@@ -69,5 +88,12 @@ def classify_mutation(body: str) -> bool | None:
     if first in _MUTATING:
         return True
     if first in _READ_ONLY or first in _QUESTION_STARTERS:
+        return False
+    if any(t in _MUTATING for t in stripped_tokens):
+        return True
+    if (
+        len(stripped_tokens) <= _ACK_MAX_TOKENS
+        and any(t in _ACKNOWLEDGMENTS for t in stripped_tokens)
+    ):
         return False
     return True
