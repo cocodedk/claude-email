@@ -18,14 +18,17 @@ class OutboundEmailsMixin:
 
     def record_outbound_email(
         self, email_message_id: str, *, kind: str, sender_agent: str = "",
+        task_id: int | None = None,
     ) -> None:
         if not email_message_id:
             raise ValueError("email_message_id must not be empty")
         self._conn.execute(
             "INSERT INTO outbound_emails "
-            "(email_message_id, sent_at, kind, sender_agent) "
-            "VALUES (?, ?, ?, ?) ON CONFLICT(email_message_id) DO NOTHING",
-            (email_message_id, _now(), kind, sender_agent or None),
+            "(email_message_id, sent_at, kind, sender_agent, task_id) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(email_message_id) DO UPDATE SET "
+            "task_id = COALESCE(outbound_emails.task_id, excluded.task_id)",
+            (email_message_id, _now(), kind, sender_agent or None, task_id),
         )
         self._conn.commit()
 
