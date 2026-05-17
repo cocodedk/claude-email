@@ -12,6 +12,7 @@ from src.error_codes import (
     ProjectNotFound, ProjectOutsideBase, error_result_from_exc,
 )
 from src.git_ops import task_branch_name
+from src.mutation_classifier import classify_mutation
 from chat.project_helpers import last_activity
 from src.task_control import cancel_running_task, queue_status
 from src.task_queue import TaskQueue
@@ -45,6 +46,7 @@ def enqueue_task_tool(
     origin_content_type: str = "", origin_message_id: str = "",
     origin_subject: str = "", origin_from: str = "",
     dispatch_token: str = "", origin_envelope_v: int | None = None,
+    mutates_repo: bool | None = None,
 ) -> dict:
     try:
         resolved = resolve_project(project, allowed_base)
@@ -54,18 +56,24 @@ def enqueue_task_tool(
         worker_pid = manager.ensure_worker(resolved)
     except ValueError as exc:
         return error_result_from_exc(exc)
+    if mutates_repo is None:
+        mutates_repo = classify_mutation(body)
     task_id = queue.enqueue(
         resolved, body, priority=_clamp_priority(priority), plan_first=plan_first,
         origin_content_type=origin_content_type,
         origin_message_id=origin_message_id, origin_subject=origin_subject,
         origin_from=origin_from, dispatch_token=dispatch_token,
         origin_envelope_v=origin_envelope_v,
+        mutates_repo=mutates_repo,
+    )
+    planned_branch = (
+        "" if mutates_repo is False else task_branch_name(task_id, body)
     )
     return {
         "status": "enqueued",
         "task_id": task_id,
         "worker_pid": worker_pid,
-        "planned_branch": task_branch_name(task_id, body),
+        "planned_branch": planned_branch,
         "plan_first": plan_first,
     }
 
