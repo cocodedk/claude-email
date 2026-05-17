@@ -8,6 +8,7 @@ from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.chat_schema import MIGRATIONS as _MIGRATIONS, SCHEMA as _SCHEMA
 from src.dashboard_queries import DashboardQueriesMixin
 from src.db_maintenance import MaintenanceMixin
+from src.outbound_emails_store import OutboundEmailsMixin
 from src.wake_session_store import WakeSessionStoreMixin
 
 __all__ = ["AgentNameTaken", "AgentProjectTaken", "ChatDB"]
@@ -19,7 +20,7 @@ def _now() -> str:
 
 class ChatDB(
     AgentRegistryMixin, AgentStateMixin, DashboardQueriesMixin,
-    MaintenanceMixin, WakeSessionStoreMixin,
+    MaintenanceMixin, OutboundEmailsMixin, WakeSessionStoreMixin,
 ):
     """Single entry-point for all chat DB operations."""
 
@@ -141,35 +142,6 @@ class ChatDB(
     def get_message(self, msg_id: int) -> dict | None:
         row = self._conn.execute(
             "SELECT * FROM messages WHERE id=?", (msg_id,),
-        ).fetchone()
-        return dict(row) if row else None
-
-    def record_outbound_email(
-        self, email_message_id: str, *, kind: str, sender_agent: str = "",
-    ) -> None:
-        """Persist an outbound SMTP Message-ID for thread-match auth.
-
-        Every reply we send (relay, ACK, JSON envelope, CLI-fallback)
-        records here so a user reply passes ``security.is_authorized``
-        via the chat-thread match without an ``AUTH:`` keyword. ON
-        CONFLICT DO NOTHING keeps repeats idempotent.
-        """
-        if not email_message_id:
-            raise ValueError("email_message_id must not be empty")
-        self._conn.execute(
-            "INSERT INTO outbound_emails "
-            "(email_message_id, sent_at, kind, sender_agent) "
-            "VALUES (?, ?, ?, ?) ON CONFLICT(email_message_id) DO NOTHING",
-            (email_message_id, _now(), kind, sender_agent or None),
-        )
-        self._conn.commit()
-
-    def find_outbound_email(self, email_message_id: str) -> dict | None:
-        if not email_message_id:
-            return None
-        row = self._conn.execute(
-            "SELECT * FROM outbound_emails WHERE email_message_id=?",
-            (email_message_id,),
         ).fetchone()
         return dict(row) if row else None
 
