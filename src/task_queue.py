@@ -85,14 +85,24 @@ class TaskQueue:
         return cur.lastrowid
 
     def claim_next(self, project_path: str) -> dict | None:
-        """Atomically move the oldest pending task for a project to running."""
+        """Atomically move the oldest pending task for a project to running.
+
+        The NOT EXISTS clause enforces one-running-task-per-project at the
+        queue layer (not just at the worker layer), so branch reuse can never
+        produce two concurrent workers on the same branch even if a
+        worker_manager race spawns a second worker. The ghost reaper handles
+        stale 'running' rows from crashed workers, so this guard never
+        deadlocks."""
         cur = self._conn.execute(
             "UPDATE tasks SET status='running', started_at=? "
             "WHERE id=(SELECT id FROM tasks "
             "          WHERE project_path=? AND status='pending' "
             "          ORDER BY priority DESC, id ASC LIMIT 1) "
-            "AND status='pending' RETURNING *",
-            (_now(), project_path),
+            "AND status='pending' "
+            "AND NOT EXISTS (SELECT 1 FROM tasks r "
+            "                WHERE r.project_path=? AND r.status='running') "
+            "RETURNING *",
+            (_now(), project_path, project_path),
         )
         row = cur.fetchone()
         self._conn.commit()
