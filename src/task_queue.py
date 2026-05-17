@@ -34,17 +34,19 @@ class TaskQueue:
         origin_content_type: str = "", origin_message_id: str = "",
         origin_subject: str = "", origin_from: str = "",
         dispatch_token: str = "", origin_envelope_v: int | None = None,
+        branch_name: str = "", mutates_repo: bool | None = None,
     ) -> int:
+        mut = None if mutates_repo is None else (1 if mutates_repo else 0)
         cur = self._conn.execute(
             "INSERT INTO tasks (project_path, body, priority, created_at, retry_of, "
             "plan_first, origin_content_type, origin_message_id, origin_subject, "
-            "origin_from, dispatch_token, origin_envelope_v) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "origin_from, dispatch_token, origin_envelope_v, branch_name, mutates_repo) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (project_path, body, priority, _now(), retry_of,
              1 if plan_first else 0, origin_content_type or None,
              origin_message_id or None, origin_subject or None,
              origin_from or None, dispatch_token or None,
-             origin_envelope_v),
+             origin_envelope_v, branch_name or None, mut),
         )
         self._conn.commit()
         return cur.lastrowid
