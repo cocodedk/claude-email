@@ -13,22 +13,11 @@ the target DB file before constructing TaskQueue.
 import sqlite3
 from datetime import datetime, timezone
 
+from src.task_row_redact import public_row
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-# Fields scrubbed from any task row exposed to MCP / public surfaces.
-# ``dispatch_token`` is a bearer token: knowing it lets a caller inject
-# their own enqueue into the email-router's correlation window so the
-# fixup stamps the inbound sender onto the attacker's task. Keep it
-# strictly server-side.
-_REDACT_FROM_PUBLIC = ("dispatch_token",)
-
-
-def _public(row: dict) -> dict:
-    """Drop bearer-token columns from a task row before it leaves the DB layer."""
-    return {k: v for k, v in row.items() if k not in _REDACT_FROM_PUBLIC}
 
 
 class TaskQueue:
@@ -45,17 +34,19 @@ class TaskQueue:
         origin_content_type: str = "", origin_message_id: str = "",
         origin_subject: str = "", origin_from: str = "",
         dispatch_token: str = "", origin_envelope_v: int | None = None,
+        branch_name: str = "", mutates_repo: bool | None = None,
     ) -> int:
+        mut = None if mutates_repo is None else (1 if mutates_repo else 0)
         cur = self._conn.execute(
             "INSERT INTO tasks (project_path, body, priority, created_at, retry_of, "
             "plan_first, origin_content_type, origin_message_id, origin_subject, "
-            "origin_from, dispatch_token, origin_envelope_v) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "origin_from, dispatch_token, origin_envelope_v, branch_name, mutates_repo) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (project_path, body, priority, _now(), retry_of,
              1 if plan_first else 0, origin_content_type or None,
              origin_message_id or None, origin_subject or None,
              origin_from or None, dispatch_token or None,
-             origin_envelope_v),
+             origin_envelope_v, branch_name or None, mut),
         )
         self._conn.commit()
         return cur.lastrowid
@@ -94,18 +85,28 @@ class TaskQueue:
         return cur.lastrowid
 
     def claim_next(self, project_path: str) -> dict | None:
-        """Atomically move the oldest pending task for a project to running."""
+        """Atomically move the oldest pending task for a project to running.
+
+        The NOT EXISTS clause enforces one-running-task-per-project at the
+        queue layer (not just at the worker layer), so branch reuse can never
+        produce two concurrent workers on the same branch even if a
+        worker_manager race spawns a second worker. The ghost reaper handles
+        stale 'running' rows from crashed workers, so this guard never
+        deadlocks."""
         cur = self._conn.execute(
             "UPDATE tasks SET status='running', started_at=? "
             "WHERE id=(SELECT id FROM tasks "
             "          WHERE project_path=? AND status='pending' "
             "          ORDER BY priority DESC, id ASC LIMIT 1) "
-            "AND status='pending' RETURNING *",
-            (_now(), project_path),
+            "AND status='pending' "
+            "AND NOT EXISTS (SELECT 1 FROM tasks r "
+            "                WHERE r.project_path=? AND r.status='running') "
+            "RETURNING *",
+            (_now(), project_path, project_path),
         )
         row = cur.fetchone()
         self._conn.commit()
-        return _public(dict(row)) if row else None
+        return public_row(dict(row)) if row else None
 
     def mark_done(self, task_id: int) -> None:
         self._conn.execute(
@@ -150,7 +151,7 @@ class TaskQueue:
             "ORDER BY priority DESC, id ASC",
             (project_path,),
         )
-        return [_public(dict(r)) for r in cur.fetchall()]
+        return [public_row(dict(r)) for r in cur.fetchall()]
 
     def get_running(self, project_path: str) -> dict | None:
         cur = self._conn.execute(
@@ -158,14 +159,14 @@ class TaskQueue:
             (project_path,),
         )
         row = cur.fetchone()
-        return _public(dict(row)) if row else None
+        return public_row(dict(row)) if row else None
 
     def list_running(self) -> list[dict]:
         """Every running task across all projects. Used by the ghost reaper."""
         cur = self._conn.execute(
             "SELECT * FROM tasks WHERE status='running' ORDER BY id",
         )
-        return [_public(dict(r)) for r in cur.fetchall()]
+        return [public_row(dict(r)) for r in cur.fetchall()]
 
     def drain_pending(self, project_path: str) -> int:
         """Cancel all pending (not running) tasks for a project. Returns count."""
@@ -180,7 +181,7 @@ class TaskQueue:
     def get(self, task_id: int) -> dict | None:
         cur = self._conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,))
         row = cur.fetchone()
-        return _public(dict(row)) if row else None
+        return public_row(dict(row)) if row else None
 
     def list_project_paths(self) -> list[str]:
         """Return every project_path that has ever had a task."""
@@ -195,4 +196,4 @@ class TaskQueue:
             (project_path,),
         )
         row = cur.fetchone()
-        return _public(dict(row)) if row else None
+        return public_row(dict(row)) if row else None

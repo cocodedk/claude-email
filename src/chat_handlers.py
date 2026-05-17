@@ -122,6 +122,7 @@ def _handle_reply(
         agent_name=route.agent_name,
         original_message_id=route.original_message_id,
         body=body, allowed_base=config.get("claude_cwd") or "",
+        original_email_message_id=message.get("In-Reply-To", "").strip(),
     )
     logger.info("Reply routed: %s", ack)
     send_threaded_reply(

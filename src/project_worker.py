@@ -20,9 +20,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable
 
-from src.git_ops import (
-    checkout_new_branch, is_clean, is_git_repo, task_branch_name,
-)
+from src.branch_prep import prepare_branch
 from src.task_log import log_task_finished
 from src.task_notifier import notify_task_done
 from src.task_queue import TaskQueue
@@ -66,7 +64,7 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
     """Run one claimed task. Captures stdout+stderr (merged); last ~4KB
     lands on task.output_text so the done-email has real context."""
     tid = claimed["id"]
-    if not _prepare_branch(queue, tid, claimed["body"], cfg.project_path):
+    if not prepare_branch(queue, claimed, cfg.project_path):
         _finish(queue, tid, cfg)
         return
     argv = _build_argv(cfg, claimed["body"], plan_first=bool(claimed.get("plan_first")))
@@ -118,32 +116,6 @@ def _finish(queue: TaskQueue, tid: int, cfg: "WorkerConfig") -> None:
     row = queue.get(tid) or {}
     log_task_finished(cfg.project_path, row)
     notify_task_done(cfg.db_path, row)
-
-
-def _prepare_branch(queue: TaskQueue, tid: int, body: str, project_path: str) -> bool:
-    """Create a per-task branch. Returns False if the task was marked failed.
-
-    Non-git projects skip silently. Dirty repos refuse — protects the user's
-    uncommitted work (they must commit/stash before running tasks here).
-    """
-    if not is_git_repo(project_path):
-        logger.info("worker task %d: %s is not a git repo — running without branch", tid, project_path)
-        return True
-    clean, status = is_clean(project_path)
-    if not clean:
-        msg = f"repo dirty — commit or stash first:\n{status}"
-        queue.mark_failed(tid, msg)
-        logger.warning("worker task %d: %s", tid, msg)
-        return False
-    branch = task_branch_name(tid, body)
-    ok, err = checkout_new_branch(project_path, branch)
-    if not ok:
-        queue.mark_failed(tid, f"could not create branch {branch}: {err}")
-        logger.warning("worker task %d: checkout failed: %s", tid, err)
-        return False
-    queue.set_branch(tid, branch)
-    logger.info("worker task %d: on branch %s", tid, branch)
-    return True
 
 
 def worker_loop(

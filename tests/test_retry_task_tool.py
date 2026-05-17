@@ -107,3 +107,70 @@ class TestRetryTaskTool:
         mocker.patch.object(mgr, "ensure_worker", side_effect=ValueError("boom"))
         result = retry_task_tool(tq, mgr, task_id=tid)
         assert result == {"error": "boom"}
+
+
+class TestRetryInheritsIntent:
+    """Round-3 reviewer fix: retries inherit mutates_repo + branch_name
+    so a retry of a read-only task stays read-only and continues on the
+    same branch instead of forking a fresh one."""
+
+    def test_retry_inherits_mutates_repo_false(
+        self, tq, mgr, tmp_path, mocker,
+    ):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        original_id = tq.enqueue(
+            str((tmp_path / "p").resolve()), "show me the schema",
+            mutates_repo=False,
+        )
+        tq.mark_failed(original_id, "test")
+        result = retry_task_tool(tq, mgr, task_id=original_id)
+        new = tq.get(result["new_task_id"])
+        assert new["mutates_repo"] == 0
+
+    def test_retry_inherits_mutates_repo_true(
+        self, tq, mgr, tmp_path, mocker,
+    ):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        original_id = tq.enqueue(
+            str((tmp_path / "p").resolve()), "fix it",
+            mutates_repo=True,
+        )
+        tq.mark_failed(original_id, "test")
+        result = retry_task_tool(tq, mgr, task_id=original_id)
+        assert tq.get(result["new_task_id"])["mutates_repo"] == 1
+
+    def test_retry_inherits_branch_name(self, tq, mgr, tmp_path, mocker):
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        original_id = tq.enqueue(
+            str((tmp_path / "p").resolve()), "fix it",
+            branch_name="claude/task-9-existing", mutates_repo=True,
+        )
+        tq.mark_failed(original_id, "test")
+        result = retry_task_tool(tq, mgr, task_id=original_id)
+        new = tq.get(result["new_task_id"])
+        assert new["branch_name"] == "claude/task-9-existing"
+
+    def test_retry_inherits_null_mutates_repo(
+        self, tq, mgr, tmp_path, mocker,
+    ):
+        """Pre-existing rows have NULL mutates_repo — inheriting NULL
+        keeps them safety-gated (today's behavior)."""
+        (tmp_path / "p").mkdir()
+        proc = mocker.MagicMock(pid=1)
+        proc.poll.return_value = None
+        mocker.patch("src.worker_manager.subprocess.Popen", return_value=proc)
+        original_id = tq.enqueue(
+            str((tmp_path / "p").resolve()), "ambiguous",
+        )
+        tq.mark_failed(original_id, "test")
+        result = retry_task_tool(tq, mgr, task_id=original_id)
+        assert tq.get(result["new_task_id"])["mutates_repo"] is None

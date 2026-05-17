@@ -39,6 +39,26 @@ class TestEnqueue:
         tid = tq.enqueue("/proj/a", "do thing")
         assert tq.get(tid)["origin_subject"] is None
 
+    def test_enqueue_persists_branch_name(self, tq):
+        tid = tq.enqueue("/p", "follow up", branch_name="claude/task-17-fix-bus")
+        assert tq.get(tid)["branch_name"] == "claude/task-17-fix-bus"
+
+    def test_enqueue_branch_name_defaults_to_null(self, tq):
+        tid = tq.enqueue("/p", "do thing")
+        assert tq.get(tid)["branch_name"] is None
+
+    def test_enqueue_persists_mutates_repo_true(self, tq):
+        tid = tq.enqueue("/p", "fix it", mutates_repo=True)
+        assert tq.get(tid)["mutates_repo"] == 1
+
+    def test_enqueue_persists_mutates_repo_false(self, tq):
+        tid = tq.enqueue("/p", "show me", mutates_repo=False)
+        assert tq.get(tid)["mutates_repo"] == 0
+
+    def test_enqueue_mutates_repo_defaults_to_null(self, tq):
+        tid = tq.enqueue("/p", "anything")
+        assert tq.get(tid)["mutates_repo"] is None
+
 
 class TestClaimNext:
     def test_claim_next_returns_oldest_pending(self, tq):

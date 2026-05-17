@@ -132,7 +132,7 @@
         <li>
           <span class="num">№ 06</span>
           <h3>Tested to the Margins</h3>
-          <p>1262 tests, 100% coverage, Python 3.12, fully typed, <code>shell=False</code> everywhere, verified TLS contexts. Boring on purpose; invasive vectors locked out.</p>
+          <p>1403 tests, 100% coverage, Python 3.12, fully typed, <code>shell=False</code> everywhere, verified TLS contexts. Boring on purpose; invasive vectors locked out.</p>
         </li>
         <li>
           <span class="num">№ 07</span>
@@ -144,6 +144,16 @@
           <h3>Android Companion <small>(in progress)</small></h3>
           <p>A native Android app is being built in a separate companion repository so you can dispatch commands and reply to agents from a phone without composing them through a generic mail client. Same IMAP/SMTP backbone; opt-in JSON envelope fields on the wire light up app-only affordances (live-agent routing, progress bars, suggested-reply chips) without affecting plain-text email users. <em>Repository link and screenshots coming soon.</em></p>
           <!-- TODO: add <a> to the Android repo + <img> tags or a linked gallery once available -->
+        </li>
+        <li>
+          <span class="num">№ 09</span>
+          <h3>Read-only tasks skip the dirty-repo gate</h3>
+          <p>First-time questions and follow-up replies classified as obviously read-only (<code>explain …</code>, <code>show …</code>, <code>list …</code>, plain interrogatives, polite forms like <code>can you explain …</code>) no longer require a clean working tree and no longer fork a per-task branch unless they are continuing a prior task branch. Mutating tasks still require clean for a fresh branch. Classification is conservative — anything ambiguous (e.g. <code>also fix the rest</code>) is treated as mutating. The classifier is regex-only and runs server-side.</p>
+        </li>
+        <li>
+          <span class="num">№ 10</span>
+          <h3>Email follow-ups continue on the same branch</h3>
+          <p>When you reply on a thread that came from a prior task's result, the follow-up task reuses the prior task's branch — even if the prior task left it dirty (uncommitted edits from the previous turn are treated as <em>your</em> work in progress). If the repo has unrelated dirty changes on a different branch, the follow-up still fails with a clear "cannot switch safely" message. The lookup walks the SMTP <code>In-Reply-To</code> header back through <code>outbound_emails.task_id</code>; pre-existing rows without that column behave exactly as today.</p>
         </li>
       </ol>
     </div>

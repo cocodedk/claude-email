@@ -184,9 +184,13 @@ class TestHighPriorityJumpsQueue:
             tq, mgr, project="p", body="help!", priority=10,
             allowed_base=str(tmp_path),
         )
-        first = tq.claim_next(str((tmp_path / "p").resolve()))
+        project_path = str((tmp_path / "p").resolve())
+        first = tq.claim_next(project_path)
         assert first["id"] == high["task_id"]
-        # Queue has no concurrency cap itself — the worker is what enforces
-        # one-at-a-time. So the next claim_next returns the low-priority task.
-        second = tq.claim_next(str((tmp_path / "p").resolve()))
+
+        # Queue now enforces one running task per project.
+        assert tq.claim_next(project_path) is None
+
+        tq.mark_done(first["id"])
+        second = tq.claim_next(project_path)
         assert second["id"] == low["task_id"]

@@ -115,6 +115,7 @@ def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
                 email_msg_id,
                 kind=msg.get("type") or "notify",
                 sender_agent=msg["from_name"],
+                task_id=msg.get("task_id"),
             )
         chat_db.mark_message_delivered(msg["id"])
         logger.info("Relayed message %d from %s to user", msg["id"], msg["from_name"])

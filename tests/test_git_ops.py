@@ -7,17 +7,32 @@ from src.git_ops import (
 )
 
 
+def _git_env():
+    import os
+    return {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
+    }
+
+
 def _init_repo(path):
-    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
-    subprocess.run(["git", "config", "user.email", "t@t"], cwd=path, check=True)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=path, check=True)
-    subprocess.run(["git", "config", "commit.gpgsign", "false"], cwd=path, check=True)
-    (path / "README").write_text("x")
-    subprocess.run(["git", "add", "README"], cwd=path, check=True)
-    subprocess.run(
-        ["git", "commit", "-q", "-m", "init", "--no-gpg-sign"],
-        cwd=path, check=True,
-    )
+    import subprocess as sp
+    sp.run(["git", "init", "-q", "-b", "main"], cwd=path, check=True)
+    # Persist identity + gpg-off on the repo so later commits via
+    # src.git_ops.commit_all succeed on CI runners that lack a global
+    # ~/.gitconfig. _git_env() alone only covers the seed commit.
+    sp.run(["git", "config", "user.name", "t"], cwd=path, check=True)
+    sp.run(["git", "config", "user.email", "t@x"], cwd=path, check=True)
+    sp.run(["git", "config", "commit.gpgsign", "false"], cwd=path, check=True)
+    sp.run(["git", "commit", "--allow-empty", "-m", "init", "--no-gpg-sign"],
+           cwd=path, check=True, env=_git_env())
+
+
+def _init_repo_with_branch(path, branch):
+    import subprocess as sp
+    _init_repo(path)
+    sp.run(["git", "branch", branch], cwd=path, check=True)
 
 
 class TestIsGitRepo:
@@ -199,3 +214,86 @@ class TestPushCurrentBranch:
         ok, msg = push_current_branch(str(tmp_path))
         assert ok is False
         assert "not a git" in msg.lower()
+
+
+class TestBranchExists:
+    def test_returns_true_for_existing_branch(self, tmp_path):
+        from src.git_ops import branch_exists
+        _init_repo_with_branch(tmp_path, "feature/x")
+        assert branch_exists(str(tmp_path), "feature/x") is True
+
+    def test_returns_false_for_missing_branch(self, tmp_path):
+        from src.git_ops import branch_exists
+        _init_repo(tmp_path)
+        assert branch_exists(str(tmp_path), "nonexistent") is False
+
+
+class TestCheckoutExistingBranch:
+    def test_switches_to_existing(self, tmp_path):
+        from src.git_ops import checkout_existing_branch, current_branch
+        _init_repo_with_branch(tmp_path, "feature/x")
+        ok, err = checkout_existing_branch(str(tmp_path), "feature/x")
+        assert ok is True and err == ""
+        assert current_branch(str(tmp_path)) == "feature/x"
+
+    def test_returns_error_for_missing(self, tmp_path):
+        from src.git_ops import checkout_existing_branch
+        _init_repo(tmp_path)
+        ok, err = checkout_existing_branch(str(tmp_path), "nope")
+        assert ok is False
+        assert err  # non-empty stderr
+
+
+class TestIsValidTaskBranch:
+    @pytest.mark.parametrize("name", [
+        "claude/task-1-foo",
+        "claude/task-42-also-add-docs",
+        "claude/task-9999-some-long-slug-here",
+    ])
+    def test_valid(self, name):
+        from src.git_ops import is_valid_task_branch
+        assert is_valid_task_branch(name) is True
+
+    @pytest.mark.parametrize("name", [
+        "",
+        "main",
+        "feature/x",
+        "claude/task-",
+        "claude/task-abc-foo",
+        "../escape",
+        "claude/task-1; rm -rf /",
+    ])
+    def test_invalid(self, name):
+        from src.git_ops import is_valid_task_branch
+        assert is_valid_task_branch(name) is False
+
+
+class TestCurrentBranchDetachedHEAD:
+    """Round-3 reviewer catch: `git rev-parse --abbrev-ref HEAD` prints
+    the literal string 'HEAD' when detached, NOT an empty string. The
+    matrix in branch_prep relies on `current == prior` for the safe-to-
+    continue cell, so an un-normalized 'HEAD' return would compare
+    incorrectly. Real-git test, not just a mocked return."""
+
+    def test_returns_branch_name_on_branch(self, tmp_path):
+        from src.git_ops import current_branch
+        _init_repo(tmp_path)
+        assert current_branch(str(tmp_path)) == "main"
+
+    def test_returns_empty_string_on_detached_head(self, tmp_path):
+        from src.git_ops import current_branch
+        import subprocess as sp
+        _init_repo(tmp_path)
+        sha = sp.run(
+            ["git", "rev-parse", "HEAD"], cwd=tmp_path,
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        sp.run(
+            ["git", "checkout", "--detach", sha], cwd=tmp_path,
+            check=True, capture_output=True,
+        )
+        assert current_branch(str(tmp_path)) == ""
+
+    def test_returns_empty_string_outside_repo(self, tmp_path):
+        from src.git_ops import current_branch
+        assert current_branch(str(tmp_path)) == ""

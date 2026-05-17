@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     priority INTEGER NOT NULL DEFAULT 0,
     pid INTEGER,
     branch_name TEXT,
+    mutates_repo INTEGER,
     created_at TEXT NOT NULL,
     started_at TEXT,
     completed_at TEXT,
@@ -76,7 +77,8 @@ CREATE TABLE IF NOT EXISTS outbound_emails (
     email_message_id TEXT PRIMARY KEY,
     sent_at TEXT NOT NULL,
     kind TEXT NOT NULL,
-    sender_agent TEXT
+    sender_agent TEXT,
+    task_id INTEGER REFERENCES tasks(id)
 );
 """
 
@@ -100,4 +102,8 @@ MIGRATIONS = [
     "ALTER TABLE messages ADD COLUMN task_id INTEGER",
     "CREATE INDEX IF NOT EXISTS messages_in_reply_to_idx "
     "ON messages(in_reply_to) WHERE in_reply_to IS NOT NULL",
+    "ALTER TABLE tasks ADD COLUMN mutates_repo INTEGER",
+    "ALTER TABLE outbound_emails ADD COLUMN task_id INTEGER REFERENCES tasks(id)",
+    "CREATE INDEX IF NOT EXISTS outbound_emails_task_id_idx "
+    "ON outbound_emails(task_id) WHERE task_id IS NOT NULL",
 ]
