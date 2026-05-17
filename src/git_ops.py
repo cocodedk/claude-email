@@ -30,8 +30,33 @@ def is_clean(path: str) -> tuple[bool, str]:
 
 
 def current_branch(path: str) -> str:
+    """Return the current branch name, or "" when not on a named branch.
+
+    `git rev-parse --abbrev-ref HEAD` prints the literal string "HEAD"
+    when the repo is in detached-HEAD state; the matrix in
+    src.branch_prep relies on `current == prior` to detect the safe-to-
+    continue cell, so we normalize to "" for detached HEAD (the same
+    sentinel we use for not-a-git-repo)."""
     rc, out, _ = _git(["rev-parse", "--abbrev-ref", "HEAD"], path)
-    return out if rc == 0 else ""
+    if rc != 0 or out == "HEAD":
+        return ""
+    return out
+
+
+def branch_exists(path: str, branch_name: str) -> bool:
+    """Local-branch existence check. Remote-only branches return False —
+    we don't auto-fetch from a follow-up task; that's a user choice."""
+    rc, _, _ = _git(
+        ["show-ref", "--verify", "--quiet", f"refs/heads/{branch_name}"],
+        path,
+    )
+    return rc == 0
+
+
+def checkout_existing_branch(path: str, branch_name: str) -> tuple[bool, str]:
+    """Switch to an existing branch. Returns (success, error_text)."""
+    rc, _, err = _git(["checkout", branch_name], path)
+    return (rc == 0, err if rc != 0 else "")
 
 
 def checkout_new_branch(path: str, branch_name: str) -> tuple[bool, str]:
@@ -41,6 +66,13 @@ def checkout_new_branch(path: str, branch_name: str) -> tuple[bool, str]:
 
 
 _SLUG_RE = re.compile(r"[^a-zA-Z0-9]+")
+
+_VALID_TASK_BRANCH_RE = re.compile(r"^claude/task-\d+-[a-z0-9-]+$")
+
+
+def is_valid_task_branch(name: str) -> bool:
+    """Defense-in-depth: only reuse branch names that match our schema."""
+    return bool(_VALID_TASK_BRANCH_RE.match(name or ""))
 
 
 def slugify(body: str, max_len: int = 40) -> str:
