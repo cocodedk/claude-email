@@ -123,6 +123,27 @@ Hooks only fire on session events. When a peer message arrives for an agent whos
 - After each task terminates, a record is appended to `<project>/.claude/tasks.jsonl` (machine-readable) and `<project>/.claude/CHANGELOG-claude.md` (human-readable). Both files include the branch name, request body, start/end timestamps, and status.
 - Suggested `.gitignore` in each project: `.claude/tasks.jsonl` and `CHANGELOG-claude.md` (the `.claude/` dir is usually already ignored for the MCP config).
 
+### Read-only tasks skip the dirty-repo gate
+
+First-time questions and follow-up replies classified as obviously read-only
+(`explain …`, `show …`, `list …`, plain interrogatives, polite forms like
+`can you explain …`) no longer require a clean working tree and no longer
+fork a per-task branch unless they are continuing a prior task branch.
+Mutating tasks still require clean for a fresh branch. Classification is
+conservative — anything ambiguous (e.g. `also fix the rest`) is treated
+as mutating. The classifier is regex-only and runs server-side.
+
+### Email follow-ups continue on the same branch
+
+When you reply on a thread that came from a prior task's result, the
+follow-up task reuses the prior task's branch — even if the prior task
+left it dirty (uncommitted edits from the previous turn are treated as
+*your* work in progress). If the repo has unrelated dirty changes on a
+different branch, the follow-up still fails with a clear "cannot switch
+safely" message. The lookup walks the SMTP `In-Reply-To` header back
+through `outbound_emails.task_id`; pre-existing rows without that
+column behave exactly as today.
+
 ### Service Management
 - Two user-level systemd services (no sudo required)
 - Restart either service via email command
@@ -446,7 +467,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 1262 pytest tests (100% coverage)
+├── tests/                 # 1403 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -520,7 +541,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1262 tests, 100% coverage)
+# Run all tests (1403 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -538,7 +559,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1262 tests** with **100% code coverage** across all modules
+- **1403 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
