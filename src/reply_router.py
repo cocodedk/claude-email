@@ -19,7 +19,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.git_ops import task_branch_name
+from src.git_ops import is_valid_task_branch, task_branch_name
 from src.mutation_classifier import classify_mutation
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,14 @@ def _prior_branch(
             prior.get("project_path"), project_path,
         )
         return ""
-    return (prior.get("branch_name") or "")
+    branch = (prior.get("branch_name") or "").strip()
+    # Defense-in-depth: a malformed branch_name on the prior row would
+    # make _format_ack promise 'continue prior branch <garbage>' while
+    # branch_prep quietly falls back to a fresh branch. Drop it here so
+    # ACK and worker behavior stay consistent.
+    if not branch or not is_valid_task_branch(branch):
+        return ""
+    return branch
 
 
 def _format_ack(

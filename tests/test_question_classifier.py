@@ -92,3 +92,23 @@ class TestSharedQuestionStarters:
         assert looks_like_question("Was the migration applied") is True
         assert looks_like_question("Have the relays been restarted") is True
         assert looks_like_question("Had the worker finished") is True
+
+
+class TestFactualDidYouQuestions:
+    """The narrowed directive regex makes 'Did/Has/Have/Was/Were you X'
+    behave as factual questions (about a past event) instead of being
+    misrouted as commands because the topic verb is mutating."""
+
+    def test_did_you_x_is_question(self):
+        assert looks_like_question("Did you push the branch?") is True
+        assert looks_like_question("Did you fix the bug?") is True
+
+    def test_has_have_you_x_is_question(self):
+        assert looks_like_question("Have you implemented the migration?") is True
+        assert looks_like_question("Has the worker pushed yet?") is True
+
+    def test_directive_you_x_is_still_command(self):
+        assert looks_like_question("Can you push the branch?") is False
+        assert looks_like_question("Could you fix the bug?") is False
+        assert looks_like_question("Why don't you implement that?") is False
+        assert looks_like_question("Could you please ship the migration?") is False

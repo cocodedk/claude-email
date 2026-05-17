@@ -91,7 +91,12 @@ def _handle_prior(
             f"{status}"
         )
         queue.mark_failed(tid, msg)
-        logger.warning("worker task %d: %s", tid, msg)
+        # Full `status` lives on the failed-task row; keep it out of
+        # logs so repo metadata doesn't leak via the journal.
+        logger.warning(
+            "worker task %d: repo dirty; cannot switch from %r to %r safely",
+            tid, current or "detached HEAD", prior,
+        )
         return False
 
     if not branch_exists(project_path, prior):
@@ -120,7 +125,10 @@ def _new_branch(queue, task: dict, project_path: str) -> bool:
     if not clean:
         msg = f"repo dirty — commit or stash first:\n{status}"
         queue.mark_failed(tid, msg)
-        logger.warning("worker task %d: %s", tid, msg)
+        # Full `status` lives on the failed-task row; keep it out of logs.
+        logger.warning(
+            "worker task %d: repo dirty; refusing new branch creation", tid,
+        )
         return False
     branch = task_branch_name(tid, task["body"])
     ok, err = checkout_new_branch(project_path, branch)

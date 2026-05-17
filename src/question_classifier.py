@@ -23,10 +23,16 @@ _INTERROGATIVE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Capture the verb after "you", optionally skipping a polite filler
-# ("please" / "pls") so "could you please ship the migration?" detects
-# "ship" as the action and overrides question shape.
-_YOU_VERB_RE = re.compile(r"\byou\s+(?:please\s+|pls\s+)?([a-z]+)")
+# Capture the verb after "you" only when the phrase is a *directive*
+# anchored at the start of the body: "Can/Could/Would/Will you (please)?
+# X", "Why don't you X", or bare "You X". This avoids treating yes/no
+# questions like "Did you push the branch?" as commands just because
+# the answer's topic happens to be a mutating verb.
+_DIRECTIVE_YOU_VERB_RE = re.compile(
+    r"^(?:why\s+don['’]?t\s+you\s+|"
+    r"(?:can|could|would|will)\s+you\s+(?:please\s+|pls\s+)?|"
+    r"you\s+(?:please\s+|pls\s+)?)([a-z]+)\b"
+)
 
 
 def looks_like_question(body: str) -> bool:
@@ -40,10 +46,12 @@ def looks_like_question(body: str) -> bool:
     if not s:
         return False
     s_lower = s.lower()
-    # 'you X' (optionally 'you please X') with X imperative is a
-    # command, no matter the question shape around it — the user is
-    # literally directing the agent.
-    if (m := _YOU_VERB_RE.search(s_lower)) and m.group(1) in _IMPERATIVES:
+    # Anchored 'directive' shape — 'Can/Could/Would/Will you (please)? X',
+    # 'Why don't you X', or bare 'You X' — wins over question shape only
+    # when X is an imperative. Other auxiliaries ('Did/Has/Have you X')
+    # fall through to interrogative handling so factual questions land
+    # in the question short-circuit.
+    if (m := _DIRECTIVE_YOU_VERB_RE.match(s_lower)) and m.group(1) in _IMPERATIVES:
         return False
     # Interrogative starter wins over a mutating verb mentioned later
     # as the topic of the question — 'Did it create a branch' is

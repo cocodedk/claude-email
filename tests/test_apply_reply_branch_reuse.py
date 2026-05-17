@@ -230,6 +230,28 @@ class TestGuards:
         assert new["project_path"] == proj_b
         assert new["branch_name"] is None
 
+    def test_malformed_prior_branch_name_rejects(self, db, tq, tmp_path):
+        """A prior task row whose branch_name doesn't match the
+        claude/task-<id>-<slug> schema must be discarded. The ACK can't
+        promise 'continue prior branch <garbage>' while branch_prep
+        silently falls back to a fresh branch."""
+        proj = _project_dir(tmp_path)
+        db.register_agent("agent-p", proj)
+        prior_id, out_id = _seed_prior_task(
+            db, tq, proj, "not-a-task-branch",
+            agent_name="agent-p", mutating=True,
+        )
+        original = db.insert_message("agent-p", "user", "done", "notify")
+        apply_reply(
+            db, tq, _StubWM(),
+            agent_name="agent-p", original_message_id=original["id"],
+            body="follow up",
+            allowed_base=str(tmp_path),
+            original_email_message_id=out_id,
+        )
+        new = _latest(tq)
+        assert new["branch_name"] is None
+
     def test_outbound_points_to_missing_task_rejects(
         self, db, tq, tmp_path,
     ):
