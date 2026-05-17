@@ -77,3 +77,18 @@ class TestImperativeVocabIsShared:
         from src._verbs import MUTATING_VERBS
         from src.question_classifier import _IMPERATIVES
         assert MUTATING_VERBS <= _IMPERATIVES
+
+
+class TestSharedQuestionStarters:
+    """Drift regression: yes/no questions without a trailing '?' relied
+    on _INTERROGATIVE_RE. The old hardcoded alternation was missing
+    'was', 'were', 'did', 'has', 'have', 'had' so these slipped past
+    the short-circuit gate."""
+
+    def test_shared_question_starters_drive_interrogative_match(self):
+        assert looks_like_question("Did it create a branch") is True
+        assert looks_like_question("Has the worker stopped") is True
+        assert looks_like_question("Were tests run") is True
+        assert looks_like_question("Was the migration applied") is True
+        assert looks_like_question("Have the relays been restarted") is True
+        assert looks_like_question("Had the worker finished") is True
