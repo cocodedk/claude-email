@@ -49,3 +49,31 @@ class TestLooksLikeQuestion:
         # "review" is in the imperative list — even phrased politely it's
         # a command.
         assert looks_like_question("Could you review the latest PR?") is False
+
+
+class TestSharedMutatingVerbs:
+    """Drift regression: verbs in src._verbs.MUTATING_VERBS must
+    override question shape. Previously these were only in
+    mutation_classifier and the question gate misrouted them."""
+
+    def test_shared_mutating_verbs_override_question_shape(self):
+        assert looks_like_question("Can you ship the migration?") is False
+        assert looks_like_question("Can you write the migration?") is False
+        assert looks_like_question("Could you scaffold the tests?") is False
+        assert looks_like_question("Would you upgrade the package?") is False
+        assert looks_like_question("Will you replace the config?") is False
+
+    def test_polite_you_command_overrides_question_shape(self):
+        # 'you please X' / 'you pls X' — captures X past the polite filler.
+        assert looks_like_question("Could you please ship the migration?") is False
+        assert looks_like_question("Can you pls generate the report?") is False
+
+
+class TestImperativeVocabIsShared:
+    """Drift detector: MUTATING_VERBS must be a subset of _IMPERATIVES.
+    If someone forgets the import, this fires before merge."""
+
+    def test_imperatives_includes_all_mutating_verbs(self):
+        from src._verbs import MUTATING_VERBS
+        from src.question_classifier import _IMPERATIVES
+        assert MUTATING_VERBS <= _IMPERATIVES

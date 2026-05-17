@@ -22,28 +22,11 @@ Decision order (after polite-prefix strip):
 """
 import re
 
-_MUTATING = frozenset({
-    "implement", "create", "fix", "add", "build", "run", "deploy",
-    "push", "merge", "refactor", "update", "delete", "remove",
-    "rename", "change", "commit", "stash", "rollback", "revert",
-    "rebase", "install", "configure", "rewrite", "drop", "write",
-    "modify", "edit", "patch", "scaffold", "generate", "ship",
-    "bump", "upgrade", "migrate", "regenerate", "replace",
-})
+from src._verbs import MUTATING_VERBS, QUESTION_STARTERS, READ_ONLY_VERBS
 
-_READ_ONLY = frozenset({
-    "explain", "show", "list", "describe", "summarize", "summarise",
-    "read", "inspect", "report", "audit", "status", "tell", "print",
-    "display", "find",
-})
-
-_QUESTION_STARTERS = frozenset({
-    "what", "which", "how", "why", "when", "where", "who",
-    "is", "are", "was", "were",
-    "do", "does", "did",
-    "has", "have", "had",
-    "can", "could", "should", "would", "will",
-})
+_MUTATING = MUTATING_VERBS
+_READ_ONLY = READ_ONLY_VERBS
+_QUESTION_STARTERS = QUESTION_STARTERS
 
 # Sorted by length descending so 'could you' wins over 'could'.
 _POLITE_PREFIXES = (

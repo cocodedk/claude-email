@@ -3,13 +3,15 @@ ignore its own "questions → reply plainly" rule under ambiguity. Closes
 the cocodedk Task #40 leg of the bus reliability incident."""
 import re
 
+from src._verbs import MUTATING_VERBS
+
 # Imperative verbs override question shape ("Could you push?" is a
-# command). Curated from src.llm_router's intent map.
-_IMPERATIVES = frozenset({
-    "implement", "create", "fix", "add", "build", "run", "deploy",
-    "push", "merge", "refactor", "audit", "analyze", "review",
-    "update", "delete", "remove", "cancel", "reset", "commit", "stash",
-    "rollback", "revert", "rebase", "install", "configure",
+# command). Shared mutating-verb set from src._verbs guarantees a
+# new verb added there is recognized here automatically. The locally-
+# added extras are inspection/state-change commands that don't mutate
+# the repo but are still "do X" rather than "ask about X".
+_IMPERATIVES = MUTATING_VERBS | frozenset({
+    "audit", "analyze", "review", "cancel", "reset",
 })
 
 _INTERROGATIVE_RE = re.compile(
@@ -17,9 +19,10 @@ _INTERROGATIVE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Imperative as the FIRST 3 words, or directly after "you" — "commit" as
-# a noun later in a question doesn't count.
-_YOU_VERB_RE = re.compile(r"\byou\s+([a-z]+)")
+# Capture the verb after "you", optionally skipping a polite filler
+# ("please" / "pls") so "could you please ship the migration?" detects
+# "ship" as the action and overrides question shape.
+_YOU_VERB_RE = re.compile(r"\byou\s+(?:please\s+|pls\s+)?([a-z]+)")
 
 
 def looks_like_question(body: str) -> bool:
