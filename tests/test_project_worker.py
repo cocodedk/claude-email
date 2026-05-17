@@ -14,10 +14,10 @@ def tq(tmp_path):
 
 @pytest.fixture(autouse=True)
 def _skip_branch_prep(mocker):
-    """Default for all tests: treat project_path as non-git so run_task skips
-    the branch dance. Tests that specifically exercise the branch dance
-    override `src.project_worker.is_git_repo` themselves."""
-    mocker.patch("src.project_worker.is_git_repo", return_value=False)
+    """Default: treat project_path as non-git so run_task skips branch work.
+    Tests that exercise the branch dance override src.branch_prep.is_git_repo
+    themselves."""
+    mocker.patch("src.branch_prep.is_git_repo", return_value=False)
 
 
 @pytest.fixture
@@ -149,9 +149,9 @@ class TestBranchPreparation:
         popen.assert_called_once()
 
     def test_dirty_repo_fails_task_without_running(self, tq, cfg, mocker):
-        mocker.patch("src.project_worker.is_git_repo", return_value=True)
+        mocker.patch("src.branch_prep.is_git_repo", return_value=True)
         mocker.patch(
-            "src.project_worker.is_clean",
+            "src.branch_prep.is_clean",
             return_value=(False, " M file.py"),
         )
         popen = mocker.patch("src.project_worker.subprocess.Popen")
@@ -164,10 +164,10 @@ class TestBranchPreparation:
         popen.assert_not_called()
 
     def test_clean_repo_creates_branch_then_runs(self, tq, cfg, mocker):
-        mocker.patch("src.project_worker.is_git_repo", return_value=True)
-        mocker.patch("src.project_worker.is_clean", return_value=(True, ""))
+        mocker.patch("src.branch_prep.is_git_repo", return_value=True)
+        mocker.patch("src.branch_prep.is_clean", return_value=(True, ""))
         checkout = mocker.patch(
-            "src.project_worker.checkout_new_branch",
+            "src.branch_prep.checkout_new_branch",
             return_value=(True, ""),
         )
         proc = _mock_proc(mocker, pid=9, returncode=0)
@@ -180,10 +180,10 @@ class TestBranchPreparation:
         checkout.assert_called_once()
 
     def test_checkout_failure_fails_task(self, tq, cfg, mocker):
-        mocker.patch("src.project_worker.is_git_repo", return_value=True)
-        mocker.patch("src.project_worker.is_clean", return_value=(True, ""))
+        mocker.patch("src.branch_prep.is_git_repo", return_value=True)
+        mocker.patch("src.branch_prep.is_clean", return_value=(True, ""))
         mocker.patch(
-            "src.project_worker.checkout_new_branch",
+            "src.branch_prep.checkout_new_branch",
             return_value=(False, "fatal: branch exists"),
         )
         popen = mocker.patch("src.project_worker.subprocess.Popen")
