@@ -1,12 +1,11 @@
-"""Phase 0 tests for the ChatDB transaction wrapper layer (probe only)."""
+"""Tests for the ChatDB transaction wrapper layer."""
 import logging
-import os
 import sqlite3
 import threading
 
 import pytest
 
-from src.chat_db_tx import TransactionMixin
+from src.chat_db_tx import TransactionMixin, open_conn
 
 
 class _Host(TransactionMixin):
@@ -82,6 +81,7 @@ class TestTraceCallback:
         monkeypatch.setenv("CHAT_DB_TRACE", "1")
         caplog.set_level(logging.DEBUG, logger="src.chat_db_tx")
         conn = host._open_conn(str(tmp_path / "a.db"))
+        host._conn = conn  # mirror ChatDB.__init__ so _trace_cb sees the live conn
         conn.execute("CREATE TABLE t (id INTEGER)")
         conn.commit()
         conn.close()
@@ -98,6 +98,7 @@ class TestTraceCallback:
         monkeypatch.setenv("CHAT_DB_TRACE", "1")
         caplog.set_level(logging.DEBUG, logger="src.chat_db_tx")
         conn = host._open_conn(str(tmp_path / "a.db"))
+        host._conn = conn
         conn.execute("CREATE TABLE m (body TEXT)")
         conn.execute(
             "INSERT INTO m (body) VALUES (?)",
@@ -108,6 +109,26 @@ class TestTraceCallback:
         full = " ".join(r.getMessage() for r in caplog.records)
         assert "super-secret-message-body" not in full
         assert "INSERT INTO m" not in full
+
+    def test_callback_reports_in_transaction_state(
+        self, monkeypatch, host, tmp_path, caplog
+    ):
+        """When the host's _conn is set, _trace_cb's in_transaction field
+        reflects the live connection state — the smoking-gun signature for
+        Phase 1's `_run_tx` stale-tx detection depends on this."""
+        monkeypatch.setenv("CHAT_DB_TRACE", "1")
+        caplog.set_level(logging.DEBUG, logger="src.chat_db_tx")
+        conn = host._open_conn(str(tmp_path / "a.db"))
+        host._conn = conn
+        conn.execute("CREATE TABLE t (id INTEGER)")
+        conn.execute("BEGIN")
+        conn.execute("INSERT INTO t VALUES (1)")
+        inside = [r.getMessage() for r in caplog.records
+                  if "chatdb.trace" in r.getMessage()
+                  and "in_transaction=True" in r.getMessage()]
+        assert inside, "expected at least one trace line with in_transaction=True"
+        conn.execute("ROLLBACK")
+        conn.close()
 
 
 class TestClassifySql:
