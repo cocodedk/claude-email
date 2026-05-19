@@ -3,8 +3,7 @@ callers in this project, e.g. TaskQueue).
 
 Owns the canonical sqlite3 connection factory: WAL mode, foreign keys,
 short busy_timeout (spec §6), and an optional env-flagged SQL trace
-callback. Future transaction-wrapper machinery (`_run_tx`, `_read`,
-stale-tx recovery, post-commit hooks) extends `TransactionMixin` here.
+callback. `TransactionMixin` composes these onto ChatDB.
 
 Spec: docs/superpowers/specs/2026-05-19-chatdb-tx-wrapper-design.md
 """
@@ -58,9 +57,8 @@ class TransactionMixin:
     def _trace_cb(self, sql: str) -> None:
         kind = self._classify_sql(sql)
         in_tx = self._conn is not None and self._conn.in_transaction
-        # thread_id and tx_depth join this line once the tx wrapper owns
-        # the call context — they're not available from a bare sqlite3
-        # trace callback.
+        # Bare sqlite3 trace callbacks don't expose thread or call-depth;
+        # the surrounding caller has to add those fields when it logs.
         logger.debug(
             "chatdb.trace kind=%s in_transaction=%s",
             kind, in_tx,

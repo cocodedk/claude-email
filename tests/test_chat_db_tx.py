@@ -114,21 +114,28 @@ class TestTraceCallback:
         self, monkeypatch, host, tmp_path, caplog
     ):
         """When the host's _conn is set, _trace_cb's in_transaction field
-        reflects the live connection state — the smoking-gun signature for
-        Phase 1's `_run_tx` stale-tx detection depends on this."""
+        reflects the live connection state for downstream callers to
+        recognise stale transactions via the trace output."""
         monkeypatch.setenv("CHAT_DB_TRACE", "1")
         caplog.set_level(logging.DEBUG, logger="src.chat_db_tx")
         conn = host._open_conn(str(tmp_path / "a.db"))
         host._conn = conn
-        conn.execute("CREATE TABLE t (id INTEGER)")
-        conn.execute("BEGIN")
-        conn.execute("INSERT INTO t VALUES (1)")
-        inside = [r.getMessage() for r in caplog.records
-                  if "chatdb.trace" in r.getMessage()
-                  and "in_transaction=True" in r.getMessage()]
-        assert inside, "expected at least one trace line with in_transaction=True"
-        conn.execute("ROLLBACK")
-        conn.close()
+        try:
+            conn.execute("CREATE TABLE t (id INTEGER)")
+            conn.execute("BEGIN")
+            # DML inside the explicit transaction — in_transaction is True
+            # by the time SQLite invokes the trace callback for INSERT.
+            conn.execute("INSERT INTO t VALUES (1)")
+            inside = [r.getMessage() for r in caplog.records
+                      if "chatdb.trace" in r.getMessage()
+                      and "in_transaction=True" in r.getMessage()]
+            assert inside, "expected at least one trace line with in_transaction=True"
+        finally:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.OperationalError:
+                pass
+            conn.close()
 
 
 class TestClassifySql:
@@ -209,8 +216,8 @@ class TestChatDbIntegration:
     def test_db_lock_attribute_present_on_chat_db(self, tmp_path):
         from src.chat_db import ChatDB
         db = ChatDB(str(tmp_path / "lock.db"))
-        # Placeholder lock — no caller acquires it in Phase 0, but Phase 1
-        # depends on it being an RLock. Verify reentrancy from same thread.
+        # ChatDB exposes _db_lock as a reentrant lock — re-acquire from
+        # the same thread (a plain Lock would deadlock).
         with db._db_lock:
             with db._db_lock:
                 pass
