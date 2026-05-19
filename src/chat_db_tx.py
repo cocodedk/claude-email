@@ -28,9 +28,23 @@ class TransactionMixin:
         conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
         conn.execute("PRAGMA foreign_keys=ON")
         if os.environ.get(_TRACE_ENV_VAR):
-            conn.set_trace_callback(self._trace_cb)  # pragma: no cover
+            conn.set_trace_callback(self._trace_cb)
         return conn
 
     def _trace_cb(self, sql: str) -> None:
-        """SQLite trace hook — Phase 0 stub; real implementation added in Task 2."""
-        return None  # pragma: no cover
+        kind = self._classify_sql(sql)
+        in_tx = getattr(self, "_conn", None) is not None and self._conn.in_transaction
+        logger.debug(
+            "chatdb.trace kind=%s in_transaction=%s",
+            kind, in_tx,
+        )
+
+    @staticmethod
+    def _classify_sql(sql: str) -> str:
+        head = (sql or "").strip().split(None, 1)
+        if not head:
+            return "OTHER"
+        first = head[0].upper()
+        if first in ("BEGIN", "COMMIT", "ROLLBACK"):
+            return first
+        return "OTHER"
