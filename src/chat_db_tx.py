@@ -49,6 +49,7 @@ class TransactionMixin:
     # hosts don't AttributeError. ChatDB sets these in its own __init__.
     _conn: sqlite3.Connection | None = None
     _db_lock: threading.RLock | None = None
+    path: str = ""  # Set by host __init__; needed for _close_and_reopen.
 
     def _open_conn(self, path: str) -> sqlite3.Connection:
         """Delegate to the module-level factory, binding the trace callback."""
@@ -68,6 +69,41 @@ class TransactionMixin:
         """Attach an RLock if one hasn't been set yet (idempotent)."""
         if self._db_lock is None:
             self._db_lock = threading.RLock()
+
+    def _check_or_recover_at_depth_zero(self, method_name: str) -> None:
+        """Entry guard for outermost _run_tx / _read frames.
+
+        If self._conn is None or not in a transaction, no-op. Otherwise
+        we found a leaked implicit tx — log the smoking-gun event, try
+        rollback, and on rollback failure swap to a fresh connection.
+        """
+        if self._conn is None or not self._conn.in_transaction:
+            return
+        self._lock_event(method_name, "stale_tx", connection_replaced=False)
+        try:
+            self._conn.rollback()
+        except sqlite3.Error:
+            self._lock_event(method_name, "rollback_failed", connection_replaced=True)
+            self._close_and_reopen()
+
+    def _lock_event(
+        self, method_name: str, kind: str, *, connection_replaced: bool = False,
+    ) -> None:
+        in_tx = self._conn is not None and self._conn.in_transaction
+        logger.warning(
+            "chatdb.lock_event method=%s kind=%s conn.in_transaction=%s "
+            "connection_replaced=%s",
+            method_name, kind, in_tx, connection_replaced,
+        )
+
+    def _close_and_reopen(self) -> None:
+        """Best-effort close of self._conn, then open a fresh one."""
+        old = self._conn
+        try:
+            old.close()
+        except sqlite3.Error:
+            pass  # GC will reclaim the fd
+        self._conn = open_conn(self.path, self._trace_cb)
 
     @staticmethod
     def _classify_sql(sql: str) -> str:

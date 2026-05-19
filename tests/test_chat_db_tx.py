@@ -184,6 +184,64 @@ class TestDbLock:
         assert h._db_lock is first
 
 
+class TestPoisonRecovery:
+    def test_clean_conn_no_op(self, host, tmp_path):
+        conn = host._open_conn(str(tmp_path / "a.db"))
+        host._conn = conn
+        host._check_or_recover_at_depth_zero("test_method")
+        # No exception; connection unchanged.
+        assert host._conn is conn
+        conn.close()
+
+    def test_stale_tx_rolled_back(self, host, tmp_path, caplog):
+        import logging as _logging
+        caplog.set_level(_logging.WARNING, logger="src.chat_db_tx")
+        conn = host._open_conn(str(tmp_path / "a.db"))
+        host._conn = conn
+        conn.execute("CREATE TABLE t (id INTEGER)")
+        conn.execute("BEGIN")
+        conn.execute("INSERT INTO t VALUES (1)")
+        assert conn.in_transaction is True
+        host._check_or_recover_at_depth_zero("test_method")
+        assert conn.in_transaction is False
+        warnings = [r for r in caplog.records
+                    if "chatdb.lock_event" in r.getMessage()
+                    and "kind=stale_tx" in r.getMessage()
+                    and "test_method" in r.getMessage()]
+        assert warnings, "expected one stale_tx warning"
+        conn.close()
+
+    def test_rollback_failure_swaps_connection(
+        self, host, tmp_path, caplog,
+    ):
+        import logging as _logging
+
+        class _BrokenConn:
+            """Stub that looks poisoned (in_transaction=True) and has a
+            rollback that raises, so _close_and_reopen gets triggered."""
+            in_transaction = True
+            closed = False
+
+            def rollback(self):
+                raise sqlite3.OperationalError("forced")
+
+            def close(self):
+                self.closed = True
+
+        caplog.set_level(_logging.WARNING, logger="src.chat_db_tx")
+        broken = _BrokenConn()
+        host._conn = broken
+        host.path = str(tmp_path / "a.db")
+        host._check_or_recover_at_depth_zero("test_method")
+        # Connection was replaced — host._conn is a new object.
+        assert host._conn is not broken
+        assert broken.closed  # best-effort close was called
+        replaced_warnings = [r for r in caplog.records
+                             if "kind=rollback_failed" in r.getMessage()]
+        assert replaced_warnings
+        host._conn.close()
+
+
 class TestChatDbIntegration:
     def test_trace_callback_fires_on_real_chat_db_traffic(
         self, monkeypatch, tmp_path, caplog
