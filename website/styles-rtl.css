@@ -9,8 +9,13 @@
 [dir="rtl"] .hero .description,
 [dir="rtl"] .hero-actions { text-align: right; direction: rtl; }
 [dir="rtl"] .hero::before { inset: 40px var(--gutter); }
-[dir="rtl"] .postmark { right: auto; left: 60px; transform: rotate(14deg); }
-[dir="rtl"] @keyframes stampIn {
+[dir="rtl"] .postmark {
+  right: auto;
+  left: 60px;
+  transform: rotate(14deg);
+  animation-name: stampInRtl;
+}
+@keyframes stampInRtl {
   0%   { opacity: 0; transform: rotate(40deg) scale(1.6); }
   70%  { opacity: 1; transform: rotate(10deg) scale(0.95); }
   100% { opacity: 0.85; transform: rotate(14deg) scale(1); }
