@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from src.agent_registry import AgentRegistryMixin
 from src.agent_state import AgentStateMixin
+from src.chat_db_tx import TransactionMixin
 from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.chat_schema import MIGRATIONS as _MIGRATIONS, SCHEMA as _SCHEMA
 from src.dashboard_queries import DashboardQueriesMixin
@@ -19,6 +20,7 @@ def _now() -> str:
 
 
 class ChatDB(
+    TransactionMixin,
     AgentRegistryMixin, AgentStateMixin, DashboardQueriesMixin,
     MaintenanceMixin, OutboundEmailsMixin, WakeSessionStoreMixin,
 ):
@@ -26,11 +28,8 @@ class ChatDB(
 
     def __init__(self, path: str):
         self.path = path
-        self._conn = sqlite3.connect(path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA busy_timeout=5000")
-        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._init_db_lock()
+        self._conn = self._open_conn(path)
         self._conn.executescript(_SCHEMA)
         for stmt in _MIGRATIONS:
             try:
