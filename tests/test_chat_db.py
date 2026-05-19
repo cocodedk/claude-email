@@ -342,48 +342,38 @@ class TestFindLiveOwner:
         ) is None
 
 
-class TestRegisterAgentTransactionFallback:
-    """When BEGIN IMMEDIATE fails, register_agent must still work via the
-    non-atomic fallback path — the ON CONFLICT clause serialises the write."""
+class TestRegisterAgentTransaction:
+    """register_agent runs inside _run_tx (IMMEDIATE transaction):
+    AgentNameTaken rolls back the entire tx and leaves the DB clean."""
 
-    def test_begin_immediate_failure_falls_back(self, tmp_path):
+    def test_agent_name_taken_rolls_back_atomically(self, tmp_path):
+        """AgentNameTaken raised from _impl_register_agent causes _run_tx
+        to roll back — the conflicting INSERT never commits."""
         import os as _os
-        import sqlite3 as _sqlite3
+        from src.chat_errors import AgentNameTaken as _ANT
 
-        class _FakeConn:
-            """Proxy that raises on the FIRST BEGIN IMMEDIATE only.
+        db = ChatDB(str(tmp_path / "tx.db"))
+        # Owner registered first.
+        db.register_agent("agent-x", "/tmp", pid=_os.getpid())
+        events_before = db._conn.execute(
+            "SELECT COUNT(*) FROM events"
+        ).fetchone()[0]
 
-            Simulates register_agent's own transaction attempt failing, then
-            delegates to the real connection for all subsequent calls so that
-            _run_tx-driven helpers (e.g. _log_event) can open their own
-            transactions normally.
-            """
+        # Attempt to steal the slot with a different (non-existent) pid.
+        with pytest.raises(_ANT):
+            db.register_agent("agent-x", "/tmp2", pid=_os.getpid() + 10_000_000)
 
-            def __init__(self, real):
-                self._real = real
-                self._begin_immediate_fail_count = 1  # raise once, then pass
-
-            def __getattr__(self, attr):
-                return getattr(self._real, attr)
-
-            def execute(self, sql, *args, **kwargs):
-                if (
-                    self._begin_immediate_fail_count > 0
-                    and isinstance(sql, str)
-                    and sql.strip().upper().startswith("BEGIN IMMEDIATE")
-                ):
-                    self._begin_immediate_fail_count -= 1
-                    raise _sqlite3.OperationalError(
-                        "cannot start a transaction within a transaction",
-                    )
-                return self._real.execute(sql, *args, **kwargs)
-
-        db = ChatDB(str(tmp_path / "fallback.db"))
-        db._conn = _FakeConn(db._conn)
-        # Should still succeed via the fallback path.
-        result = db.register_agent("agent-x", "/tmp", pid=_os.getpid())
-        assert result["name"] == "agent-x"
-        assert result["pid"] == _os.getpid()
+        # DB is clean: event count unchanged (rollback held).
+        events_after = db._conn.execute(
+            "SELECT COUNT(*) FROM events"
+        ).fetchone()[0]
+        assert events_after == events_before, (
+            "partial events committed despite AgentNameTaken rollback"
+        )
+        # Original row untouched.
+        agent = db.get_agent("agent-x")
+        assert agent["project_path"] == "/tmp"
+        assert agent["pid"] == _os.getpid()
 
 
 class TestMessages:

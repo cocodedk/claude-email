@@ -148,13 +148,13 @@ class TestReconcileLiveAgents:
         AgentNameTaken instead of silently taking over a stale slot.
         """
         from src import proc_reconcile
-        import src.agent_registry
+        import src.agent_registry_impls
         monkeypatch.setattr(
             proc_reconcile, "_iter_claude_pids", lambda marker=None: [100, 200],
         )
         cwd_map = {100: "/home/u/work/app", 200: "/home/u/backup/app"}
         monkeypatch.setattr(proc_reconcile, "_cwd_of", lambda pid: cwd_map.get(pid))
-        monkeypatch.setattr(src.agent_registry, "is_alive", lambda pid: True)
+        monkeypatch.setattr(src.agent_registry_impls, "is_alive", lambda pid: True)
         touched = reconcile_live_agents(db)
         assert "agent-app" in touched
         # Second session reconciled under the parent-qualified name.
