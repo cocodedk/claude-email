@@ -121,6 +121,21 @@ class TestShortAcknowledgments:
         assert classify_mutation(body) is True
 
 
+class TestNegativeStatusReplies:
+    @pytest.mark.parametrize("body", [
+        "No issues. I have not changed anything today.",
+        "No issues.",
+        "I have not changed anything today.",
+        "Nothing changed",
+        "All good",
+    ])
+    def test_negative_status_replies_are_read_only(self, body):
+        assert classify_mutation(body) is False
+
+    def test_negative_status_with_command_still_mutates(self):
+        assert classify_mutation("No issues, please update the README") is True
+
+
 class TestYesNoQuestions:
     @pytest.mark.parametrize("body", [
         "is this expected?",
