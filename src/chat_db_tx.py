@@ -50,6 +50,10 @@ class TransactionMixin:
     _conn: sqlite3.Connection | None = None
     _db_lock: threading.RLock | None = None
     path: str = ""  # Set by host __init__; needed for _close_and_reopen.
+    _tx_depth: int = 0  # 0 = outermost; >0 = nested
+    # After-commit hook list; per instance, serialised by _db_lock so a
+    # plain list is safe (only one outermost _run_tx active at a time).
+    _after_commit: list = None  # type: ignore[assignment]
 
     def _open_conn(self, path: str) -> sqlite3.Connection:
         """Delegate to the module-level factory, binding the trace callback."""
@@ -66,9 +70,11 @@ class TransactionMixin:
         )
 
     def _init_db_lock(self) -> None:
-        """Attach an RLock if one hasn't been set yet (idempotent)."""
+        """Attach an RLock + post-commit list if not already set."""
         if self._db_lock is None:
             self._db_lock = threading.RLock()
+        if self._after_commit is None:
+            self._after_commit = []
 
     def _check_or_recover_at_depth_zero(self, method_name: str) -> None:
         """Entry guard for outermost _run_tx / _read frames.
@@ -109,6 +115,76 @@ class TransactionMixin:
         except sqlite3.Error:
             self._lock_event(method_name, "close_failed", connection_replaced=True)
         self._conn = open_conn(self.path, self._trace_cb)
+
+    def _run_tx(self, fn, *args, **kwargs):
+        """Run `fn(*args, **kwargs)` inside a serialised write transaction.
+
+        Outermost frame: acquires self._db_lock, runs the poison-recovery
+        entry guard, begins an immediate transaction, calls fn, commits,
+        releases the lock, then fires post-commit hooks. Retries once on
+        `database is locked` (clears hooks before the retry).
+
+        Nested frame: joins the outer transaction — no BEGIN/COMMIT/retry.
+        Hooks appended by nested fn are owned by the outer frame.
+        """
+        method_name = getattr(fn, "__qualname__", repr(fn))
+        if self._tx_depth > 0:
+            self._tx_depth += 1
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                self._tx_depth -= 1
+        return self._run_tx_outer(method_name, fn, args, kwargs)
+
+    def _run_tx_outer(self, method_name, fn, args, kwargs):
+        with self._db_lock:
+            self._check_or_recover_at_depth_zero(method_name)
+            for attempt in (1, 2):
+                try:
+                    self._conn.execute("BEGIN")
+                    self._tx_depth = 1
+                    try:
+                        result = fn(*args, **kwargs)
+                        self._conn.commit()
+                    except BaseException:
+                        self._safe_rollback(method_name)
+                        self._after_commit.clear()
+                        self._tx_depth = 0
+                        raise
+                    hooks = self._after_commit[:]
+                    self._after_commit.clear()
+                    self._tx_depth = 0
+                    break
+                except sqlite3.OperationalError as exc:
+                    if "database is locked" not in str(exc):
+                        raise
+                    if attempt == 2:
+                        self._lock_event(method_name, "retry_failed")
+                        raise
+                    self._lock_event(method_name, "locked")
+                    self._safe_rollback(method_name)
+                    self._after_commit.clear()
+                    self._tx_depth = 0
+                    self._conn.execute(
+                        f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}"
+                    )
+        for hook in hooks:
+            try:
+                hook()
+            except Exception:
+                logger.warning(
+                    "chatdb.after_commit_hook_failed method=%s hook=%s",
+                    method_name, getattr(hook, "__qualname__", repr(hook)),
+                    exc_info=True,
+                )
+        return result
+
+    def _safe_rollback(self, method_name: str) -> None:
+        try:
+            self._conn.rollback()
+        except sqlite3.Error:
+            self._lock_event(method_name, "rollback_failed", connection_replaced=True)
+            self._close_and_reopen(method_name)
 
     @staticmethod
     def _classify_sql(sql: str) -> str:
