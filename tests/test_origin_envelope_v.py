@@ -86,15 +86,11 @@ def test_status_envelope_echoes_v1_for_v1_origin(setup):
         "/x", "do x", origin_content_type="application/json",
         origin_envelope_v=1,
     )
-    sent = []
-
-    def fake_insert(from_name, to_name, body, msg_type, **kw):
-        sent.append({"body": body, "msg_type": msg_type})
-
-    db.insert_message = fake_insert  # type: ignore[assignment]
-    emit_status(db, task_id=tid, status="stalled")
-    assert sent, "expected emit_status to push a message"
-    body = json.loads(sent[0]["body"])
+    result = emit_status(db, task_id=tid, status="stalled")
+    assert result is True, "expected emit_status to return True"
+    pending = db.get_pending_messages_for("user")
+    assert pending, "expected a pending message to be inserted"
+    body = json.loads(pending[0]["body"])
     assert body["v"] == 1
 
 

@@ -123,6 +123,49 @@ class ChatDbImplsMixin:
         ).fetchone()
         return dict(row) if row else None
 
+    # ── Status-envelope _impl bodies ────────────────────
+
+    def _impl_emit_status_message(
+        self, task_id, status, agent_name, body, content_type,
+    ) -> dict | None:
+        row = self._conn.execute(
+            "SELECT last_sent_status FROM tasks WHERE id=?", (task_id,),
+        ).fetchone()
+        if row is None or row["last_sent_status"] == status:
+            return None
+        self._conn.execute(
+            "UPDATE tasks SET last_sent_status=? WHERE id=?", (status, task_id),
+        )
+        cur = self._conn.execute(
+            """INSERT INTO messages (from_name, to_name, body, type, status,
+                                     created_at, content_type, task_id)
+               VALUES (?, 'user', ?, 'notify', 'pending', ?, ?, ?)""",
+            (agent_name, body, _now(), content_type or None, task_id),
+        )
+        self._impl_log_event(
+            agent_name, "status_emit", f"emit_status({task_id}, {status})",
+        )
+        inserted = self._conn.execute(
+            "SELECT * FROM messages WHERE id=?", (cur.lastrowid,),
+        ).fetchone()
+        self._after_commit.append(self._nudge_wake)
+        return dict(inserted)
+
+    def _impl_clear_status_dedup(self, task_id: int) -> None:
+        self._conn.execute(
+            "UPDATE tasks SET last_sent_status=NULL "
+            "WHERE id=? AND last_sent_status IS NOT NULL",
+            (task_id,),
+        )
+
+    def _impl_clear_status_dedup_for_project(self, project_path: str) -> None:
+        self._conn.execute(
+            "UPDATE tasks SET last_sent_status=NULL "
+            "WHERE project_path=? AND status IN ('pending','running') "
+            "AND last_sent_status IS NOT NULL",
+            (project_path,),
+        )
+
     # ── Event _impl body ─────────────────────────────────
 
     def _impl_log_event(

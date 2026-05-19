@@ -105,6 +105,28 @@ class ChatDB(
     def get_reply_to_message(self, msg_id: int) -> dict | None:
         return self._read(self._impl_get_reply_to_message, msg_id)
 
+    # ── Status-envelope helpers ────────────────────────────
+
+    def emit_status_message(
+        self, *, task_id: int, status: str, agent_name: str,
+        body: str, content_type: str,
+    ) -> dict | None:
+        """Atomic dedup-mark + insert for status envelope traffic.
+
+        Returns the inserted message row, or None if dedup skipped
+        (current last_sent_status already equals status for this task).
+        """
+        return self._run_tx(
+            self._impl_emit_status_message,
+            task_id, status, agent_name, body, content_type,
+        )
+
+    def clear_status_dedup(self, task_id: int) -> None:
+        self._run_tx(self._impl_clear_status_dedup, task_id)
+
+    def clear_status_dedup_for_project(self, project_path: str) -> None:
+        self._run_tx(self._impl_clear_status_dedup_for_project, project_path)
+
     # ── Events (internal) ──────────────────────────────────
 
     def _log_event(self, participant: str, event_type: str, summary: str) -> None:

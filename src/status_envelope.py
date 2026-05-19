@@ -20,36 +20,24 @@ logger = logging.getLogger(__name__)
 STATUS_CODES = {"stalled", "waiting-on-peer"}
 
 
-def emit_status(
-    db: ChatDB, task_id: int | None, status: str, *,
+def _build_status_body(
+    db: ChatDB, task_id: int, status: str, *,
     reason: str = "",
     retry_after_seconds: int | None = None,
     last_activity_at: str = "",
-) -> bool:
-    """Insert a status notify message for ``task_id`` iff the status
-    differs from the last one sent. Returns True if a message was
-    emitted, False if deduped, missing, or task_id is None.
+) -> tuple[str, str, str]:
+    """Return (from_name, body, content_type) for a status envelope.
 
-    Mirrors notify_task_done's content-type handling: JSON envelope for
-    JSON-origin tasks, plain-text body otherwise. ``retry_after_seconds``
-    is only carried on ``stalled`` (silently dropped on other states to
-    keep the envelope clean).
-    """
-    if status not in STATUS_CODES:
-        raise ValueError(
-            f"unknown status code {status!r}; add to STATUS_CODES",
-        )
-    if task_id is None:
-        return False
-    row = db._conn.execute(  # noqa: SLF001 — same-package coupling
-        "SELECT project_path, last_sent_status, origin_content_type, "
-        "origin_envelope_v FROM tasks WHERE id=?",
+    Fetches the task row to determine the origin content-type and
+    project path. Returns empty strings on a missing task (caller
+    handles the None guard)."""
+    row = db._conn.execute(  # noqa: SLF001
+        "SELECT project_path, origin_content_type, origin_envelope_v "
+        "FROM tasks WHERE id=?",
         (task_id,),
     ).fetchone()
     if row is None:
-        return False
-    if row["last_sent_status"] == status:
-        return False
+        return "", "", ""
     data: dict[str, Any] = {"status": status}
     if last_activity_at:
         data["last_activity_at"] = last_activity_at
@@ -67,20 +55,54 @@ def emit_status(
         content_type = _JSON_CT
     else:
         body = _plain_body(task_id, status, data)
-        content_type = ""  # text/plain — relay default
-    # Persist dedup mark BEFORE the envelope inserts. If insert_message
-    # raises (locked DB, disk full) after the mark is committed, the
-    # next tick dedups into a silent skip — strictly better than a
-    # double-emit the client would render as a glyph flicker.
-    db._conn.execute(  # noqa: SLF001
-        "UPDATE tasks SET last_sent_status=? WHERE id=?", (status, task_id),
+        content_type = ""
+    return from_name, body, content_type
+
+
+def emit_status(
+    db: ChatDB, task_id: int | None, status: str, *,
+    reason: str = "",
+    retry_after_seconds: int | None = None,
+    last_activity_at: str = "",
+) -> bool:
+    """Insert a status notify message for ``task_id`` iff the status
+    differs from the last one sent. Returns True if a message was
+    emitted, False if deduped, missing, or task_id is None.
+
+    Mirrors notify_task_done's content-type handling: JSON envelope for
+    JSON-origin tasks, plain-text body otherwise. ``retry_after_seconds``
+    is only carried on ``stalled`` (silently dropped on other states to
+    keep the envelope clean).
+
+    The dedup mark and the message INSERT happen inside a single
+    ChatDB._run_tx — if the insert raises, last_sent_status is rolled
+    back atomically, closing the previous silent-drop window.
+    """
+    if status not in STATUS_CODES:
+        raise ValueError(
+            f"unknown status code {status!r}; add to STATUS_CODES",
+        )
+    if task_id is None:
+        return False
+    from_name, body, content_type = _build_status_body(
+        db, task_id, status,
+        reason=reason,
+        retry_after_seconds=retry_after_seconds,
+        last_activity_at=last_activity_at,
     )
-    db._conn.commit()
-    db.insert_message(
-        from_name, "user", body, "notify",
-        content_type=content_type, task_id=task_id,
+    if not from_name:
+        return False
+    row = db.emit_status_message(
+        task_id=task_id, status=status, agent_name=from_name,
+        body=body, content_type=content_type,
     )
-    return True
+    if row is not None:
+        logger.info(
+            "Emitted status %s for task %d to %s",
+            status, task_id, from_name,
+        )
+        return True
+    return False
 
 
 def _plain_body(task_id: int, status: str, data: dict) -> str:
@@ -103,27 +125,16 @@ def clear_status_dedup(db: ChatDB, task_id: int | None) -> None:
     Silent no-op when ``task_id`` is None or already clear."""
     if task_id is None:
         return
-    db._conn.execute(  # noqa: SLF001
-        "UPDATE tasks SET last_sent_status=NULL "
-        "WHERE id=? AND last_sent_status IS NOT NULL",
-        (task_id,),
-    )
-    db._conn.commit()
+    db.clear_status_dedup(task_id)
 
 
 def clear_status_dedup_for_project(db: ChatDB, project_path: str) -> None:
-    """Clear ``last_sent_status`` for the running task in ``project_path``.
+    """Clear ``last_sent_status`` for active tasks in ``project_path``.
     Wake-watcher entry point — used when a turn delivers messages so a
     later stall emits a fresh envelope instead of being deduped. The
     ``IS NOT NULL`` guard skips the WAL fsync when there's nothing to
     clear, since wake-success calls this on the common case."""
-    db._conn.execute(  # noqa: SLF001
-        "UPDATE tasks SET last_sent_status=NULL "
-        "WHERE project_path=? AND status='running' "
-        "AND last_sent_status IS NOT NULL",
-        (project_path,),
-    )
-    db._conn.commit()
+    db.clear_status_dedup_for_project(project_path)
 
 
 def emit_stalled_for_project(
