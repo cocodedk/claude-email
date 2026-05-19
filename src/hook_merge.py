@@ -10,6 +10,7 @@ _OUR_SCRIPT_BASENAMES = {
     "chat-session-start-hook.sh",
     "chat-drain-inbox.py",
     "chat-precompact-hook.py",
+    "chat-drain-on-bash-commit.sh",
 }
 
 

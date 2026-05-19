@@ -14,6 +14,7 @@ _SCRIPTS = os.path.join(
 HOOK_SCRIPT = os.path.join(_SCRIPTS, "chat-session-start-hook.sh")
 DRAIN_SCRIPT = os.path.join(_SCRIPTS, "chat-drain-inbox.py")
 PRECOMPACT_SCRIPT = os.path.join(_SCRIPTS, "chat-precompact-hook.py")
+POSTTOOL_DRAIN_SCRIPT = os.path.join(_SCRIPTS, "chat-drain-on-bash-commit.sh")
 
 
 def _load_json_dict(path: str) -> dict:
@@ -85,6 +86,7 @@ def inject_session_start_hook(
     hook_script_path: str,
     drain_script_path: str | None = None,
     precompact_script_path: str | None = None,
+    posttool_drain_script_path: str | None = None,
 ) -> None:
     """Write .claude/settings.json wiring the chat-bus hooks for this project.
 
@@ -108,9 +110,15 @@ def inject_session_start_hook(
     event so the dashboard's flow panel keeps pulsing across compaction.
     Best-effort telemetry — never blocks the session.
 
-    All paths MUST be absolute. drain_script_path defaults to DRAIN_SCRIPT;
-    precompact_script_path defaults to PRECOMPACT_SCRIPT (siblings of
-    hook_script_path in the claude-email install).
+    PostToolUse (matcher="Bash"): runs posttool_drain_script_path, a thin
+    shell wrapper that filters to leading ``git commit`` invocations only
+    and pipes the payload through to the drain. Closes the "peer pinged
+    me while I was mid-edit and I'm about to commit" gap without polling.
+
+    All paths MUST be absolute. drain_script_path defaults to DRAIN_SCRIPT,
+    precompact_script_path defaults to PRECOMPACT_SCRIPT, and
+    posttool_drain_script_path defaults to POSTTOOL_DRAIN_SCRIPT (all
+    siblings of hook_script_path in the claude-email install).
     """
     if not os.path.isabs(hook_script_path):
         raise ValueError(
@@ -128,6 +136,13 @@ def inject_session_start_hook(
         raise ValueError(
             f"precompact_script_path must be absolute; "
             f"got {precompact_script_path!r}"
+        )
+    if posttool_drain_script_path is None:
+        posttool_drain_script_path = POSTTOOL_DRAIN_SCRIPT
+    if not os.path.isabs(posttool_drain_script_path):
+        raise ValueError(
+            f"posttool_drain_script_path must be absolute; "
+            f"got {posttool_drain_script_path!r}"
         )
     settings_dir = os.path.join(project_dir, ".claude")
     settings_path = os.path.join(settings_dir, "settings.json")
@@ -152,9 +167,13 @@ def inject_session_start_hook(
         hooks, "PreCompact", "",
         [precompact_script_path],
     )
+    _merge_hook_event(
+        hooks, "PostToolUse", "Bash",
+        [posttool_drain_script_path],
+    )
     _write_json(settings_path, data)
     logger.info(
         "Wrote SessionStart + UserPromptSubmit + Stop + PreCompact "
-        "hooks to %s",
+        "+ PostToolUse hooks to %s",
         settings_path,
     )

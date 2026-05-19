@@ -83,11 +83,12 @@ In short: Agent View is the cockpit when you're at the laptop; `claude-email` is
 
 ### Agent Management
 - Spawn Claude Code agents in any project directory via email
-- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.json` wires four Claude Code hooks:
+- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.json` wires five Claude Code hooks:
   - `SessionStart` runs `scripts/chat-session-start-hook.sh` (pre-registers server-side via `chat-register-self.py` + injects the bus guide from `chat-agent-instruction.txt`) and `scripts/chat-drain-inbox.py` (drains any queued mail into the session's opening context).
   - `UserPromptSubmit` runs `chat-drain-inbox.py` again so every user turn auto-delivers messages that arrived mid-session — messages you send while the agent is idle get picked up on its next turn without relying on the model to poll.
   - `Stop` runs `chat-drain-inbox.py` at the end of every agent response; when peer messages are pending it emits `{"decision":"block","reason":...}`, cancelling the stop and reinjecting the messages as the agent's next turn. Closes the "peer sent something while I was mid-response" gap without polling.
   - `PreCompact` runs `scripts/chat-precompact-hook.py` to log a `hook_precompact` flow event whenever Claude Code rotates its working memory (manual `/compact` or automatic). Best-effort telemetry only — it keeps the dashboard's flow panel pulsing across compaction so a long-running agent doesn't look dead during the gap.
+  - `PostToolUse` (matcher `Bash`) runs `scripts/chat-drain-on-bash-commit.sh`, a thin wrapper that pipes the payload to `chat-drain-inbox.py` only when the Bash command begins with `git commit`. Closes the "peer pinged me while I was mid-edit and I just committed" gap without polling, and without firing the drain on every `ls`/`grep`/etc.
 - Agent status tracked along two axes for envelope `v >= 2` consumers:
   - **Process-state** (`online` / `stale` / `offline`) — derived from `last_seen_at` heartbeat (5-min window), `is_alive(pid)` when set, and a 30-min ghost threshold.
   - **Task-state** (`waiting` / `working` / `completed` / `error` / `null`) — derived from the tasks table with a configurable fade window (`TASK_STATE_FADE_SEC`, default 30 s).
@@ -95,7 +96,7 @@ In short: Agent View is the cockpit when you're at the laptop; `claude-email` is
 - Agent PIDs recorded in the database
 
 ### Idle auto-drain cron (live-but-idle gap)
-Hooks only fire on session events — `SessionStart` at boot, `UserPromptSubmit` on each user turn, `Stop` at end-of-response, `PreCompact` at compaction. A live Claude Code session that's idle between user prompts has no event firing, so peer messages arriving in that window wait for the next user turn. The optional auto-drain cron closes that gap: it fires an `[auto-drain tick]` prompt on a fixed cadence, which triggers `UserPromptSubmit` and drains any queued bus messages into the next turn.
+Hooks only fire on session events — `SessionStart` at boot, `UserPromptSubmit` on each user turn, `Stop` at end-of-response, `PreCompact` at compaction, `PostToolUse` on each `git commit`. A live Claude Code session that's idle between user prompts has no event firing, so peer messages arriving in that window wait for the next user turn. The optional auto-drain cron closes that gap: it fires an `[auto-drain tick]` prompt on a fixed cadence, which triggers `UserPromptSubmit` and drains any queued bus messages into the next turn.
 
 - Default cadence: every 5 minutes (`*/5 * * * *`); adjustable per session via Claude Code's `CronCreate` / `CronDelete` tools.
 - Opt-in — not auto-installed by `SessionStart`. Run the `/chat-rejoin` skill to install it (idempotent — skips if already present).
