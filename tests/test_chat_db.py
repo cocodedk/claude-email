@@ -18,7 +18,9 @@ class TestSchema:
 
     def test_busy_timeout_set(self, db):
         cur = db._conn.execute("PRAGMA busy_timeout")
-        assert cur.fetchone()[0] == 5000
+        # 200 ms per spec §6 — bounds event-loop block; retry handles
+        # genuine cross-process contention.
+        assert cur.fetchone()[0] == 200
 
     def test_foreign_keys_enabled(self, db):
         cur = db._conn.execute("PRAGMA foreign_keys")
