@@ -77,12 +77,7 @@ class TransactionMixin:
             self._after_commit = []
 
     def _check_or_recover_at_depth_zero(self, method_name: str) -> None:
-        """Entry guard for outermost _run_tx / _read frames.
-
-        If self._conn is None or not in a transaction, no-op. Otherwise
-        we found a leaked implicit tx — log the smoking-gun event, try
-        rollback, and on rollback failure swap to a fresh connection.
-        """
+        """Entry guard: no-op on clean conn; rolls back or swaps on stale tx."""
         if self._conn is None or not self._conn.in_transaction:
             return
         self._lock_event(method_name, "stale_tx", connection_replaced=False)
@@ -103,12 +98,7 @@ class TransactionMixin:
         )
 
     def _close_and_reopen(self, method_name: str) -> None:
-        """Best-effort close of self._conn, then open a fresh one.
-
-        Close failures are logged as kind=close_failed (per spec §3) but
-        never propagate — the old fd will be reclaimed by GC even if the
-        sqlite handle refused a clean close.
-        """
+        """Best-effort close + fresh connection; close failures are logged (spec §3)."""
         old = self._conn
         try:
             old.close()
@@ -117,16 +107,7 @@ class TransactionMixin:
         self._conn = open_conn(self.path, self._trace_cb)
 
     def _run_tx(self, fn, *args, **kwargs):
-        """Run `fn(*args, **kwargs)` inside a serialised write transaction.
-
-        Outermost frame: acquires self._db_lock, runs the poison-recovery
-        entry guard, begins an immediate transaction, calls fn, commits,
-        releases the lock, then fires post-commit hooks. Retries once on
-        `database is locked` (clears hooks before the retry).
-
-        Nested frame: joins the outer transaction — no BEGIN/COMMIT/retry.
-        Hooks appended by nested fn are owned by the outer frame.
-        """
+        """Serialised write transaction; nested calls join the outer tx."""
         method_name = getattr(fn, "__qualname__", repr(fn))
         if self._tx_depth > 0:
             self._tx_depth += 1
@@ -178,6 +159,18 @@ class TransactionMixin:
                     exc_info=True,
                 )
         return result
+
+    def _read(self, fn, *args, **kwargs):
+        """Run `fn` under the RLock without opening a transaction.
+
+        Outermost frame runs the poison check; nested frames (inside an
+        active write transaction) skip it because the write provides
+        serialisation."""
+        method_name = getattr(fn, "__qualname__", repr(fn))
+        with self._db_lock:
+            if self._tx_depth == 0:
+                self._check_or_recover_at_depth_zero(method_name)
+            return fn(*args, **kwargs)
 
     def _safe_rollback(self, method_name: str) -> None:
         try:
