@@ -5,7 +5,7 @@ import threading
 
 import pytest
 
-from src.chat_db_tx import TransactionMixin, open_conn
+from src.chat_db_tx import TransactionMixin
 
 
 class _Host(TransactionMixin):
