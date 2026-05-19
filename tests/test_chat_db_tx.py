@@ -150,6 +150,10 @@ class TestClassifySql:
             ("SELECT * FROM bar", "OTHER"),
             ("", "OTHER"),
             ("   \n  ", "OTHER"),
+            # SQLite trace_v2 hands the callback None on some builds —
+            # the `or ""` guard protects against that and this case pins
+            # the contract so a future cleanup can't silently drop it.
+            (None, "OTHER"),
         ],
     )
     def test_classify(self, sql, expected):
