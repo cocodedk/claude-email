@@ -19,6 +19,24 @@ class TestNegativeStatusReplies:
         assert classify_mutation("No issues, please update the README") is True
 
 
+class TestNegatedPresentTenseMutators:
+    """CodeRabbit PR #61: rule order made 'I did not update anything'
+    classify as mutating because the bare 'update ∈ _MUTATING' check
+    fired before the negation check. Pin the corrected order."""
+
+    @pytest.mark.parametrize("body", [
+        "I did not update anything.",
+        "did not update anything",
+        "I didn't modify the schema.",
+        "didn't change anything yet",
+        "haven't edited the README",
+        "I have not updated the migration.",
+        "did not change anything",
+    ])
+    def test_negated_present_tense_mutating_verb_is_read_only(self, body):
+        assert classify_mutation(body) is False
+
+
 class TestYesNoQuestions:
     @pytest.mark.parametrize("body", [
         "is this expected?",
