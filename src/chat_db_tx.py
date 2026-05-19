@@ -28,9 +28,9 @@ class TransactionMixin:
         conn.execute(f"PRAGMA busy_timeout={_BUSY_TIMEOUT_MS}")
         conn.execute("PRAGMA foreign_keys=ON")
         if os.environ.get(_TRACE_ENV_VAR):
-            conn.set_trace_callback(self._trace_cb)
+            conn.set_trace_callback(self._trace_cb)  # pragma: no cover
         return conn
 
     def _trace_cb(self, sql: str) -> None:
-        """SQLite trace hook — Phase 0 stub overridden in Task 3."""
-        return None
+        """SQLite trace hook — Phase 0 stub; real implementation added in Task 2."""
+        return None  # pragma: no cover
