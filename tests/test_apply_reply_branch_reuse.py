@@ -6,6 +6,7 @@ outbound.sender_agent must match agent_name."""
 import pytest
 
 from src.chat_db import ChatDB
+from src.git_ops import current_branch
 from src.reply_router import apply_reply
 from src.task_queue import TaskQueue
 
@@ -70,6 +71,11 @@ def _latest(tq):
     return dict(row)
 
 
+def _git(repo, *args):
+    import subprocess
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True)
+
+
 class TestBranchReuseFromOutbound:
     def test_reuses_prior_branch_for_mutating_followup(
         self, db, tq, tmp_path,
@@ -131,6 +137,60 @@ class TestBranchReuseFromOutbound:
         new = _latest(tq)
         assert new["branch_name"] is None
         assert "planned branch" in ack
+
+    def test_taskless_peer_thread_reuses_current_task_branch(
+        self, db, tq, tmp_path,
+    ):
+        proj = _project_dir(tmp_path)
+        _git(proj, "init")
+        _git(proj, "config", "user.email", "test@example.com")
+        _git(proj, "config", "user.name", "Test User")
+        (tmp_path / "p" / "README.md").write_text("x\n")
+        _git(proj, "add", "README.md")
+        _git(proj, "commit", "-m", "init", "--no-gpg-sign")
+        _git(proj, "checkout", "-b", "claude/task-42-peer-work")
+        assert current_branch(proj) == "claude/task-42-peer-work"
+        db.register_agent("agent-p", proj)
+        original = db.insert_message("agent-p", "user", "done", "notify")
+        db.record_outbound_email(
+            "<peer@x>", kind="notify", sender_agent="agent-p",
+        )
+        ack, _tag = apply_reply(
+            db, tq, _StubWM(),
+            agent_name="agent-p", original_message_id=original["id"],
+            body="also add docs",
+            allowed_base=str(tmp_path),
+            original_email_message_id="<peer@x>",
+        )
+        new = _latest(tq)
+        assert new["branch_name"] == "claude/task-42-peer-work"
+        assert "continue prior branch" in ack
+
+    def test_taskless_peer_thread_rejects_non_task_current_branch(
+        self, db, tq, tmp_path,
+    ):
+        proj = _project_dir(tmp_path)
+        _git(proj, "init")
+        # Empty-repo `checkout -b` is unborn-HEAD on git ≥ 2.28 and would
+        # leave current_branch() returning "", silently satisfying the
+        # final assertion for the wrong reason. Force a real HEAD first.
+        _git(proj, "config", "user.email", "test@example.com")
+        _git(proj, "config", "user.name", "Test User")
+        _git(proj, "commit", "--allow-empty", "-m", "init", "--no-gpg-sign")
+        _git(proj, "checkout", "-b", "feature/manual")
+        db.register_agent("agent-p", proj)
+        original = db.insert_message("agent-p", "user", "done", "notify")
+        db.record_outbound_email(
+            "<manual@x>", kind="notify", sender_agent="agent-p",
+        )
+        apply_reply(
+            db, tq, _StubWM(),
+            agent_name="agent-p", original_message_id=original["id"],
+            body="also add docs",
+            allowed_base=str(tmp_path),
+            original_email_message_id="<manual@x>",
+        )
+        assert _latest(tq)["branch_name"] is None
 
 
 class TestGuards:

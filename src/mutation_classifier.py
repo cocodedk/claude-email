@@ -46,6 +46,11 @@ _ACKNOWLEDGMENTS = frozenset({
     "thanks", "thank", "thx", "ty", "ok", "okay",
 })
 _ACK_MAX_TOKENS = 8
+_NO_CHANGE_STARTERS = frozenset({"no", "nothing", "none", "all", "fine"})
+_CHANGE_WORDS = frozenset({
+    "change", "changed", "modify", "modified", "update", "updated",
+    "edit", "edited",
+})
 
 # Sorted by length descending so 'could you' wins over 'could'.
 _POLITE_PREFIXES = (
@@ -77,6 +82,27 @@ def _strip_polite(body: str) -> str:
             return s
 
 
+def _has_negated_change(tokens: list[str]) -> bool:
+    for i, token in enumerate(tokens):
+        if token == "not" and i + 1 < len(tokens) and tokens[i + 1] in _CHANGE_WORDS:
+            return True
+        if (
+            token in {"have", "has", "had", "did", "do", "does"}
+            and i + 2 < len(tokens)
+            and tokens[i + 1] == "not"
+            and tokens[i + 2] in _CHANGE_WORDS
+        ):
+            return True
+        if (
+            token in {"haven", "hasn", "hadn", "didn", "don", "doesn"}
+            and i + 2 < len(tokens)
+            and tokens[i + 1] == "t"
+            and tokens[i + 2] in _CHANGE_WORDS
+        ):
+            return True
+    return False
+
+
 def classify_mutation(body: str) -> bool | None:
     """Return True (mutating), False (read-only), or None (no signal)."""
     if not body.strip():
@@ -91,6 +117,14 @@ def classify_mutation(body: str) -> bool | None:
         return False
     if any(t in _MUTATING for t in stripped_tokens):
         return True
+    if (
+        len(stripped_tokens) <= _ACK_MAX_TOKENS
+        and (
+            first in _NO_CHANGE_STARTERS
+            or _has_negated_change(stripped_tokens)
+        )
+    ):
+        return False
     if (
         len(stripped_tokens) <= _ACK_MAX_TOKENS
         and any(t in _ACKNOWLEDGMENTS for t in stripped_tokens)
