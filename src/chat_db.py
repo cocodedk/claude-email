@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from src.agent_registry import AgentRegistryMixin
 from src.agent_state import AgentStateMixin
 from src.chat_db_impls import ChatDbImplsMixin
+from src.chat_db_lookups import ChatDbLookupsMixin
 from src.chat_db_tx import TransactionMixin
 from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.chat_schema import MIGRATIONS as _MIGRATIONS, SCHEMA as _SCHEMA
@@ -22,7 +23,7 @@ def _now() -> str:
 
 class ChatDB(
     TransactionMixin,
-    ChatDbImplsMixin,
+    ChatDbImplsMixin, ChatDbLookupsMixin,
     AgentRegistryMixin, AgentStateMixin, DashboardQueriesMixin,
     MaintenanceMixin, OutboundEmailsMixin, WakeSessionStoreMixin,
 ):
@@ -126,6 +127,26 @@ class ChatDB(
 
     def clear_status_dedup_for_project(self, project_path: str) -> None:
         self._run_tx(self._impl_clear_status_dedup_for_project, project_path)
+
+    # ── Relay / routing / envelope lookups ────────────────
+
+    def lookup_task_origin_message_id(self, task_id: int) -> dict | None:
+        return self._read(self._impl_lookup_task_origin_message_id, task_id)
+
+    def lookup_user_to_agent_message(self, agent_name: str) -> dict | None:
+        return self._read(self._impl_lookup_user_to_agent_message, agent_name)
+
+    def lookup_origin_envelope_version(self, task_id: int) -> dict | None:
+        return self._read(self._impl_lookup_origin_envelope_version, task_id)
+
+    def lookup_task_origin_subject(self, task_id: int) -> dict | None:
+        return self._read(self._impl_lookup_task_origin_subject, task_id)
+
+    def lookup_task_routing(self, task_id: int) -> dict | None:
+        return self._read(self._impl_lookup_task_routing, task_id)
+
+    def lookup_task_status_info(self, task_id: int) -> dict | None:
+        return self._read(self._impl_lookup_task_status_info, task_id)
 
     # ── Events (internal) ──────────────────────────────────
 

@@ -31,11 +31,7 @@ def _build_status_body(
     Fetches the task row to determine the origin content-type and
     project path. Returns empty strings on a missing task (caller
     handles the None guard)."""
-    row = db._conn.execute(  # noqa: SLF001
-        "SELECT project_path, origin_content_type, origin_envelope_v "
-        "FROM tasks WHERE id=?",
-        (task_id,),
-    ).fetchone()
+    row = db.lookup_task_status_info(task_id)
     if row is None:
         return "", "", ""
     data: dict[str, Any] = {"status": status}
