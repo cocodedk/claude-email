@@ -45,34 +45,38 @@ def open_conn(
 class TransactionMixin:
     """Adds connection lifecycle helpers to ChatDB."""
 
-    # Class-level defaults so mixin-isolation tests and partially-constructed
-    # hosts don't AttributeError. ChatDB sets these in its own __init__.
+    # Class-level defaults; ChatDB sets these in __init__.
     _conn: sqlite3.Connection | None = None
     _db_lock: threading.RLock | None = None
-    path: str = ""  # Set by host __init__; needed for _close_and_reopen.
-    _tx_depth: int = 0  # 0 = outermost; >0 = nested
-    # After-commit hook list; per instance, serialised by _db_lock so a
-    # plain list is safe (only one outermost _run_tx active at a time).
+    path: str = ""  # needed by _close_and_reopen
+    # Per-thread depth so thread-A's depth>0 never skips thread-B's lock.
+    _tx_local: threading.local = None  # type: ignore[assignment]
     _after_commit: list = None  # type: ignore[assignment]
+
+    @property
+    def _tx_depth(self) -> int:
+        return 0 if self._tx_local is None else getattr(self._tx_local, "depth", 0)
+
+    @_tx_depth.setter
+    def _tx_depth(self, value: int) -> None:
+        if self._tx_local is None:
+            self._tx_local = threading.local()
+        self._tx_local.depth = value
 
     def _open_conn(self, path: str) -> sqlite3.Connection:
         """Delegate to the module-level factory, binding the trace callback."""
         return open_conn(path, self._trace_cb)
 
     def _trace_cb(self, sql: str) -> None:
-        kind = self._classify_sql(sql)
         in_tx = self._conn is not None and self._conn.in_transaction
-        # Bare sqlite3 trace callbacks don't expose thread or call-depth;
-        # the surrounding caller has to add those fields when it logs.
-        logger.debug(
-            "chatdb.trace kind=%s in_transaction=%s",
-            kind, in_tx,
-        )
+        logger.debug("chatdb.trace kind=%s in_transaction=%s", self._classify_sql(sql), in_tx)
 
     def _init_db_lock(self) -> None:
-        """Attach an RLock + post-commit list if not already set."""
+        """Attach RLock, thread-local depth store, and post-commit list if absent."""
         if self._db_lock is None:
             self._db_lock = threading.RLock()
+        if self._tx_local is None:
+            self._tx_local = threading.local()
         if self._after_commit is None:
             self._after_commit = []
 
