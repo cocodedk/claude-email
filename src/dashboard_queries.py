@@ -2,6 +2,7 @@
 
 Kept separate from chat_db.py to preserve its 200-line headroom and
 because these methods are monitoring-only (no writes, no side effects).
+Public methods route reads through _read; bodies live in _impl_* methods.
 """
 from datetime import datetime, timedelta, timezone
 
@@ -40,6 +41,11 @@ class DashboardQueriesMixin:
 
         Rows marked 'disconnected' whose pid is NULL are hidden outright.
         """
+        return self._read(self._impl_get_agents_summary, stale_secs)
+
+    def _impl_get_agents_summary(
+        self, stale_secs: int,
+    ) -> list[dict]:
         cutoff = (
             datetime.now(timezone.utc) - timedelta(seconds=stale_secs)
         ).isoformat()
@@ -63,6 +69,9 @@ class DashboardQueriesMixin:
         return out
 
     def get_messages_summary(self, limit: int = 100) -> list[dict]:
+        return self._read(self._impl_get_messages_summary, limit)
+
+    def _impl_get_messages_summary(self, limit: int) -> list[dict]:
         rows = self._conn.execute(
             "SELECT id, from_name, to_name, body, type, status, "
             "in_reply_to, created_at, task_id "
@@ -72,6 +81,9 @@ class DashboardQueriesMixin:
         return [dict(r) for r in rows]
 
     def get_messages_since(self, last_id: int, limit: int = 200) -> list[dict]:
+        return self._read(self._impl_get_messages_since, last_id, limit)
+
+    def _impl_get_messages_since(self, last_id: int, limit: int) -> list[dict]:
         rows = self._conn.execute(
             "SELECT id, from_name, to_name, body, type, status, "
             "in_reply_to, created_at, task_id "
@@ -81,6 +93,9 @@ class DashboardQueriesMixin:
         return [dict(r) for r in rows]
 
     def latest_message_id(self) -> int:
+        return self._read(self._impl_latest_message_id)
+
+    def _impl_latest_message_id(self) -> int:
         row = self._conn.execute(
             "SELECT COALESCE(MAX(id), 0) AS mx FROM messages"
         ).fetchone()
@@ -88,6 +103,11 @@ class DashboardQueriesMixin:
 
     def get_flow_events_since(
         self, last_id: int, limit: int = 200,
+    ) -> list[dict]:
+        return self._read(self._impl_get_flow_events_since, last_id, limit)
+
+    def _impl_get_flow_events_since(
+        self, last_id: int, limit: int,
     ) -> list[dict]:
         # The f-string only interpolates a fixed ?,?,?,? placeholder list
         # built from FLOW_EVENT_TYPES (a module-level tuple of constants);
@@ -102,6 +122,9 @@ class DashboardQueriesMixin:
         return [dict(r) for r in rows]
 
     def latest_flow_event_id(self) -> int:
+        return self._read(self._impl_latest_flow_event_id)
+
+    def _impl_latest_flow_event_id(self) -> int:
         placeholders = ",".join("?" * len(FLOW_EVENT_TYPES))
         row = self._conn.execute(
             f"SELECT COALESCE(MAX(id), 0) AS mx FROM events "  # noqa: S608

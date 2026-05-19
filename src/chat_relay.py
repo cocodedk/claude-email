@@ -50,15 +50,10 @@ def _should_relay(chat_db: ChatDB, msg: dict) -> bool:
         return True
     task_id = msg.get("task_id")
     if task_id:
-        row = chat_db._conn.execute(  # noqa: SLF001 — same-package coupling
-            "SELECT origin_message_id FROM tasks WHERE id=?", (task_id,),
-        ).fetchone()
+        row = chat_db.lookup_task_origin_message_id(task_id)
         if row and row["origin_message_id"]:
             return True
-    row = chat_db._conn.execute(
-        "SELECT 1 FROM messages WHERE from_name='user' AND to_name=? LIMIT 1",
-        (msg["from_name"],),
-    ).fetchone()
+    row = chat_db.lookup_user_to_agent_message(msg["from_name"])
     return row is not None
 
 

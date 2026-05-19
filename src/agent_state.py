@@ -2,7 +2,7 @@
 
 Split from src/agent_registry.py to keep that module under the
 200-line cap. Wired into ChatDB via the same mixin pattern the
-registry uses.
+registry uses. Public methods route reads through _read.
 
 Returns ``online | stale | offline`` per project_path. Per-row precedence:
 
@@ -46,6 +46,16 @@ class AgentStateMixin:
         self, project_path: str,
         freshness_sec: int = DEFAULT_AGENT_FRESHNESS_SEC,
         stale_sec: int = DEFAULT_AGENT_STALE_SECS,
+    ) -> str:
+        return self._read(
+            self._impl_agent_state_for_project,
+            project_path, freshness_sec, stale_sec,
+        )
+
+    def _impl_agent_state_for_project(
+        self, project_path: str,
+        freshness_sec: int,
+        stale_sec: int,
     ) -> str:
         rows = self._conn.execute(
             "SELECT pid, status, last_seen_at FROM agents "

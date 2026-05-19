@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 
 from src.agent_registry import AgentRegistryMixin
 from src.agent_state import AgentStateMixin
+from src.chat_db_impls import ChatDbImplsMixin
+from src.chat_db_lookups import ChatDbLookupsMixin
 from src.chat_db_tx import TransactionMixin
 from src.chat_errors import AgentNameTaken, AgentProjectTaken
 from src.chat_schema import MIGRATIONS as _MIGRATIONS, SCHEMA as _SCHEMA
@@ -21,6 +23,7 @@ def _now() -> str:
 
 class ChatDB(
     TransactionMixin,
+    ChatDbImplsMixin, ChatDbLookupsMixin,
     AgentRegistryMixin, AgentStateMixin, DashboardQueriesMixin,
     MaintenanceMixin, OutboundEmailsMixin, WakeSessionStoreMixin,
 ):
@@ -47,35 +50,21 @@ class ChatDB(
         if self._wake_nudge is not None:
             self._wake_nudge.set()
 
-    # ── Messages ────────────────────────────────────────────
+    # ── Messages — public wrappers ────────────────────────
 
     def insert_message(
         self, from_name: str, to_name: str, body: str,
         msg_type: str, in_reply_to: int | None = None,
         content_type: str = "", task_id: int | None = None,
     ) -> dict:
-        now = _now()
-        cur = self._conn.execute(
-            """INSERT INTO messages (from_name, to_name, body, type, status,
-                                     in_reply_to, created_at, content_type, task_id)
-               VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)""",
-            (from_name, to_name, body, msg_type, in_reply_to, now,
-             content_type or None, task_id),
+        return self._run_tx(
+            self._impl_insert_message,
+            from_name, to_name, body, msg_type, in_reply_to,
+            content_type, task_id,
         )
-        self._conn.commit()
-        self._log_event(from_name, "message", f"{msg_type} from {from_name} to {to_name}")
-        row = self._conn.execute(
-            "SELECT * FROM messages WHERE id=?", (cur.lastrowid,)
-        ).fetchone()
-        self._nudge_wake()
-        return dict(row)
 
     def get_pending_messages_for(self, to_name: str) -> list[dict]:
-        rows = self._conn.execute(
-            "SELECT * FROM messages WHERE to_name=? AND status='pending' ORDER BY id",
-            (to_name,),
-        ).fetchall()
-        return [dict(r) for r in rows]
+        return self._read(self._impl_get_pending_messages_for, to_name)
 
     def claim_pending_messages_for(self, to_name: str) -> list[dict]:
         """Atomically mark pending messages as delivered and return them.
@@ -83,88 +72,85 @@ class ChatDB(
         SQLite's RETURNING does not guarantee row order, so we sort by id
         before returning to match get_pending_messages_for / _format_context.
         """
-        rows = self._conn.execute(
-            """UPDATE messages SET status='delivered'
-               WHERE id IN (
-                   SELECT id FROM messages
-                   WHERE to_name=? AND status='pending' ORDER BY id
-               )
-               RETURNING *""",
-            (to_name,),
-        ).fetchall()
-        self._conn.commit()
-        return sorted((dict(r) for r in rows), key=lambda r: r["id"])
+        return self._run_tx(self._impl_claim_pending_messages_for, to_name)
 
     def get_distinct_pending_recipients(self) -> list[str]:
-        rows = self._conn.execute(
-            "SELECT DISTINCT to_name FROM messages "
-            "WHERE status='pending' AND to_name IS NOT NULL"
-        ).fetchall()
-        return [r["to_name"] for r in rows]
+        return self._read(self._impl_get_distinct_pending_recipients)
 
     def mark_message_delivered(self, msg_id: int) -> None:
-        self._conn.execute(
-            "UPDATE messages SET status='delivered' WHERE id=?", (msg_id,)
-        )
-        self._conn.commit()
+        self._run_tx(self._impl_mark_message_delivered, msg_id)
 
     def mark_message_failed(self, msg_id: int) -> None:
-        self._conn.execute("UPDATE messages SET status='failed' WHERE id=?", (msg_id,))
-        self._conn.commit()
+        self._run_tx(self._impl_mark_message_failed, msg_id)
 
     def recover_failed_messages_for(self, to_name: str) -> int:
         # `failed` is a wake-watcher respawn-loop guard, not a permanent
         # loss signal — register_agent calls this so the agent reclaims
         # abandoned mail when it comes back.
-        cur = self._conn.execute(
-            "UPDATE messages SET status='pending' "
-            "WHERE to_name=? AND status='failed'",
-            (to_name,),
-        )
-        self._conn.commit()
-        return cur.rowcount
+        return self._run_tx(self._impl_recover_failed_messages_for, to_name)
 
     def set_email_message_id(self, msg_id: int, email_message_id: str) -> None:
-        self._conn.execute(
-            "UPDATE messages SET email_message_id=? WHERE id=?",
-            (email_message_id, msg_id),
-        )
-        self._conn.commit()
+        self._run_tx(self._impl_set_email_message_id, msg_id, email_message_id)
 
     def find_message_by_email_id(self, email_message_id: str) -> dict | None:
-        row = self._conn.execute(
-            "SELECT * FROM messages WHERE email_message_id=?",
-            (email_message_id,),
-        ).fetchone()
-        return dict(row) if row else None
+        return self._read(self._impl_find_message_by_email_id, email_message_id)
 
     def get_message(self, msg_id: int) -> dict | None:
-        row = self._conn.execute(
-            "SELECT * FROM messages WHERE id=?", (msg_id,),
-        ).fetchone()
-        return dict(row) if row else None
+        return self._read(self._impl_get_message, msg_id)
 
     def get_last_email_message_id_for_agent(self, agent_name: str) -> str | None:
-        row = self._conn.execute(
-            "SELECT email_message_id FROM messages "
-            "WHERE from_name=? AND email_message_id IS NOT NULL "
-            "ORDER BY id DESC LIMIT 1",
-            (agent_name,),
-        ).fetchone()
-        return row["email_message_id"] if row else None
+        return self._read(
+            self._impl_get_last_email_message_id_for_agent, agent_name,
+        )
 
     def get_reply_to_message(self, msg_id: int) -> dict | None:
-        row = self._conn.execute(
-            "SELECT * FROM messages WHERE in_reply_to=? AND type='reply' ORDER BY id DESC LIMIT 1",
-            (msg_id,),
-        ).fetchone()
-        return dict(row) if row else None
+        return self._read(self._impl_get_reply_to_message, msg_id)
+
+    # ── Status-envelope helpers ────────────────────────────
+
+    def emit_status_message(
+        self, *, task_id: int, status: str, agent_name: str,
+        body: str, content_type: str,
+    ) -> dict | None:
+        """Atomic dedup-mark + insert for status envelope traffic.
+
+        Returns the inserted message row, or None if dedup skipped
+        (current last_sent_status already equals status for this task).
+        """
+        return self._run_tx(
+            self._impl_emit_status_message,
+            task_id, status, agent_name, body, content_type,
+        )
+
+    def clear_status_dedup(self, task_id: int) -> None:
+        self._run_tx(self._impl_clear_status_dedup, task_id)
+
+    def clear_status_dedup_for_project(self, project_path: str) -> None:
+        self._run_tx(self._impl_clear_status_dedup_for_project, project_path)
+
+    # ── Relay / routing / envelope lookups ────────────────
+
+    def lookup_task_origin_message_id(self, task_id: int) -> dict | None:
+        return self._read(self._impl_lookup_task_origin_message_id, task_id)
+
+    def lookup_user_to_agent_message(self, agent_name: str) -> dict | None:
+        return self._read(self._impl_lookup_user_to_agent_message, agent_name)
+
+    def lookup_origin_envelope_version(self, task_id: int) -> dict | None:
+        return self._read(self._impl_lookup_origin_envelope_version, task_id)
+
+    def lookup_task_origin_subject(self, task_id: int) -> dict | None:
+        return self._read(self._impl_lookup_task_origin_subject, task_id)
+
+    def lookup_task_routing(self, task_id: int) -> dict | None:
+        return self._read(self._impl_lookup_task_routing, task_id)
+
+    def lookup_task_status_info(self, task_id: int) -> dict | None:
+        return self._read(self._impl_lookup_task_status_info, task_id)
 
     # ── Events (internal) ──────────────────────────────────
 
     def _log_event(self, participant: str, event_type: str, summary: str) -> None:
-        self._conn.execute(
-            "INSERT INTO events (event_type, participant, summary, created_at) VALUES (?, ?, ?, ?)",
-            (event_type, participant, summary, _now()),
-        )
-        self._conn.commit()
+        """Public entry — used by callers that aren't already inside a tx.
+        Inside _run_tx bodies, call self._impl_log_event directly to nest."""
+        self._run_tx(self._impl_log_event, participant, event_type, summary)

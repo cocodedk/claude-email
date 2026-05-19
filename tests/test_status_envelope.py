@@ -123,23 +123,27 @@ class TestEmitStatus:
         ).fetchone()
         assert row["last_sent_status"] == "stalled"
 
-    def test_dedup_mark_persists_even_if_insert_raises(self, cdb, tq, mocker):
-        """If insert_message raises after the dedup UPDATE commits, the
-        next call must dedup into a silent no-op rather than double-emit
-        on the next tick."""
+    def test_insert_failure_rolls_back_dedup_mark(self, cdb, tq, mocker):
+        """If the INSERT raises inside emit_status_message, the atomic tx
+        must roll back last_sent_status so the next call retries (rather
+        than silently deduping). This is the new atomic behaviour: both
+        writes succeed or both are rolled back."""
         tid = tq.enqueue("/p", "x", origin_content_type="application/json")
-        mocker.patch.object(cdb, "insert_message", side_effect=RuntimeError("smtp-like blip"))
+        mocker.patch.object(
+            cdb, "emit_status_message",
+            side_effect=RuntimeError("forced db blip"),
+        )
         with pytest.raises(RuntimeError):
             emit_status(cdb, tid, "stalled")
-        # dedup mark survived the insert failure
+        # dedup mark was NOT advanced (atomic rollback)
         row = cdb._conn.execute(
             "SELECT last_sent_status FROM tasks WHERE id=?", (tid,)
         ).fetchone()
-        assert row["last_sent_status"] == "stalled"
-        # next call dedupes silently — no second insert attempt, no re-raise
+        assert row["last_sent_status"] is None
+        # next call succeeds and emits
         mocker.stopall()
-        assert emit_status(cdb, tid, "stalled") is False
-        assert cdb.get_pending_messages_for("user") == []
+        assert emit_status(cdb, tid, "stalled") is True
+        assert len(cdb.get_pending_messages_for("user")) == 1
 
 
 class TestPlainTextOrigin:
@@ -246,3 +250,39 @@ class TestEmitStalledForProject:
             side_effect=RuntimeError("db blip"),
         )
         assert emit_stalled_for_project(cdb, "/p") is False
+
+
+def test_emit_status_atomic_on_insert_failure(tmp_path, mocker):
+    """If _impl_emit_status_message raises during the INSERT, the tx
+    rolls back and last_sent_status is NOT advanced — closing the
+    previous silent-drop window where the UPDATE committed first."""
+    from src.chat_db import ChatDB
+    from src.status_envelope import emit_status
+
+    db = ChatDB(str(tmp_path / "a.db"))
+    db._conn.execute(
+        "INSERT INTO tasks (id, project_path, body, created_at, last_sent_status) "
+        "VALUES (1, '/p', 'b', '2026-05-19T00:00:00+00:00', NULL)"
+    )
+    db._conn.commit()
+
+    real_impl = db._impl_emit_status_message
+
+    def fail_on_insert(task_id, status, agent_name, body, content_type):
+        # advance the UPDATE, then blow up before RETURNING
+        db._conn.execute(
+            "UPDATE tasks SET last_sent_status=? WHERE id=?",
+            (status, task_id),
+        )
+        raise RuntimeError("forced insert failure")
+
+    mocker.patch.object(db, "_impl_emit_status_message", side_effect=fail_on_insert)
+    with pytest.raises(RuntimeError):
+        emit_status(db, 1, "waiting-on-peer")
+
+    # _run_tx rolled back — last_sent_status was never advanced
+    mocker.stopall()
+    row = db._conn.execute(
+        "SELECT last_sent_status FROM tasks WHERE id=1"
+    ).fetchone()
+    assert row["last_sent_status"] is None
