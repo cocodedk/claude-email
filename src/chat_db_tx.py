@@ -122,15 +122,7 @@ class TransactionMixin:
             self._check_or_recover_at_depth_zero(method_name)
             for attempt in (1, 2):
                 try:
-                    try:
-                        self._conn.execute("BEGIN IMMEDIATE")
-                    except sqlite3.OperationalError as exc:
-                        if "database is locked" in str(exc):
-                            raise  # handled by outer except below
-                        # BEGIN IMMEDIATE unavailable (e.g. already inside a
-                        # manually-opened transaction) — fall back to implicit
-                        # transaction; the explicit commit() still fires.
-                        self._lock_event(method_name, "begin_immediate_skipped")
+                    self._conn.execute("BEGIN IMMEDIATE")
                     self._tx_depth = 1
                     try:
                         result = fn(*args, **kwargs)

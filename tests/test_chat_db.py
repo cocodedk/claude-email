@@ -351,19 +351,28 @@ class TestRegisterAgentTransactionFallback:
         import sqlite3 as _sqlite3
 
         class _FakeConn:
-            """Proxy that raises on BEGIN IMMEDIATE, delegates everything else."""
+            """Proxy that raises on the FIRST BEGIN IMMEDIATE only.
+
+            Simulates register_agent's own transaction attempt failing, then
+            delegates to the real connection for all subsequent calls so that
+            _run_tx-driven helpers (e.g. _log_event) can open their own
+            transactions normally.
+            """
 
             def __init__(self, real):
                 self._real = real
+                self._begin_immediate_fail_count = 1  # raise once, then pass
 
             def __getattr__(self, attr):
                 return getattr(self._real, attr)
 
             def execute(self, sql, *args, **kwargs):
                 if (
-                    isinstance(sql, str)
+                    self._begin_immediate_fail_count > 0
+                    and isinstance(sql, str)
                     and sql.strip().upper().startswith("BEGIN IMMEDIATE")
                 ):
+                    self._begin_immediate_fail_count -= 1
                     raise _sqlite3.OperationalError(
                         "cannot start a transaction within a transaction",
                     )
