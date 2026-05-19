@@ -56,11 +56,12 @@ class ChatDB(
         self, from_name: str, to_name: str, body: str,
         msg_type: str, in_reply_to: int | None = None,
         content_type: str = "", task_id: int | None = None,
+        in_reply_to_eid: str = "", email_message_id: str = "",
     ) -> dict:
         return self._run_tx(
             self._impl_insert_message,
             from_name, to_name, body, msg_type, in_reply_to,
-            content_type, task_id,
+            content_type, task_id, in_reply_to_eid, email_message_id,
         )
 
     def get_pending_messages_for(self, to_name: str) -> list[dict]:

@@ -17,6 +17,7 @@ from src.chat_handlers import handle_chat_email, maybe_cleanup_db, relay_outboun
 from src.config import build_config
 from src.dispatch import build_universe_resources, dispatch_by_sender, universes_from_config
 from src.email_extract import extract_command
+from src.email_thread import prepare_router_command
 from src.executor import execute_command
 from src.ghost_reaper import sweep_ghosts
 from src.json_envelope import is_json_email
@@ -82,20 +83,19 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
     if maybe_answer_question(message, config, command, chat_db, base, u):
         return
     reply_to = config.get("reply_to") or config.get("authorized_sender", "")
-    timeout = config["claude_timeout"]
     try:
         send_threaded_reply(
-            config, message, f"Command received. Running (up to {timeout}s)...",
+            config, message, f"Command received. Running (up to {config['claude_timeout']}s)...",
             tag="Running", chat_db=chat_db, kind="running_ack",
         )
     except Exception:
         logger.exception("Failed to send progress ack — continuing with execution")
     token = uuid.uuid4().hex if on else ""
-    env = {**(config.get("claude_extra_env") or {})}
-    if token: env["CLAUDE_EMAIL_DISPATCH_TOKEN"] = token
+    env = {**(config.get("claude_extra_env") or {}), **({"CLAUDE_EMAIL_DISPATCH_TOKEN": token} if token else {})}
     output = run_router_with_fixup(
         lambda: execute_command(
-            command, claude_bin=config["claude_bin"], timeout=timeout,
+            prepare_router_command(chat_db, message, command),
+            claude_bin=config["claude_bin"], timeout=config["claude_timeout"],
             cwd=base or None, yolo=config.get("claude_yolo", False),
             extra_env=env or None,
             model=config.get("claude_model"), effort=config.get("claude_effort"),

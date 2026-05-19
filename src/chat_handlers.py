@@ -56,6 +56,7 @@ def send_threaded_reply(
     if chat_db is not None and sent_id:
         chat_db.record_outbound_email(
             sent_id, kind=kind, sender_agent=sender_agent,
+            body=with_footer(body, footer), in_reply_to_eid=msg_id,
         )
     return sent_id
 

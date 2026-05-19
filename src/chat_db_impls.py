@@ -18,15 +18,17 @@ class ChatDbImplsMixin:
 
     def _impl_insert_message(
         self, from_name, to_name, body, msg_type, in_reply_to,
-        content_type, task_id,
+        content_type, task_id, in_reply_to_eid="", email_message_id="",
     ) -> dict:
         now = _now()
         cur = self._conn.execute(
             """INSERT INTO messages (from_name, to_name, body, type, status,
-                                     in_reply_to, created_at, content_type, task_id)
-               VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)""",
+                                     in_reply_to, created_at, content_type,
+                                     task_id, in_reply_to_eid, email_message_id)
+               VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)""",
             (from_name, to_name, body, msg_type, in_reply_to, now,
-             content_type or None, task_id),
+             content_type or None, task_id, in_reply_to_eid or None,
+             email_message_id or None),
         )
         self._impl_log_event(
             from_name, "message", f"{msg_type} from {from_name} to {to_name}",
