@@ -1,0 +1,32 @@
+/* ─── RTL ────────────────────────────────────────────────── */
+
+[dir="rtl"] .header-inner { flex-direction: row-reverse; }
+[dir="rtl"] .site-title::before { margin-right: 0; margin-left: 10px; }
+[dir="rtl"] .hero .container,
+[dir="rtl"] .hero-eyebrow,
+[dir="rtl"] .hero h1,
+[dir="rtl"] .hero .tagline,
+[dir="rtl"] .hero .description,
+[dir="rtl"] .hero-actions { text-align: right; direction: rtl; }
+[dir="rtl"] .hero::before { inset: 40px var(--gutter); }
+[dir="rtl"] .postmark { right: auto; left: 60px; transform: rotate(14deg); }
+[dir="rtl"] @keyframes stampIn {
+  0%   { opacity: 0; transform: rotate(40deg) scale(1.6); }
+  70%  { opacity: 1; transform: rotate(10deg) scale(0.95); }
+  100% { opacity: 0.85; transform: rotate(14deg) scale(1); }
+}
+[dir="rtl"] .section-head { grid-template-columns: 1fr 120px; }
+[dir="rtl"] .section-num { order: 2; text-align: left; }
+[dir="rtl"] .features-list li { grid-template-columns: 2fr 1fr 80px; text-align: right; }
+[dir="rtl"] .features-list .num { order: 3; text-align: left; }
+[dir="rtl"] .features-list h3 { order: 2; }
+[dir="rtl"] .features-list p { order: 1; }
+[dir="rtl"] .how-it-works .content { grid-template-columns: 3fr 2fr; }
+[dir="rtl"] pre, [dir="rtl"] code, [dir="rtl"] .arch-block {
+  direction: ltr; text-align: left;
+}
+[dir="rtl"] pre { border-right: 4px solid var(--stamp); border-left: 1px solid var(--rule); }
+[dir="rtl"] pre::before { right: auto; left: 20px; }
+[dir="rtl"] .installation .content { text-align: right; }
+[dir="rtl"] .btn-primary::after { content: "↖"; }
+

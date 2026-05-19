@@ -1,0 +1,21 @@
+/* ─── Animations ─────────────────────────────────────────── */
+
+.reveal { opacity: 0; transform: translateY(16px); animation: reveal .9s cubic-bezier(.2,.8,.2,1) forwards; }
+.reveal--1 { animation-delay: .05s; }
+.reveal--2 { animation-delay: .15s; }
+.reveal--3 { animation-delay: .25s; }
+.reveal--4 { animation-delay: .35s; }
+
+@keyframes reveal {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

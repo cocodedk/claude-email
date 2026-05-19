@@ -1,0 +1,88 @@
+/* ─── Section scaffolding ────────────────────────────────── */
+
+section { position: relative; }
+
+.section-head {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 32px;
+  align-items: baseline;
+  padding: 60px 0 24px;
+  border-top: 1px solid var(--rule);
+}
+.section-num {
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 144, "wght" 700;
+  font-style: italic;
+  font-size: 4rem;
+  color: var(--stamp);
+  line-height: 0.8;
+}
+.section-title {
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 144, "wght" 800;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  letter-spacing: -0.025em;
+  line-height: 1;
+  color: var(--ink);
+}
+.section-title small {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 500;
+  color: var(--postmark);
+  margin-bottom: 14px;
+}
+
+/* ─── Features (numbered list, not cards) ────────────────── */
+
+.features { padding-bottom: 60px; }
+.features-list {
+  list-style: none;
+  margin-top: 40px;
+  border-top: 1px solid var(--rule);
+}
+.features-list li {
+  display: grid;
+  grid-template-columns: 80px 1fr 2fr;
+  gap: 32px;
+  align-items: baseline;
+  padding: 32px 0;
+  border-bottom: 1px solid var(--rule);
+  transition: background .2s;
+}
+.features-list li:hover {
+  background: linear-gradient(90deg, transparent, rgba(195,46,56,0.07), transparent);
+}
+.features-list .num {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  letter-spacing: 0.15em;
+  color: var(--stamp);
+  font-weight: 600;
+}
+.features-list h3 {
+  font-family: var(--font-display);
+  font-variation-settings: "opsz" 48, "wght" 700;
+  font-size: 1.6rem;
+  line-height: 1.1;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.features-list p {
+  color: var(--ink-2);
+  line-height: 1.65;
+  font-size: 1rem;
+}
+.features-list code {
+  background: var(--paper-2);
+  border: 1px solid var(--rule);
+  padding: 1px 8px;
+  border-radius: 0;
+  font-size: 0.85em;
+  color: var(--ink);
+}
+
