@@ -141,7 +141,7 @@ class TransactionMixin:
             self._check_or_recover_at_depth_zero(method_name)
             for attempt in (1, 2):
                 try:
-                    self._conn.execute("BEGIN")
+                    self._conn.execute("BEGIN IMMEDIATE")
                     self._tx_depth = 1
                     try:
                         result = fn(*args, **kwargs)

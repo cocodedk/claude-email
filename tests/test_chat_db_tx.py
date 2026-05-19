@@ -337,13 +337,18 @@ class TestRunTx:
         rows = db._conn.execute("SELECT id FROM t").fetchall()
         assert rows == []
 
-    def test_retry_succeeds_after_sidecar_releases(self, tmp_path):
+    def test_retry_succeeds_after_sidecar_releases(self, tmp_path, caplog):
+        """First BEGIN IMMEDIATE waits busy_timeout (50ms) → OperationalError
+        → kind=locked lock_event → retry. Sidecar releases between attempts;
+        second BEGIN IMMEDIATE succeeds and fn body runs once."""
+        import logging as _logging
         from src.chat_db import ChatDB
         from tests._tx_fixtures import sidecar_writer_lock, narrow_busy_timeout
         path = str(tmp_path / "a.db")
         db = ChatDB(path)
         db._conn.execute("CREATE TABLE t (id INTEGER)")
         narrow_busy_timeout(db, 50)
+        caplog.set_level(_logging.WARNING, logger="src.chat_db_tx")
         attempts = {"n": 0}
         def body():
             attempts["n"] += 1
@@ -364,7 +369,16 @@ class TestRunTx:
             release.set()
             t.join(timeout=10)
         assert result_holder.get("ok"), result_holder
-        assert attempts["n"] >= 2  # at least one retry
+        # With BEGIN IMMEDIATE, the retry signal is the kind=locked
+        # lock_event from the first attempt's busy_timeout, NOT a re-run
+        # of fn. Body runs exactly once (on the successful retry).
+        locked_warnings = [r for r in caplog.records
+                           if "kind=locked" in r.getMessage()]
+        assert locked_warnings, "expected one kind=locked warning from the first attempt"
+        assert attempts["n"] == 1, (
+            f"with BEGIN IMMEDIATE body should run once on retry success; "
+            f"got attempts={attempts['n']}"
+        )
         assert db._conn.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 1
 
     def test_nested_run_tx_joins_outer(self, tmp_path):
