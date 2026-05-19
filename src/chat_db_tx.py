@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 class TransactionMixin:
     """Adds connection lifecycle helpers to ChatDB."""
 
+    # Hosts that haven't called _open_conn yet (e.g. mixin-isolation tests)
+    # see _conn as None. ChatDB sets this in its own __init__.
+    _conn: sqlite3.Connection | None = None
+
     def _open_conn(self, path: str) -> sqlite3.Connection:
         conn = sqlite3.connect(path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
@@ -33,7 +37,9 @@ class TransactionMixin:
 
     def _trace_cb(self, sql: str) -> None:
         kind = self._classify_sql(sql)
-        in_tx = getattr(self, "_conn", None) is not None and self._conn.in_transaction
+        in_tx = self._conn is not None and self._conn.in_transaction
+        # thread_id and tx_depth from spec §7 ship with Phase 1's _run_tx,
+        # where they'll be available from the call context.
         logger.debug(
             "chatdb.trace kind=%s in_transaction=%s",
             kind, in_tx,
@@ -41,6 +47,7 @@ class TransactionMixin:
 
     @staticmethod
     def _classify_sql(sql: str) -> str:
+        # SQLite's trace_v2 can pass None on some build configurations.
         head = (sql or "").strip().split(None, 1)
         if not head:
             return "OTHER"

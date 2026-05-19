@@ -65,12 +65,18 @@ class TestOpenConn:
 
 
 class TestTraceCallback:
-    def test_callback_not_installed_without_env(self, monkeypatch, host, tmp_path):
+    def test_callback_not_installed_without_env(self, monkeypatch, host, tmp_path, caplog):
         monkeypatch.delenv("CHAT_DB_TRACE", raising=False)
+        caplog.set_level(logging.DEBUG, logger="src.chat_db_tx")
         conn = host._open_conn(str(tmp_path / "a.db"))
         with conn:
             conn.execute("CREATE TABLE t (id INTEGER)")
         conn.close()
+        trace_lines = [r for r in caplog.records
+                       if "chatdb.trace" in r.getMessage()]
+        assert trace_lines == [], (
+            "trace callback fired without CHAT_DB_TRACE=1 — env guard regressed"
+        )
 
     def test_callback_installed_with_env(self, monkeypatch, host, tmp_path, caplog):
         monkeypatch.setenv("CHAT_DB_TRACE", "1")
@@ -118,5 +124,5 @@ class TestClassifySql:
             ("   \n  ", "OTHER"),
         ],
     )
-    def test_classify(self, host, sql, expected):
-        assert host._classify_sql(sql) == expected
+    def test_classify(self, sql, expected):
+        assert TransactionMixin._classify_sql(sql) == expected

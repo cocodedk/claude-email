@@ -187,7 +187,7 @@ EOF
 
 ---
 
-## Task 2: Env-gated SQL trace callback that logs kind only
+## Task 2: Env-gated SQL trace callback that logs kind + in_transaction
 
 **Files:**
 - Modify: `src/chat_db_tx.py:30-37` (replace `_trace_cb` stub + add `_classify_sql`)
