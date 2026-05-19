@@ -19,7 +19,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.git_ops import is_valid_task_branch, task_branch_name
+from src.git_ops import current_branch, is_valid_task_branch, task_branch_name
 from src.mutation_classifier import classify_mutation
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,17 @@ def _prior_branch(
     chat_db, task_queue, in_reply_to_header: str,
     project_path: str, agent_name: str,
 ) -> str:
-    """Walk inbound In-Reply-To → outbound_emails.task_id → tasks.branch_name.
+    """Resolve a prior branch for branch-reuse on email follow-ups.
+
+    Primary path: walk inbound In-Reply-To → outbound_emails.task_id →
+    tasks.branch_name.
+
+    Taskless-peer fallback: when the outbound row exists and the sender
+    matches but has no task_id (peer agents like agent-em-backend send
+    chat_notify outside any task context), fall back to the project's
+    *current* git branch — but only if it has the canonical
+    ``claude/task-<id>-<slug>`` shape per is_valid_task_branch. Non-task
+    branches (master, feature/*, etc.) are rejected.
 
     Returns "" when any link is missing OR when sender_agent doesn't
     strictly equal agent_name (NULL fails too — fail closed) OR when
@@ -74,7 +84,7 @@ def _prior_branch(
     if not in_reply_to_header or task_queue is None:
         return ""
     outbound = chat_db.find_outbound_email(in_reply_to_header)
-    if not outbound or not outbound.get("task_id"):
+    if not outbound:
         return ""
     if outbound.get("sender_agent") != agent_name:
         logger.info(
@@ -82,6 +92,9 @@ def _prior_branch(
             outbound.get("sender_agent"), agent_name,
         )
         return ""
+    if not outbound.get("task_id"):
+        branch = current_branch(project_path).strip()
+        return branch if is_valid_task_branch(branch) else ""
     prior = task_queue.get(outbound["task_id"])
     if not prior:
         return ""

@@ -106,4 +106,15 @@ MIGRATIONS = [
     "ALTER TABLE outbound_emails ADD COLUMN task_id INTEGER REFERENCES tasks(id)",
     "CREATE INDEX IF NOT EXISTS outbound_emails_task_id_idx "
     "ON outbound_emails(task_id) WHERE task_id IS NOT NULL",
+    # Email-thread reconstruction: persist the parent In-Reply-To header
+    # string on both inbound and outbound rows so process_email can walk
+    # a thread without touching the existing INT FK link on messages.
+    # Distinct from messages.in_reply_to, which is a DB-internal int FK.
+    "ALTER TABLE messages ADD COLUMN in_reply_to_eid TEXT",
+    "ALTER TABLE outbound_emails ADD COLUMN body TEXT",
+    "ALTER TABLE outbound_emails ADD COLUMN in_reply_to_eid TEXT",
+    "CREATE INDEX IF NOT EXISTS messages_in_reply_to_eid_idx "
+    "ON messages(in_reply_to_eid) WHERE in_reply_to_eid IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS outbound_emails_in_reply_to_eid_idx "
+    "ON outbound_emails(in_reply_to_eid) WHERE in_reply_to_eid IS NOT NULL",
 ]

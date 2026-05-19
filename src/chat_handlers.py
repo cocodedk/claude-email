@@ -1,7 +1,6 @@
-"""Chat-specific email handlers — extracted from main.py to stay under 200 lines.
+"""Chat-specific email handlers.
 
-Outbound relay and DB cleanup live in ``src/chat_relay.py`` (re-exported
-below for back-compat with ``from src.chat_handlers import`` callers).
+Outbound relay and DB cleanup live in ``src/chat_relay.py`` (re-exported for back-compat).
 """
 import logging
 import subprocess
@@ -15,6 +14,7 @@ from src.chat_router import Route, classify_email
 from src.email_format import prepend_tag, with_footer
 from src.email_extract import extract_command
 from src.mailer import send_reply
+from src.reaction_router import extract_reaction, handle_reaction
 from src.reply_router import apply_reply
 from src.spawn_args import parse_spawn_args
 from src.spawner import spawn_agent
@@ -38,15 +38,9 @@ def send_threaded_reply(
 ) -> str:
     """Send an email reply to the authorized sender, threading on the original.
 
-    tag prepends `[tag]` to the subject; footer appends the universal
-    "what you can do" hint. Both default on for system-originated messages
-    (ACKs) so the inbox stays self-documenting.
-
-    When ``chat_db`` is provided, the SMTP Message-ID is persisted into
-    ``outbound_emails`` so the user's reply on this thread auto-auths via
-    ``security.is_authorized``'s thread-match path. Callers without a
-    chat_db (legacy / test paths) still send mail but produce a row that
-    won't auth replies — so always pass chat_db when one is available.
+    tag prepends ``[tag]`` to the subject; footer appends the "what you can do"
+    hint. When ``chat_db`` is provided, the SMTP Message-ID is persisted into
+    ``outbound_emails`` so the user's reply auto-auths via thread-match.
     """
     subject = prepend_tag(original_message.get("Subject", "command"), tag)
     msg_id = original_message.get("Message-ID", "")
@@ -62,6 +56,7 @@ def send_threaded_reply(
     if chat_db is not None and sent_id:
         chat_db.record_outbound_email(
             sent_id, kind=kind, sender_agent=sender_agent,
+            body=with_footer(body, footer), in_reply_to_eid=msg_id,
         )
     return sent_id
 
@@ -117,13 +112,21 @@ def _handle_reply(
     task_queue: TaskQueue | None, worker_manager: WorkerManager | None,
 ) -> None:
     body = extract_command(message, strip_secret=config.get("shared_secret", ""))
-    ack, tag = apply_reply(
-        chat_db, task_queue, worker_manager,
-        agent_name=route.agent_name,
-        original_message_id=route.original_message_id,
-        body=body, allowed_base=config.get("claude_cwd") or "",
-        original_email_message_id=message.get("In-Reply-To", "").strip(),
-    )
+    reaction = extract_reaction(body)
+    if reaction is not None:
+        ack, tag = handle_reaction(
+            chat_db, agent_name=route.agent_name,
+            original_message_id=route.original_message_id,
+            reaction=reaction,
+        )
+    else:
+        ack, tag = apply_reply(
+            chat_db, task_queue, worker_manager,
+            agent_name=route.agent_name,
+            original_message_id=route.original_message_id,
+            body=body, allowed_base=config.get("claude_cwd") or "",
+            original_email_message_id=message.get("In-Reply-To", "").strip(),
+        )
     logger.info("Reply routed: %s", ack)
     send_threaded_reply(
         config, message, ack, tag=tag, chat_db=chat_db, kind="reply_ack",
@@ -195,5 +198,3 @@ def _handle_meta(route: Route, config: dict, message, chat_db: ChatDB) -> None:
             subprocess.run(["systemctl", "--user", "restart", svc], shell=False, check=False)
         else:
             _err_reply(config, message, chat_db, f"Unknown restart target: {target}")
-
-

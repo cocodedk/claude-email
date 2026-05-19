@@ -1,0 +1,25 @@
+/* ─── Responsive ─────────────────────────────────────────── */
+
+@media (max-width: 920px) {
+  :root { --gutter: 24px; }
+  .postmark { width: 130px; height: 130px; font-size: 0.6rem; top: 30px; right: 20px; }
+  .postmark strong { font-size: 1.2rem; }
+  .hero { padding: 70px 0 60px; }
+  .hero::before { inset: 20px var(--gutter); }
+  .section-head { grid-template-columns: 1fr; gap: 12px; padding-top: 48px; }
+  .section-num { font-size: 3rem; }
+  .features-list li { grid-template-columns: 1fr; gap: 8px; padding: 24px 0; }
+  .features-list .num { color: var(--stamp); font-size: 0.8rem; }
+  .how-it-works .content { grid-template-columns: 1fr; gap: 28px; }
+  [dir="rtl"] .features-list li { grid-template-columns: 1fr; }
+  [dir="rtl"] .section-head { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 600px) {
+  .hero h1 { font-size: clamp(2.8rem, 14vw, 4.5rem); }
+  .postmark { display: none; }
+  .header-inner { padding: 8px 12px; }
+  .site-title { font-size: 0.82rem; }
+  .arch-block { font-size: 0.72rem; padding: 22px 18px; }
+  pre { font-size: 0.78rem; padding: 16px 20px; }
+}

@@ -18,15 +18,22 @@ Decision order (after polite-prefix strip):
                                                          word mentioned
                                                          later as the
                                                          topic)
-  4. Mutating verb anywhere in the body        → True   ('Thanks, please
+  4. Short body (≤8 tokens) explicitly negates → False  ('I did not
+     a mutating verb (not/n't paired with                update anything')
+     change|update|modify|edit)
+  5. Mutating verb anywhere in the body        → True   ('Thanks, please
                                                          fix the bug')
-  5. Short body (≤8 tokens) contains an        → False  ('I have received
+  6. Short body (≤8 tokens) starts with        → False  ('No issues.',
+     no/nothing/none/all/fine                            'All good')
+  7. Short body (≤8 tokens) contains an        → False  ('I have received
      acknowledgment word                                 it.', 'Thanks!')
-  6. Otherwise                                 → True   (bias to mutates)
+  8. Otherwise                                 → True   (bias to mutates)
 
-Steps 4 and 5 are ordered so a mixed body like 'Got it, now ship the
-migration' still mutates — the explicit mutating verb wins over the
-acknowledgment marker.
+Step 4 runs before step 5 so 'I did not update anything' classifies
+read-only even though 'update' is in the mutating set. Step 6 runs
+*after* step 5 so a leading 'no/nothing' does NOT veto an explicit
+mutating verb later in the same body ('No issues, please update the
+README' still mutates).
 """
 import re
 
@@ -46,6 +53,11 @@ _ACKNOWLEDGMENTS = frozenset({
     "thanks", "thank", "thx", "ty", "ok", "okay",
 })
 _ACK_MAX_TOKENS = 8
+_NO_CHANGE_STARTERS = frozenset({"no", "nothing", "none", "all", "fine"})
+_CHANGE_WORDS = frozenset({
+    "change", "changed", "modify", "modified", "update", "updated",
+    "edit", "edited",
+})
 
 # Sorted by length descending so 'could you' wins over 'could'.
 _POLITE_PREFIXES = (
@@ -77,6 +89,27 @@ def _strip_polite(body: str) -> str:
             return s
 
 
+def _has_negated_change(tokens: list[str]) -> bool:
+    for i, token in enumerate(tokens):
+        if token == "not" and i + 1 < len(tokens) and tokens[i + 1] in _CHANGE_WORDS:
+            return True
+        if (
+            token in {"have", "has", "had", "did", "do", "does"}
+            and i + 2 < len(tokens)
+            and tokens[i + 1] == "not"
+            and tokens[i + 2] in _CHANGE_WORDS
+        ):
+            return True
+        if (
+            token in {"haven", "hasn", "hadn", "didn", "don", "doesn"}
+            and i + 2 < len(tokens)
+            and tokens[i + 1] == "t"
+            and tokens[i + 2] in _CHANGE_WORDS
+        ):
+            return True
+    return False
+
+
 def classify_mutation(body: str) -> bool | None:
     """Return True (mutating), False (read-only), or None (no signal)."""
     if not body.strip():
@@ -89,8 +122,18 @@ def classify_mutation(body: str) -> bool | None:
         return True
     if first in _READ_ONLY or first in _QUESTION_STARTERS:
         return False
+    if (
+        len(stripped_tokens) <= _ACK_MAX_TOKENS
+        and _has_negated_change(stripped_tokens)
+    ):
+        return False
     if any(t in _MUTATING for t in stripped_tokens):
         return True
+    if (
+        len(stripped_tokens) <= _ACK_MAX_TOKENS
+        and first in _NO_CHANGE_STARTERS
+    ):
+        return False
     if (
         len(stripped_tokens) <= _ACK_MAX_TOKENS
         and any(t in _ACKNOWLEDGMENTS for t in stripped_tokens)

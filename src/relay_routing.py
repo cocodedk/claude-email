@@ -16,9 +16,7 @@ def thread_id_for_message(chat_db, msg: dict) -> str:
     """
     task_id = msg.get("task_id")
     if task_id:
-        row = chat_db._conn.execute(  # noqa: SLF001 — same-package coupling
-            "SELECT origin_message_id FROM tasks WHERE id=?", (task_id,),
-        ).fetchone()
+        row = chat_db.lookup_task_origin_message_id(task_id)
         if row and row["origin_message_id"]:
             return row["origin_message_id"]
     return chat_db.get_last_email_message_id_for_agent(msg["from_name"]) or ""
@@ -37,9 +35,7 @@ def subject_base_for_message(chat_db, msg: dict) -> str:
     task_id = msg.get("task_id")
     if not task_id:
         return fallback
-    row = chat_db._conn.execute(  # noqa: SLF001 — same-package coupling
-        "SELECT origin_subject FROM tasks WHERE id=?", (task_id,),
-    ).fetchone()
+    row = chat_db.lookup_task_origin_subject(task_id)
     if row and row["origin_subject"]:
         return row["origin_subject"]
     return fallback
@@ -59,9 +55,7 @@ def recipient_for_message(chat_db, msg: dict, config: dict) -> str:
     """
     task_id = msg.get("task_id")
     if task_id:
-        row = chat_db._conn.execute(  # noqa: SLF001
-            "SELECT project_path, origin_from FROM tasks WHERE id=?", (task_id,),
-        ).fetchone()
+        row = chat_db.lookup_task_routing(task_id)
         if row and row["origin_from"]:
             return row["origin_from"]
         if row and row["project_path"]:

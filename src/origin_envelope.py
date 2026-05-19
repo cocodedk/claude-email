@@ -20,10 +20,7 @@ def wrap_if_json_origin(
     kind-specific meta fields (progress, suggested_replies, etc.)."""
     if task_id is None:
         return message, ""
-    row = db._conn.execute(  # noqa: SLF001
-        "SELECT origin_content_type, origin_envelope_v FROM tasks WHERE id=?",
-        (task_id,),
-    ).fetchone()
+    row = db.lookup_origin_envelope_version(task_id)
     if not row or (row["origin_content_type"] or "") != _JSON_CT:
         return message, ""
     return build_envelope(

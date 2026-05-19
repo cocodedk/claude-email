@@ -1,28 +1,20 @@
 """Agent registry — mixin for ChatDB.
 
 Split from chat_db.py to keep that module under the 200-line cap.
-Methods operate on the connection (`self._conn`) owned by the host class.
+Public methods are thin wrappers that route writes through _run_tx
+and reads through _read; bodies live in AgentRegistryImplsMixin.
 """
-import sqlite3
-from datetime import datetime, timedelta, timezone
+from src.agent_registry_impls import (
+    AgentRegistryImplsMixin,
+    DEFAULT_AGENT_FRESHNESS_SEC,
+    _cutoff,
+    _now,
+)
 
-from src.chat_errors import AgentNameTaken
-from src.process_liveness import is_alive
-
-
-DEFAULT_AGENT_FRESHNESS_SEC = 300  # 5min heartbeat window — covers SMTP→IMAP poll latency between agent's last MCP touch and routing decision; reap_dead_agents handles true crashes via is_alive(pid)
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+__all__ = ["AgentRegistryMixin", "DEFAULT_AGENT_FRESHNESS_SEC"]
 
 
-def _cutoff(seconds_ago: int) -> str:
-    """ISO-8601 UTC timestamp ``seconds_ago`` in the past — lower-bound for ``last_seen_at`` freshness."""
-    return (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat()
-
-
-class AgentRegistryMixin:
+class AgentRegistryMixin(AgentRegistryImplsMixin):
     """Agent lifecycle methods (register, reap, status) for ChatDB."""
 
     def register_agent(
@@ -33,55 +25,10 @@ class AgentRegistryMixin:
         With pid: enforces at-most-one-live-owner per name (raises
         AgentNameTaken on conflict, takes over stale rows). Multiple
         live agents may share project_path — each needs a distinct name.
-        Liveness check + upsert run in a single IMMEDIATE transaction so
-        a concurrent register_agent can't race SELECT/INSERT.
+        Liveness check + upsert run inside _run_tx (IMMEDIATE transaction)
+        so a concurrent register_agent can't race SELECT/INSERT.
         """
-        now = _now()
-        insert_sql = (
-            "INSERT INTO agents (name, project_path, status, pid, "
-            "registered_at, last_seen_at) "
-            "VALUES (?, ?, 'running', ?, ?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET "
-            "  project_path=excluded.project_path, "
-            "  status='running', "
-            "  pid=COALESCE(excluded.pid, agents.pid), "
-            "  last_seen_at=excluded.last_seen_at"
-        )
-        insert_args = (name, project_path, pid, now, now)
-        if pid is not None:
-            try:
-                self._conn.rollback()  # clear any implicit tx
-                self._conn.execute("BEGIN IMMEDIATE")
-            except sqlite3.OperationalError:
-                # Already inside a transaction we can't unwind — fall back
-                # to the previous non-atomic path. The ON CONFLICT clause
-                # still serialises the final write.
-                pass
-            try:
-                existing = self.get_agent(name)
-                if (
-                    existing
-                    and existing["pid"] is not None
-                    and existing["pid"] != pid
-                    and is_alive(existing["pid"])
-                ):
-                    raise AgentNameTaken(name, existing["pid"])
-                self._conn.execute(insert_sql, insert_args)
-                self._conn.commit()
-            except Exception:
-                self._conn.rollback()
-                raise
-        else:
-            self._conn.execute(insert_sql, insert_args)
-            self._conn.commit()
-        self._log_event(name, "register", f"Agent {name} registered")
-        recovered = self.recover_failed_messages_for(name)
-        if recovered > 0:
-            self._log_event(
-                name, "messages_recovered",
-                f"Recovered {recovered} failed messages on re-register",
-            )
-        return self.get_agent(name)
+        return self._run_tx(self._impl_register_agent, name, project_path, pid)
 
     def find_live_owner(
         self, name: str, project_path: str, *,
@@ -89,35 +36,15 @@ class AgentRegistryMixin:
     ) -> dict | None:
         """Return the first live-process owner ({name, pid}) of the name
         or project slot. ``exclude_pid`` filters out our own session."""
-        by_name = self.get_agent(name)
-        if (
-            by_name
-            and by_name["pid"] is not None
-            and by_name["pid"] != exclude_pid
-            and is_alive(by_name["pid"])
-        ):
-            return {"name": by_name["name"], "pid": by_name["pid"]}
-        rows = self._conn.execute(
-            "SELECT name, pid FROM agents "
-            "WHERE project_path=? AND name!=? AND pid IS NOT NULL",
-            (project_path, name),
-        ).fetchall()
-        for row in rows:
-            if row["pid"] == exclude_pid:
-                continue
-            if is_alive(row["pid"]):
-                return {"name": row["name"], "pid": row["pid"]}
-        return None
+        return self._read(
+            self._impl_find_live_owner, name, project_path, exclude_pid,
+        )
 
     def get_agent(self, name: str) -> dict | None:
-        row = self._conn.execute(
-            "SELECT * FROM agents WHERE name=?", (name,)
-        ).fetchone()
-        return dict(row) if row else None
+        return self._read(self._impl_get_agent, name)
 
     def list_agents(self) -> list[dict]:
-        rows = self._conn.execute("SELECT * FROM agents").fetchall()
-        return [dict(r) for r in rows]
+        return self._read(self._impl_list_agents)
 
     def find_live_agent_for_project(
         self, project_path: str,
@@ -127,14 +54,9 @@ class AgentRegistryMixin:
         (live = running + last_seen_at within ``freshness_sec``).
         Multiple live agents share a project (post-2026-05-03); callers
         needing disambiguation must use the explicit name."""
-        cutoff = _cutoff(freshness_sec)
-        row = self._conn.execute(
-            "SELECT * FROM agents WHERE project_path=? "
-            "AND status='running' AND last_seen_at >= ? "
-            "ORDER BY registered_at DESC LIMIT 1",
-            (project_path, cutoff),
-        ).fetchone()
-        return dict(row) if row else None
+        return self._read(
+            self._impl_find_live_agent_for_project, project_path, freshness_sec,
+        )
 
     def agent_status_for_project(
         self, project_path: str,
@@ -142,25 +64,18 @@ class AgentRegistryMixin:
     ) -> str:
         """3-state liveness for ``list_projects.agent_status``:
         connected | disconnected | absent."""
-        rows = self._conn.execute(
-            "SELECT status, last_seen_at FROM agents WHERE project_path=?",
-            (project_path,),
-        ).fetchall()
-        if not rows:
-            return "absent"
-        cutoff = _cutoff(freshness_sec)
-        for row in rows:
-            if row["status"] == "running" and (row["last_seen_at"] or "") >= cutoff:
-                return "connected"
-        return "disconnected"
+        return self._read(
+            self._impl_agent_status_for_project, project_path, freshness_sec,
+        )
 
     def update_agent_status(self, name: str, status: str) -> None:
-        self._conn.execute("UPDATE agents SET status=? WHERE name=?", (status, name))
-        self._conn.commit()
+        self._run_tx(self._impl_update_agent_status, name, status)
 
     def update_agent_pid(self, name: str, pid: int) -> None:
-        self._conn.execute("UPDATE agents SET pid=? WHERE name=?", (pid, name))
-        self._conn.commit()
+        self._run_tx(self._impl_update_agent_pid, name, pid)
+
+    def touch_agent(self, name: str) -> None:
+        self._run_tx(self._impl_touch_agent, name)
 
     def reap_dead_agents(
         self, no_pid_idle_secs: int = DEFAULT_AGENT_FRESHNESS_SEC,
@@ -171,28 +86,7 @@ class AgentRegistryMixin:
         registrations leave pid=NULL and would otherwise linger as 'running'
         ghosts. Live MCP-only sessions touch last_seen_at via outbound tool
         calls, so genuine activity protects the row."""
-        reaped: list[str] = []
-        for row in self._conn.execute(
-            "SELECT name, pid FROM agents WHERE pid IS NOT NULL AND status='running'"
-        ).fetchall():
-            if not is_alive(row["pid"]):
-                self._disconnect(row["name"], f"PID {row['pid']} no longer running")
-                reaped.append(row["name"])
-        for row in self._conn.execute(
-            "SELECT name FROM agents "
-            "WHERE pid IS NULL AND status='running' AND last_seen_at < ?",
-            (_cutoff(no_pid_idle_secs),),
-        ).fetchall():
-            self._disconnect(row["name"], "no PID, idle past freshness window")
-            reaped.append(row["name"])
-        return reaped
+        return self._run_tx(self._impl_reap_dead_agents, no_pid_idle_secs)
 
     def _disconnect(self, name: str, why: str) -> None:
-        self.update_agent_status(name, "disconnected")
-        self._log_event(name, "disconnect", f"Agent {name} {why}")
-
-    def touch_agent(self, name: str) -> None:
-        self._conn.execute(
-            "UPDATE agents SET last_seen_at=? WHERE name=?", (_now(), name)
-        )
-        self._conn.commit()
+        self._run_tx(self._impl_disconnect, name, why)
