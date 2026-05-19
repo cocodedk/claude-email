@@ -241,6 +241,33 @@ class TestPoisonRecovery:
         assert replaced_warnings
         host._conn.close()
 
+    def test_close_failure_during_recovery_is_logged(
+        self, host, tmp_path, caplog,
+    ):
+        """When the swap can't cleanly close the old connection,
+        kind=close_failed must fire at WARNING (spec §3)."""
+        import logging as _logging
+        caplog.set_level(_logging.WARNING, logger="src.chat_db_tx")
+
+        class _BadCloseConn:
+            in_transaction = True
+            def rollback(self):
+                raise sqlite3.OperationalError("forced rollback fail")
+            def close(self):
+                raise sqlite3.OperationalError("forced close fail")
+
+        host._conn = _BadCloseConn()
+        host.path = str(tmp_path / "swap.db")
+        host._check_or_recover_at_depth_zero("test_method")
+        # New conn was opened despite the close failure.
+        assert host._conn is not None
+        assert host._conn != _BadCloseConn()  # different class entirely
+        close_warnings = [r for r in caplog.records
+                          if "kind=close_failed" in r.getMessage()
+                          and "test_method" in r.getMessage()]
+        assert close_warnings, "expected one close_failed warning"
+        host._conn.close()
+
 
 class TestChatDbIntegration:
     def test_trace_callback_fires_on_real_chat_db_traffic(

@@ -84,7 +84,7 @@ class TransactionMixin:
             self._conn.rollback()
         except sqlite3.Error:
             self._lock_event(method_name, "rollback_failed", connection_replaced=True)
-            self._close_and_reopen()
+            self._close_and_reopen(method_name)
 
     def _lock_event(
         self, method_name: str, kind: str, *, connection_replaced: bool = False,
@@ -96,13 +96,18 @@ class TransactionMixin:
             method_name, kind, in_tx, connection_replaced,
         )
 
-    def _close_and_reopen(self) -> None:
-        """Best-effort close of self._conn, then open a fresh one."""
+    def _close_and_reopen(self, method_name: str) -> None:
+        """Best-effort close of self._conn, then open a fresh one.
+
+        Close failures are logged as kind=close_failed (per spec §3) but
+        never propagate — the old fd will be reclaimed by GC even if the
+        sqlite handle refused a clean close.
+        """
         old = self._conn
         try:
             old.close()
         except sqlite3.Error:
-            pass  # GC will reclaim the fd
+            self._lock_event(method_name, "close_failed", connection_replaced=True)
         self._conn = open_conn(self.path, self._trace_cb)
 
     @staticmethod
