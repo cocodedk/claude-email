@@ -15,6 +15,15 @@ HOOK_SCRIPT = os.path.join(_SCRIPTS, "chat-session-start-hook.sh")
 DRAIN_SCRIPT = os.path.join(_SCRIPTS, "chat-drain-inbox.py")
 PRECOMPACT_SCRIPT = os.path.join(_SCRIPTS, "chat-precompact-hook.py")
 POSTTOOL_DRAIN_SCRIPT = os.path.join(_SCRIPTS, "chat-drain-on-bash-commit.sh")
+STOP_HOOK_SCRIPT = os.path.join(_SCRIPTS, "chat-stop-hook.py")
+
+
+def _resolve_script(path: str | None, default: str, name: str) -> str:
+    if path is None:
+        path = default
+    if not os.path.isabs(path):
+        raise ValueError(f"{name} must be absolute; got {path!r}")
+    return path
 
 
 def _load_json_dict(path: str) -> dict:
@@ -87,6 +96,7 @@ def inject_session_start_hook(
     drain_script_path: str | None = None,
     precompact_script_path: str | None = None,
     posttool_drain_script_path: str | None = None,
+    stop_hook_script_path: str | None = None,
 ) -> None:
     """Write .claude/settings.json wiring the chat-bus hooks for this project.
 
@@ -120,30 +130,17 @@ def inject_session_start_hook(
     posttool_drain_script_path defaults to POSTTOOL_DRAIN_SCRIPT (all
     siblings of hook_script_path in the claude-email install).
     """
-    if not os.path.isabs(hook_script_path):
-        raise ValueError(
-            f"hook_script_path must be absolute; got {hook_script_path!r}"
-        )
-    if drain_script_path is None:
-        drain_script_path = DRAIN_SCRIPT
-    if not os.path.isabs(drain_script_path):
-        raise ValueError(
-            f"drain_script_path must be absolute; got {drain_script_path!r}"
-        )
-    if precompact_script_path is None:
-        precompact_script_path = PRECOMPACT_SCRIPT
-    if not os.path.isabs(precompact_script_path):
-        raise ValueError(
-            f"precompact_script_path must be absolute; "
-            f"got {precompact_script_path!r}"
-        )
-    if posttool_drain_script_path is None:
-        posttool_drain_script_path = POSTTOOL_DRAIN_SCRIPT
-    if not os.path.isabs(posttool_drain_script_path):
-        raise ValueError(
-            f"posttool_drain_script_path must be absolute; "
-            f"got {posttool_drain_script_path!r}"
-        )
+    hook_script_path = _resolve_script(hook_script_path, HOOK_SCRIPT, "hook_script_path")
+    drain_script_path = _resolve_script(drain_script_path, DRAIN_SCRIPT, "drain_script_path")
+    precompact_script_path = _resolve_script(
+        precompact_script_path, PRECOMPACT_SCRIPT, "precompact_script_path",
+    )
+    posttool_drain_script_path = _resolve_script(
+        posttool_drain_script_path, POSTTOOL_DRAIN_SCRIPT, "posttool_drain_script_path",
+    )
+    stop_hook_script_path = _resolve_script(
+        stop_hook_script_path, STOP_HOOK_SCRIPT, "stop_hook_script_path",
+    )
     settings_dir = os.path.join(project_dir, ".claude")
     settings_path = os.path.join(settings_dir, "settings.json")
     os.makedirs(settings_dir, exist_ok=True)
@@ -161,7 +158,7 @@ def inject_session_start_hook(
     )
     _merge_hook_event(
         hooks, "Stop", "",
-        [drain_script_path],
+        [drain_script_path, stop_hook_script_path],
     )
     _merge_hook_event(
         hooks, "PreCompact", "",
@@ -173,7 +170,7 @@ def inject_session_start_hook(
     )
     _write_json(settings_path, data)
     logger.info(
-        "Wrote SessionStart + UserPromptSubmit + Stop + PreCompact "
-        "+ PostToolUse hooks to %s",
+        "Wrote SessionStart + UserPromptSubmit + Stop (drain+stop-hook) "
+        "+ PreCompact + PostToolUse hooks to %s",
         settings_path,
     )

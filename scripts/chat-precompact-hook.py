@@ -13,10 +13,9 @@ the hook never blocks the session and never writes to stdout. Sub-agent
 invocations and sibling-owned slots are silently skipped — see
 chat-drain-inbox.py for the same discriminators.
 """
-import json
 import os
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -27,40 +26,12 @@ try:
 except ImportError:
     pass
 
-from src.agent_name import ENV_VAR_NAME, validated_agent_name  # noqa: E402
 from src.chat_db import ChatDB  # noqa: E402
 from src.chat_pid_reclaim import reclaim_pid_best_effort  # noqa: E402
+from src.hook_utils import caller_name as _caller_name  # noqa: E402
+from src.hook_utils import read_hook_payload as _read_hook_payload  # noqa: E402
+from src.hook_utils import resolved_db_path as _resolved_db_path  # noqa: E402
 from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
-
-
-def _resolved_db_path() -> Path:
-    raw = os.environ.get("CHAT_DB_PATH", "")
-    if not raw:
-        raise RuntimeError(
-            "CHAT_DB_PATH not set — expected it in .env (e.g. claude-chat.db).",
-        )
-    p = Path(raw)
-    return p if p.is_absolute() else ROOT / p
-
-
-def _caller_name() -> str:
-    fallback = "agent-" + PurePosixPath(os.getcwd()).name
-    return validated_agent_name(os.environ.get(ENV_VAR_NAME), fallback)
-
-
-def _read_hook_payload() -> dict:
-    try:
-        if sys.stdin.isatty():
-            return {}
-        data = sys.stdin.read()
-    except (OSError, ValueError):
-        return {}
-    if not data.strip():
-        return {}
-    try:
-        return json.loads(data)
-    except json.JSONDecodeError:
-        return {}
 
 
 def main() -> int:
@@ -68,7 +39,7 @@ def main() -> int:
     if payload.get("agent_id"):
         return 0  # subagent — master session owns the bus slot
     try:
-        db_path = _resolved_db_path()
+        db_path = _resolved_db_path(ROOT)
     except RuntimeError as exc:
         print(f"chat-precompact-hook: {exc}", file=sys.stderr)
         return 0

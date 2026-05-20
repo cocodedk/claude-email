@@ -56,6 +56,10 @@ class TestPidReclaim:
             chat_pid_reclaim, "find_ancestor_pid_matching",
             lambda _marker: ancestor_pid,
         )
+        monkeypatch.setattr(
+            chat_pid_reclaim, "find_session_pid_for_cwd",
+            lambda cwd, **kw: None,
+        )
         return db, project
 
     def test_does_not_steal_slot_from_live_sibling(

@@ -16,11 +16,12 @@ from src.process_liveness import is_alive
 DEFAULT_AGENT_STALE_SECS = 1800  # 30 minutes
 
 FLOW_EVENT_TYPES = (
-    "hook_drain_stop",       # Stop hook drained peer messages — lane 01
-    "hook_drain_session",    # SessionStart / UserPromptSubmit drain — lane 02
-    "wake_spawn_start",      # wake_watcher is about to boot an agent — lane 02
-    "wake_spawn_end",        # wake_watcher subprocess finished — lane 02
-    "hook_precompact",       # PreCompact heartbeat across compaction — lane 02
+    "hook_drain_stop",           # Stop hook drained peer messages — lane 01
+    "hook_drain_session",        # SessionStart / UserPromptSubmit drain — lane 02
+    "wake_spawn_start",          # wake_watcher is about to boot an agent — lane 02
+    "wake_spawn_end",            # wake_watcher subprocess finished — lane 02
+    "hook_precompact",           # PreCompact heartbeat across compaction — lane 02
+    "hook_stop_pending_work",    # Stop with unfinished background tasks / crons
 )
 
 

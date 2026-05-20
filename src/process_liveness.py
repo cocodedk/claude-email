@@ -11,8 +11,10 @@ different live Claude session owns this agent slot". The hook scripts
 can't rely on their own PID — they're short-lived helpers — so ownership
 is expressed as ancestry instead of identity.
 """
+import json
 import os
-from pathlib import PurePosixPath
+import subprocess
+from pathlib import Path, PurePosixPath
 
 
 _PPID_WALK_MAX_DEPTH = 64
@@ -88,6 +90,46 @@ def find_ancestor_pid_matching(argv0_basename: str) -> int | None:
             return pid
         pid = _get_ppid(pid)
     return None
+
+
+def find_session_pid_for_cwd(
+    cwd: str,
+    claude_bin: str = "claude",
+) -> int | None:
+    """Return the PID of the live Claude session whose cwd matches ``cwd``.
+
+    Runs ``[claude_bin, "agents", "--json"]`` (shell=False, timeout=5),
+    filters to entries whose cwd resolves to the same path. When multiple
+    sessions share the cwd, returns the one with the highest ``startedAt``
+    (most recently started). Returns None on any failure or no match.
+
+    Intentionally avoids ``is_ancestor_or_self``: that check depends on
+    an intact PPID chain which may be absent in certain spawn layouts,
+    causing the function to return None for the correct session. Callers
+    that need to distinguish self from sibling can apply that check
+    separately.
+    """
+    try:
+        result = subprocess.run(
+            [claude_bin, "agents", "--json"],
+            capture_output=True, text=True, timeout=5, shell=False,
+        )
+        sessions = json.loads(result.stdout)
+    except Exception:
+        return None
+    resolved = str(Path(cwd).resolve())
+    matches = [
+        s for s in sessions
+        if isinstance(s, dict)
+        and s.get("cwd")
+        and str(Path(s["cwd"]).resolve()) == resolved
+        and isinstance(s.get("pid"), int)
+        and s["pid"] > 0
+    ]
+    if not matches:
+        return None
+    best = max(matches, key=lambda s: s.get("startedAt", 0))
+    return best["pid"]
 
 
 def is_alive(pid: int) -> bool:

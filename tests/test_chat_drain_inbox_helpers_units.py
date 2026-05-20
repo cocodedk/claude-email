@@ -53,21 +53,6 @@ class TestReadHookEvent:
         assert drain_mod._read_hook_payload() == {}
 
 
-class TestResolvedDbPath:
-    def test_relative_resolves_against_repo_root(self, drain_mod, monkeypatch):
-        monkeypatch.setenv("CHAT_DB_PATH", "claude-chat.db")
-        assert drain_mod._resolved_db_path() == _REPO_ROOT / "claude-chat.db"
-
-    def test_absolute_returned_as_is(self, drain_mod, monkeypatch, tmp_path):
-        abs_db = tmp_path / "chat.db"
-        monkeypatch.setenv("CHAT_DB_PATH", str(abs_db))
-        assert drain_mod._resolved_db_path() == abs_db
-
-    def test_missing_env_raises(self, drain_mod, monkeypatch):
-        monkeypatch.delenv("CHAT_DB_PATH", raising=False)
-        with pytest.raises(RuntimeError, match="CHAT_DB_PATH"):
-            drain_mod._resolved_db_path()
-
 
 class TestFormatContext:
     def test_single_message(self, drain_mod):

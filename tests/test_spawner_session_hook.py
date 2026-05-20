@@ -14,8 +14,9 @@ class TestInjectSessionStartHook:
         from src.spawner import inject_session_start_hook
         precompact = "/opt/claude-email/scripts/chat-precompact-hook.py"
         posttool = "/opt/claude-email/scripts/chat-drain-on-bash-commit.sh"
+        stop_hook = "/opt/claude-email/scripts/chat-stop-hook.py"
         inject_session_start_hook(
-            str(tmp_path), self.HOOK, self.DRAIN, precompact, posttool,
+            str(tmp_path), self.HOOK, self.DRAIN, precompact, posttool, stop_hook,
         )
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         assert data == {
@@ -33,7 +34,10 @@ class TestInjectSessionStartHook:
                 }],
                 "Stop": [{
                     "matcher": "",
-                    "hooks": [{"type": "command", "command": self.DRAIN}],
+                    "hooks": [
+                        {"type": "command", "command": self.DRAIN},
+                        {"type": "command", "command": stop_hook},
+                    ],
                 }],
                 "PreCompact": [{
                     "matcher": "",
@@ -191,7 +195,8 @@ class TestInjectSessionStartHook:
         data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
         stop_entries = data["hooks"]["Stop"]
         our_cmds = [h["command"] for h in stop_entries[0]["hooks"]]
-        assert our_cmds == [self.DRAIN]
+        from src.agent_bootstrap import STOP_HOOK_SCRIPT
+        assert our_cmds == [self.DRAIN, STOP_HOOK_SCRIPT]
         # The "junk" entry is dropped; the "real" entry survives with its
         # matcher and command intact.
         surviving_matchers = {e.get("matcher") for e in stop_entries[1:]}
