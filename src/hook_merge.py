@@ -11,6 +11,7 @@ _OUR_SCRIPT_BASENAMES = {
     "chat-drain-inbox.py",
     "chat-precompact-hook.py",
     "chat-drain-on-bash-commit.sh",
+    "chat-stop-hook.py",
 }
 
 
