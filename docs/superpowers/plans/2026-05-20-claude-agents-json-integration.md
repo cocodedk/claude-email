@@ -14,10 +14,13 @@
 
 | File | Action | Responsibility |
 |------|--------|----------------|
+| `src/hook_utils.py` | Create | Shared hook helpers: `resolved_db_path`, `caller_name`, `read_hook_payload` |
 | `src/process_liveness.py` | Modify | Add `find_session_pid_for_cwd()` |
-| `src/chat_pid_reclaim.py` | Modify | Use new function as primary; PPID walk as fallback |
-| `src/agent_bootstrap.py` | Modify | Add `STOP_HOOK_SCRIPT`; add `stop_hook_script_path` param; wire into Stop event |
+| `src/chat_pid_reclaim.py` | Modify | Use new function when stored PID is stale; PPID walk as fallback |
+| `src/agent_bootstrap.py` | Modify | Add `_resolve_script()` helper; `STOP_HOOK_SCRIPT`; wire into Stop event |
+| `scripts/chat-precompact-hook.py` | Modify | Import shared helpers from `src/hook_utils` |
 | `scripts/chat-stop-hook.py` | Create | Read Stop payload; log flow event on pending work |
+| `tests/test_hook_utils.py` | Create | Tests for `src/hook_utils` shared helpers |
 | `tests/test_process_liveness_session_pid.py` | Create | Tests for `find_session_pid_for_cwd` |
 | `tests/test_chat_pid_reclaim_session_pid.py` | Create | Tests for updated reclaim order (new primary path) |
 | `tests/test_chat_drain_inbox_pid_reclaim_noops.py` | Modify | Mock new function so existing tests still test PPID-walk fallback |
@@ -27,6 +30,204 @@
 | `tests/test_chat_stop_hook_skip.py` | Create | Subagent skip, stdin edge cases |
 | `tests/test_chat_stop_hook_emission.py` | Create | Flow event emitted for background_tasks / session_crons |
 | `tests/test_chat_stop_hook_fail_open.py` | Create | DB errors exit 0 |
+
+---
+
+## Task 0: Extract `src/hook_utils.py` — shared hook helpers
+
+`_resolved_db_path`, `_caller_name`, and `_read_hook_payload` are duplicated verbatim between `chat-precompact-hook.py` and the new `chat-stop-hook.py`. Extract them once and import.
+
+**Files:**
+- Create: `src/hook_utils.py`
+- Modify: `scripts/chat-precompact-hook.py`
+- Create: `tests/test_hook_utils.py`
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `tests/test_hook_utils.py`:
+
+```python
+"""Tests for src.hook_utils — shared helpers for hook scripts."""
+import io
+import json
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+
+class TestResolvedDbPath:
+    def test_absolute_path_returned_as_is(self, monkeypatch, tmp_path):
+        from src.hook_utils import resolved_db_path
+        p = tmp_path / "bus.db"
+        monkeypatch.setenv("CHAT_DB_PATH", str(p))
+        assert resolved_db_path(tmp_path) == p
+
+    def test_relative_path_resolved_against_root(self, monkeypatch, tmp_path):
+        from src.hook_utils import resolved_db_path
+        monkeypatch.setenv("CHAT_DB_PATH", "bus.db")
+        assert resolved_db_path(tmp_path) == tmp_path / "bus.db"
+
+    def test_raises_when_env_not_set(self, monkeypatch, tmp_path):
+        from src.hook_utils import resolved_db_path
+        monkeypatch.delenv("CHAT_DB_PATH", raising=False)
+        with pytest.raises(RuntimeError, match="CHAT_DB_PATH"):
+            resolved_db_path(tmp_path)
+
+
+class TestCallerName:
+    def test_uses_env_var_when_set(self, monkeypatch, tmp_path):
+        from src.hook_utils import caller_name
+        monkeypatch.setenv("CLAUDE_AGENT_NAME", "agent-foo")
+        monkeypatch.chdir(tmp_path)
+        assert caller_name() == "agent-foo"
+
+    def test_falls_back_to_cwd_basename(self, monkeypatch, tmp_path):
+        from src.hook_utils import caller_name
+        monkeypatch.delenv("CLAUDE_AGENT_NAME", raising=False)
+        project = tmp_path / "myproject"
+        project.mkdir()
+        monkeypatch.chdir(project)
+        assert caller_name() == "agent-myproject"
+
+
+class TestReadHookPayload:
+    def test_parses_json_from_stdin(self, monkeypatch):
+        from src.hook_utils import read_hook_payload
+        monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"key": "val"})))
+        assert read_hook_payload() == {"key": "val"}
+
+    def test_returns_empty_on_tty(self, monkeypatch):
+        from src.hook_utils import read_hook_payload
+        class FakeTty:
+            def isatty(self): return True
+            def read(self): return ""
+        monkeypatch.setattr(sys, "stdin", FakeTty())
+        assert read_hook_payload() == {}
+
+    def test_returns_empty_on_invalid_json(self, monkeypatch):
+        from src.hook_utils import read_hook_payload
+        monkeypatch.setattr(sys, "stdin", io.StringIO("not-json"))
+        assert read_hook_payload() == {}
+
+    def test_returns_empty_on_empty_stdin(self, monkeypatch):
+        from src.hook_utils import read_hook_payload
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        assert read_hook_payload() == {}
+```
+
+- [ ] **Step 2: Run tests to confirm they fail**
+
+```
+.venv/bin/pytest tests/test_hook_utils.py -v
+```
+
+Expected: `ModuleNotFoundError: No module named 'src.hook_utils'`
+
+- [ ] **Step 3: Create `src/hook_utils.py`**
+
+```python
+"""Shared helpers for claude-email hook scripts.
+
+Extracted from chat-precompact-hook.py to avoid duplication across hook
+scripts. Import these instead of re-implementing in each script.
+"""
+import json
+import os
+import sys
+from pathlib import Path, PurePosixPath
+
+from src.agent_name import ENV_VAR_NAME, validated_agent_name
+
+
+def resolved_db_path(root: Path) -> Path:
+    """Return the absolute Path to the chat DB, or raise RuntimeError."""
+    raw = os.environ.get("CHAT_DB_PATH", "")
+    if not raw:
+        raise RuntimeError(
+            "CHAT_DB_PATH not set — expected it in .env (e.g. claude-chat.db).",
+        )
+    p = Path(raw)
+    return p if p.is_absolute() else root / p
+
+
+def caller_name() -> str:
+    """Return the agent name from env, falling back to cwd basename."""
+    fallback = "agent-" + PurePosixPath(os.getcwd()).name
+    return validated_agent_name(os.environ.get(ENV_VAR_NAME), fallback)
+
+
+def read_hook_payload() -> dict:
+    """Read and parse the JSON hook payload from stdin. Returns {} on any failure."""
+    try:
+        if sys.stdin.isatty():
+            return {}
+        data = sys.stdin.read()
+    except (OSError, ValueError):
+        return {}
+    if not data.strip():
+        return {}
+    try:
+        return json.loads(data)
+    except json.JSONDecodeError:
+        return {}
+```
+
+- [ ] **Step 4: Run tests to confirm they pass**
+
+```
+.venv/bin/pytest tests/test_hook_utils.py -v
+```
+
+Expected: all 9 tests PASS.
+
+- [ ] **Step 5: Update `scripts/chat-precompact-hook.py` to import from `src/hook_utils`**
+
+Replace the three duplicate function definitions (`_resolved_db_path`, `_caller_name`, `_read_hook_payload`) with imports from `src.hook_utils`. Change the import block from:
+
+```python
+from src.agent_name import ENV_VAR_NAME, validated_agent_name  # noqa: E402
+from src.chat_db import ChatDB  # noqa: E402
+from src.chat_pid_reclaim import reclaim_pid_best_effort  # noqa: E402
+from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
+```
+
+to:
+
+```python
+from src.chat_db import ChatDB  # noqa: E402
+from src.chat_pid_reclaim import reclaim_pid_best_effort  # noqa: E402
+from src.hook_utils import caller_name as _caller_name  # noqa: E402
+from src.hook_utils import read_hook_payload as _read_hook_payload  # noqa: E402
+from src.hook_utils import resolved_db_path as _resolved_db_path  # noqa: E402
+from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
+```
+
+Delete the three function bodies (`_resolved_db_path`, `_caller_name`, `_read_hook_payload`) from the script. Update the two call sites: `_resolved_db_path()` → `_resolved_db_path(ROOT)` and `_caller_name()` → `_caller_name()` (unchanged). Also remove the `from pathlib import Path, PurePosixPath` import since `PurePosixPath` was only used in `_caller_name` — keep only `Path`.
+
+- [ ] **Step 6: Run the precompact hook tests to confirm no regressions**
+
+```
+.venv/bin/pytest tests/test_chat_precompact_hook_emission.py tests/test_chat_precompact_hook_fail_open.py tests/test_chat_precompact_hook_skip.py tests/test_chat_precompact_hook_misc.py -v
+```
+
+Expected: all pass.
+
+- [ ] **Step 7: Run full suite**
+
+```
+.venv/bin/pytest tests/ -q
+```
+
+Expected: 1582 + 9 = 1591 passed.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add src/hook_utils.py tests/test_hook_utils.py scripts/chat-precompact-hook.py
+git commit -m "refactor(hooks): extract shared helpers into src/hook_utils.py"
+```
 
 ---
 
@@ -50,7 +251,7 @@ import pytest
 
 class TestFindSessionPidForCwd:
 
-    def _run(self, monkeypatch, sessions: list, cwd: str = "/proj/foo"):
+    def _run(self, monkeypatch, sessions: list, cwd: str):
         import src.process_liveness as pl
         monkeypatch.setattr(
             pl.subprocess, "run",
@@ -61,42 +262,32 @@ class TestFindSessionPidForCwd:
         return pl.find_session_pid_for_cwd(cwd)
 
     def test_matches_exact_cwd(self, monkeypatch, tmp_path):
-        import src.process_liveness as pl
         sessions = [{"pid": 42, "cwd": str(tmp_path), "startedAt": 1000}]
-        monkeypatch.setattr(
-            pl.subprocess, "run",
-            lambda cmd, **kw: type(
-                "R", (), {"stdout": json.dumps(sessions), "returncode": 0}
-            )(),
-        )
-        assert pl.find_session_pid_for_cwd(str(tmp_path)) == 42
+        assert self._run(monkeypatch, sessions, str(tmp_path)) == 42
 
     def test_returns_none_when_no_cwd_match(self, monkeypatch, tmp_path):
-        import src.process_liveness as pl
-        other = str(tmp_path / "other")
-        sessions = [{"pid": 99, "cwd": other, "startedAt": 1000}]
-        monkeypatch.setattr(
-            pl.subprocess, "run",
-            lambda cmd, **kw: type(
-                "R", (), {"stdout": json.dumps(sessions), "returncode": 0}
-            )(),
-        )
-        assert pl.find_session_pid_for_cwd(str(tmp_path)) is None
+        sessions = [{"pid": 99, "cwd": str(tmp_path / "other"), "startedAt": 1000}]
+        assert self._run(monkeypatch, sessions, str(tmp_path)) is None
 
     def test_picks_highest_started_at_on_multiple_matches(self, monkeypatch, tmp_path):
-        import src.process_liveness as pl
         sessions = [
             {"pid": 10, "cwd": str(tmp_path), "startedAt": 500},
             {"pid": 20, "cwd": str(tmp_path), "startedAt": 1500},
             {"pid": 15, "cwd": str(tmp_path), "startedAt": 1000},
         ]
-        monkeypatch.setattr(
-            pl.subprocess, "run",
-            lambda cmd, **kw: type(
-                "R", (), {"stdout": json.dumps(sessions), "returncode": 0}
-            )(),
-        )
-        assert pl.find_session_pid_for_cwd(str(tmp_path)) == 20
+        assert self._run(monkeypatch, sessions, str(tmp_path)) == 20
+
+    def test_returns_none_on_non_positive_pid(self, monkeypatch, tmp_path):
+        sessions = [{"pid": 0, "cwd": str(tmp_path), "startedAt": 1000}]
+        assert self._run(monkeypatch, sessions, str(tmp_path)) is None
+
+    def test_returns_none_when_cwd_field_missing(self, monkeypatch, tmp_path):
+        sessions = [{"pid": 42, "startedAt": 1000}]
+        assert self._run(monkeypatch, sessions, str(tmp_path)) is None
+
+    def test_returns_none_when_cwd_field_empty(self, monkeypatch, tmp_path):
+        sessions = [{"pid": 42, "cwd": "", "startedAt": 1000}]
+        assert self._run(monkeypatch, sessions, str(tmp_path)) is None
 
     def test_returns_none_on_subprocess_exception(self, monkeypatch, tmp_path):
         import src.process_liveness as pl
@@ -114,17 +305,6 @@ class TestFindSessionPidForCwd:
         )
         assert pl.find_session_pid_for_cwd(str(tmp_path)) is None
 
-    def test_returns_none_on_non_positive_pid(self, monkeypatch, tmp_path):
-        import src.process_liveness as pl
-        sessions = [{"pid": 0, "cwd": str(tmp_path), "startedAt": 1000}]
-        monkeypatch.setattr(
-            pl.subprocess, "run",
-            lambda *a, **kw: type(
-                "R", (), {"stdout": json.dumps(sessions), "returncode": 0}
-            )(),
-        )
-        assert pl.find_session_pid_for_cwd(str(tmp_path)) is None
-
     def test_uses_custom_claude_bin(self, monkeypatch, tmp_path):
         import src.process_liveness as pl
         captured = {}
@@ -137,19 +317,12 @@ class TestFindSessionPidForCwd:
         assert captured["cmd"][0] == "/opt/bin/claude"
 
     def test_resolves_cwd_symlinks(self, monkeypatch, tmp_path):
-        import src.process_liveness as pl
         real = tmp_path / "real"
         real.mkdir()
         link = tmp_path / "link"
         link.symlink_to(real)
         sessions = [{"pid": 55, "cwd": str(real), "startedAt": 1000}]
-        monkeypatch.setattr(
-            pl.subprocess, "run",
-            lambda *a, **kw: type(
-                "R", (), {"stdout": json.dumps(sessions)}
-            )(),
-        )
-        assert pl.find_session_pid_for_cwd(str(link)) == 55
+        assert self._run(monkeypatch, sessions, str(link)) == 55
 ```
 
 - [ ] **Step 2: Run tests to confirm they fail**
@@ -198,7 +371,8 @@ def find_session_pid_for_cwd(
     matches = [
         s for s in sessions
         if isinstance(s, dict)
-        and str(Path(s.get("cwd", "")).resolve()) == resolved
+        and s.get("cwd")
+        and str(Path(s["cwd"]).resolve()) == resolved
     ]
     if not matches:
         return None
@@ -213,7 +387,7 @@ def find_session_pid_for_cwd(
 .venv/bin/pytest tests/test_process_liveness_session_pid.py -v
 ```
 
-Expected: all 8 tests PASS.
+Expected: all 10 tests PASS.
 
 - [ ] **Step 5: Run full suite to confirm no regressions**
 
@@ -221,7 +395,7 @@ Expected: all 8 tests PASS.
 .venv/bin/pytest tests/ -q
 ```
 
-Expected: 1582 passed (+ 8 new = 1590 passed).
+Expected: 1591 passed (+ 10 new = 1601 passed).
 
 - [ ] **Step 6: Commit**
 
@@ -314,6 +488,27 @@ class TestReclaimPrimaryPath:
         from src.chat_pid_reclaim import reclaim_pid_best_effort
         reclaim_pid_best_effort(db, "agent-proj", str(project))
         assert calls == []
+
+    def test_skips_subprocess_when_stored_pid_is_ancestor(
+        self, tmp_path, monkeypatch,
+    ):
+        """Hot-path guard: if stored pid IS our ancestor, skip the subprocess call."""
+        me = os.getpid()
+        db, project = self._setup(tmp_path, monkeypatch, None, None)
+        from src import chat_pid_reclaim
+        subprocess_calls: list = []
+        monkeypatch.setattr(
+            chat_pid_reclaim, "find_session_pid_for_cwd",
+            lambda cwd, **kw: subprocess_calls.append("called") or None,
+        )
+        monkeypatch.setattr(
+            chat_pid_reclaim, "is_ancestor_or_self",
+            lambda pid: pid == me,
+        )
+        db.register_agent("agent-proj", str(project), pid=me)
+        from src.chat_pid_reclaim import reclaim_pid_best_effort
+        reclaim_pid_best_effort(db, "agent-proj", str(project))
+        assert subprocess_calls == []
 ```
 
 - [ ] **Step 2: Run tests to confirm they fail**
@@ -326,11 +521,23 @@ Expected: `AttributeError: module 'src.chat_pid_reclaim' has no attribute 'find_
 
 - [ ] **Step 3: Update `src/chat_pid_reclaim.py`**
 
-Add the import and `_CLAUDE_BIN` constant (after the existing `_CLAUDE_CMDLINE_MARKER` line), then update `reclaim_pid_best_effort`:
+Add the import and `_CLAUDE_BIN` constant. Change the import line from:
 
 ```python
-from src.process_liveness import find_ancestor_pid_matching, find_session_pid_for_cwd
+from src.process_liveness import find_ancestor_pid_matching, is_ancestor_or_self
+```
 
+to:
+
+```python
+from src.process_liveness import (
+    find_ancestor_pid_matching, find_session_pid_for_cwd, is_ancestor_or_self,
+)
+```
+
+Add `_CLAUDE_BIN` after `_CLAUDE_CMDLINE_MARKER`:
+
+```python
 _CLAUDE_CMDLINE_MARKER = os.environ.get("CLAUDE_PROCESS_MARKER", "claude")
 _CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 ```
@@ -341,17 +548,32 @@ In `reclaim_pid_best_effort`, replace:
         claude_pid = find_ancestor_pid_matching(_CLAUDE_CMDLINE_MARKER)
         if claude_pid is None:
             return
+        agent = db.get_agent(caller)
+        if agent is None:
+            return
+        if agent.get("pid") == claude_pid:
+            return
 ```
 
 with:
 
 ```python
+        agent = db.get_agent(caller)
+        if agent is None:
+            return
+        stored_pid = agent.get("pid")
+        if stored_pid and is_ancestor_or_self(stored_pid):
+            return  # stored pid IS our ancestor — row already correct
         claude_pid = find_session_pid_for_cwd(cwd, claude_bin=_CLAUDE_BIN)
         if claude_pid is None:
             claude_pid = find_ancestor_pid_matching(_CLAUDE_CMDLINE_MARKER)
         if claude_pid is None:
             return
+        if stored_pid == claude_pid:
+            return
 ```
+
+The `is_ancestor_or_self` early-exit means `find_session_pid_for_cwd` (a subprocess call) only fires when the stored PID is stale or missing — not on every drain tick when the session is healthy.
 
 - [ ] **Step 4: Patch existing pid reclaim tests to mock the new function**
 
@@ -599,10 +821,8 @@ are present (and non-empty), logs a hook_stop_pending_work flow event so the
 dashboard shows the session stopped with unfinished work. Best-effort
 telemetry — always exits 0.
 """
-import json
-import os
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -613,40 +833,12 @@ try:
 except ImportError:
     pass
 
-from src.agent_name import ENV_VAR_NAME, validated_agent_name  # noqa: E402
 from src.chat_db import ChatDB  # noqa: E402
-
-
-def _resolved_db_path() -> Path:
-    raw = os.environ.get("CHAT_DB_PATH", "")
-    if not raw:
-        raise RuntimeError("CHAT_DB_PATH not set")
-    p = Path(raw)
-    return p if p.is_absolute() else ROOT / p
-
-
-def _caller_name() -> str:
-    fallback = "agent-" + PurePosixPath(os.getcwd()).name
-    return validated_agent_name(os.environ.get(ENV_VAR_NAME), fallback)
-
-
-def _read_payload() -> dict:
-    try:
-        if sys.stdin.isatty():
-            return {}
-        data = sys.stdin.read()
-    except (OSError, ValueError):
-        return {}
-    if not data.strip():
-        return {}
-    try:
-        return json.loads(data)
-    except json.JSONDecodeError:
-        return {}
+from src.hook_utils import caller_name, read_hook_payload, resolved_db_path  # noqa: E402
 
 
 def main() -> int:
-    payload = _read_payload()
+    payload = read_hook_payload()
     if payload.get("agent_id"):
         return 0
     background_tasks = payload.get("background_tasks") or []
@@ -654,7 +846,7 @@ def main() -> int:
     if not background_tasks and not session_crons:
         return 0
     try:
-        db_path = _resolved_db_path()
+        db_path = resolved_db_path(ROOT)
     except RuntimeError as exc:
         print(f"chat-stop-hook: {exc}", file=sys.stderr)
         return 0
@@ -666,10 +858,9 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"chat-stop-hook: cannot open DB: {exc}", file=sys.stderr)
         return 0
-    caller = _caller_name()
     summary = f"background_tasks={len(background_tasks)} session_crons={len(session_crons)}"
     try:
-        db._log_event(caller, "hook_stop_pending_work", summary)
+        db._log_event(caller_name(), "hook_stop_pending_work", summary)
     except Exception as exc:  # noqa: BLE001
         print(f"chat-stop-hook: log event failed: {exc}", file=sys.stderr)
     return 0
@@ -752,22 +943,40 @@ Expected: FAIL — Stop hook list has 1 command, expected 2.
 
 - [ ] **Step 3: Update `src/agent_bootstrap.py`**
 
+Add `_resolve_script` helper at module level (after the existing imports, before the constants) to replace the repeated `if None → default; if not isabs → raise` pattern that appears for each script parameter:
+
+```python
+def _resolve_script(path: str | None, default: str, name: str) -> str:
+    if path is None:
+        path = default
+    if not os.path.isabs(path):
+        raise ValueError(f"{name} must be absolute; got {path!r}")
+    return path
+```
+
 Add the constant after `POSTTOOL_DRAIN_SCRIPT`:
 
 ```python
 STOP_HOOK_SCRIPT = os.path.join(_SCRIPTS, "chat-stop-hook.py")
 ```
 
-Add `stop_hook_script_path: str | None = None` parameter to `inject_session_start_hook` after `posttool_drain_script_path`. Add its validation block after the `posttool_drain_script_path` validation (same pattern):
+Replace all five validation blocks in `inject_session_start_hook` with `_resolve_script` calls:
 
 ```python
-    if stop_hook_script_path is None:
-        stop_hook_script_path = STOP_HOOK_SCRIPT
-    if not os.path.isabs(stop_hook_script_path):
-        raise ValueError(
-            f"stop_hook_script_path must be absolute; got {stop_hook_script_path!r}"
-        )
+    hook_script_path = _resolve_script(hook_script_path, HOOK_SCRIPT, "hook_script_path")
+    drain_script_path = _resolve_script(drain_script_path, DRAIN_SCRIPT, "drain_script_path")
+    precompact_script_path = _resolve_script(
+        precompact_script_path, PRECOMPACT_SCRIPT, "precompact_script_path",
+    )
+    posttool_drain_script_path = _resolve_script(
+        posttool_drain_script_path, POSTTOOL_DRAIN_SCRIPT, "posttool_drain_script_path",
+    )
+    stop_hook_script_path = _resolve_script(
+        stop_hook_script_path, STOP_HOOK_SCRIPT, "stop_hook_script_path",
+    )
 ```
+
+Add `stop_hook_script_path: str | None = None` as the last parameter of `inject_session_start_hook`.
 
 Change the Stop event merge from:
 
