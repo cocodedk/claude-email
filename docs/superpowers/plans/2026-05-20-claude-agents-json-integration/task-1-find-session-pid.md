@@ -20,7 +20,7 @@ import pytest
 
 class TestFindSessionPidForCwd:
 
-    def _run(self, monkeypatch, sessions: list, cwd: str):
+    def _run(self, monkeypatch, sessions: list, cwd: str, ancestor_pids: set | None = None):
         import src.process_liveness as pl
         monkeypatch.setattr(
             pl.subprocess, "run",
@@ -28,6 +28,10 @@ class TestFindSessionPidForCwd:
                 "R", (), {"stdout": json.dumps(sessions), "returncode": 0}
             )(),
         )
+        if ancestor_pids is None:
+            monkeypatch.setattr(pl, "is_ancestor_or_self", lambda pid: True)
+        else:
+            monkeypatch.setattr(pl, "is_ancestor_or_self", lambda pid: pid in ancestor_pids)
         return pl.find_session_pid_for_cwd(cwd)
 
     def test_matches_exact_cwd(self, monkeypatch, tmp_path):
@@ -44,7 +48,11 @@ class TestFindSessionPidForCwd:
             {"pid": 20, "cwd": str(tmp_path), "startedAt": 1500},
             {"pid": 15, "cwd": str(tmp_path), "startedAt": 1000},
         ]
-        assert self._run(monkeypatch, sessions, str(tmp_path)) == 20
+        assert self._run(monkeypatch, sessions, str(tmp_path), ancestor_pids={10, 20, 15}) == 20
+
+    def test_returns_none_when_no_ancestor_match(self, monkeypatch, tmp_path):
+        sessions = [{"pid": 42, "cwd": str(tmp_path), "startedAt": 1000}]
+        assert self._run(monkeypatch, sessions, str(tmp_path), ancestor_pids=set()) is None
 
     def test_returns_none_on_non_positive_pid(self, monkeypatch, tmp_path):
         sessions = [{"pid": 0, "cwd": str(tmp_path), "startedAt": 1000}]
@@ -120,13 +128,14 @@ def find_session_pid_for_cwd(
     cwd: str,
     claude_bin: str = "claude",
 ) -> int | None:
-    """Return the PID of the live Claude session whose cwd matches ``cwd``.
+    """Return the PID of the live Claude session whose cwd matches ``cwd``
+    and is an ancestor of the current process.
 
-    Runs ``[claude_bin, "agents", "--json"]`` (shell=False, timeout=5) and
-    returns the pid of the session whose cwd resolves to the same path.
-    When multiple sessions share the cwd, returns the one with the highest
-    ``startedAt`` (most recently started). Returns None on any failure or
-    no match — callers fall back to find_ancestor_pid_matching.
+    Runs ``[claude_bin, "agents", "--json"]`` (shell=False, timeout=5),
+    filters to entries whose cwd resolves to the same path AND whose pid
+    passes ``is_ancestor_or_self`` (so sibling sessions sharing the same
+    cwd are excluded). Among remaining candidates picks the one with the
+    highest ``startedAt``. Returns None on any failure or no match.
     """
     try:
         result = subprocess.run(
@@ -143,11 +152,14 @@ def find_session_pid_for_cwd(
         and s.get("cwd")
         and str(Path(s["cwd"]).resolve()) == resolved
     ]
-    if not matches:
+    ancestor_matches = [
+        s for s in matches
+        if isinstance(s.get("pid"), int) and is_ancestor_or_self(s["pid"])
+    ]
+    if not ancestor_matches:
         return None
-    best = max(matches, key=lambda s: s.get("startedAt", 0))
-    pid = best.get("pid")
-    return pid if isinstance(pid, int) and pid > 0 else None
+    best = max(ancestor_matches, key=lambda s: s.get("startedAt", 0))
+    return best["pid"]
 ```
 
 - [ ] **Step 4: Run tests to confirm they pass**

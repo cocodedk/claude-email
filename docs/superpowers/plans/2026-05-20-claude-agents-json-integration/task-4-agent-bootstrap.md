@@ -112,9 +112,29 @@ Expected: all pass.
 
 Expected: all tests pass. Note the new total.
 
+- [ ] **Step 5b: Register `chat-stop-hook.py` in `src/hook_merge.py`**
+
+Open `src/hook_merge.py` and find `_OUR_SCRIPT_BASENAMES` (line ~9). Add `"chat-stop-hook.py"` so the idempotency guard recognises the new stop hook and won't inject it twice on subsequent calls:
+
+```python
+_OUR_SCRIPT_BASENAMES = {
+    "chat-session-start-hook.sh",
+    "chat-drain-inbox.py",
+    "chat-precompact-hook.py",
+    "chat-drain-on-bash-commit.sh",
+    "chat-stop-hook.py",
+}
+```
+
+Confirm the existing `test_spawner_session_hook.py` idempotency tests still pass after this change:
+
+```
+.venv/bin/pytest tests/test_spawner_session_hook.py -v
+```
+
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/agent_bootstrap.py tests/test_spawner_session_hook.py
+git add src/agent_bootstrap.py src/hook_merge.py tests/test_spawner_session_hook.py
 git commit -m "feat(agent_bootstrap): wire chat-stop-hook.py into Stop event"
 ```

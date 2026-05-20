@@ -56,9 +56,19 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"chat-stop-hook: cannot open DB: {exc}", file=sys.stderr)
         return 0
+    from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
+    caller = caller_name()
+    agent = db.get_agent(caller)
+    if (
+        agent is not None
+        and agent["pid"] is not None
+        and not is_ancestor_or_self(agent["pid"])
+        and is_alive(agent["pid"])
+    ):
+        return 0  # sibling session owns this slot
     summary = f"background_tasks={len(background_tasks)} session_crons={len(session_crons)}"
     try:
-        db._log_event(caller_name(), "hook_stop_pending_work", summary)
+        db._log_event(caller, "hook_stop_pending_work", summary)
     except Exception as exc:  # noqa: BLE001
         print(f"chat-stop-hook: log event failed: {exc}", file=sys.stderr)
     return 0
@@ -67,6 +77,20 @@ def main() -> int:
 if __name__ == "__main__":
     sys.exit(main())
 ```
+
+- [ ] **Step 3b: Register the new event type in `src/dashboard_queries.py`**
+
+Open `src/dashboard_queries.py` and find `FLOW_EVENT_TYPES` (line ~18). Add `"hook_stop_pending_work"` to the tuple:
+
+```python
+FLOW_EVENT_TYPES = (
+    "agent_spawned",
+    "hook_precompact_warning",
+    "hook_stop_pending_work",
+)
+```
+
+Run `grep -n "FLOW_EVENT_TYPES" src/dashboard_queries.py` first to confirm current line and existing entries, then add the new entry.
 
 - [ ] **Step 4: Make it executable**
 
