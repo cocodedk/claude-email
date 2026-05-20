@@ -12,9 +12,12 @@ import sys
 from src.agent_name import ENV_VAR_NAME, validated_agent_name
 from src.chat_db import ChatDB
 from src.chat_errors import AgentNameTaken, AgentProjectTaken
-from src.process_liveness import find_ancestor_pid_matching
+from src.process_liveness import (
+    find_ancestor_pid_matching, find_session_pid_for_cwd, is_ancestor_or_self,
+)
 
 _CLAUDE_CMDLINE_MARKER = os.environ.get("CLAUDE_PROCESS_MARKER", "claude")
+_CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 
 
 def reclaim_pid_best_effort(db: ChatDB, caller: str, cwd: str) -> None:
@@ -40,13 +43,18 @@ def reclaim_pid_best_effort(db: ChatDB, caller: str, cwd: str) -> None:
     — a broken bus must not block drain.
     """
     try:
-        claude_pid = find_ancestor_pid_matching(_CLAUDE_CMDLINE_MARKER)
-        if claude_pid is None:
-            return
         agent = db.get_agent(caller)
         if agent is None:
             return
-        if agent.get("pid") == claude_pid:
+        stored_pid = agent.get("pid")
+        if stored_pid and is_ancestor_or_self(stored_pid):
+            return  # stored pid IS our ancestor — row already correct
+        claude_pid = find_session_pid_for_cwd(cwd, claude_bin=_CLAUDE_BIN)
+        if claude_pid is None:
+            claude_pid = find_ancestor_pid_matching(_CLAUDE_CMDLINE_MARKER)
+        if claude_pid is None:
+            return
+        if stored_pid == claude_pid:
             return
         try:
             db.register_agent(caller, cwd, pid=claude_pid)
