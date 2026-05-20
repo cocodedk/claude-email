@@ -69,4 +69,4 @@ def reclaim_pid_best_effort(db: ChatDB, caller: str, cwd: str) -> None:
                 db.update_agent_pid(caller, claude_pid)
                 db.update_agent_status(caller, "running")
     except Exception as exc:  # noqa: BLE001
-        print(f"chat-drain-inbox: pid reclaim failed: {exc}", file=sys.stderr)
+        print(f"chat: pid reclaim failed: {exc}", file=sys.stderr)

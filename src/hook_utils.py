@@ -6,7 +6,7 @@ scripts. Import these instead of re-implementing in each script.
 import json
 import os
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from src.agent_name import ENV_VAR_NAME, validated_agent_name
 
@@ -24,7 +24,7 @@ def resolved_db_path(root: Path) -> Path:
 
 def caller_name() -> str:
     """Return the agent name from env, falling back to cwd basename."""
-    fallback = "agent-" + PurePosixPath(os.getcwd()).name
+    fallback = "agent-" + Path(os.getcwd()).name
     return validated_agent_name(os.environ.get(ENV_VAR_NAME), fallback)
 
 

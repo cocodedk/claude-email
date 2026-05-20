@@ -96,14 +96,18 @@ def find_session_pid_for_cwd(
     cwd: str,
     claude_bin: str = "claude",
 ) -> int | None:
-    """Return the PID of the live Claude session whose cwd matches ``cwd``
-    and is an ancestor of the current process.
+    """Return the PID of the live Claude session whose cwd matches ``cwd``.
 
     Runs ``[claude_bin, "agents", "--json"]`` (shell=False, timeout=5),
-    filters to entries whose cwd resolves to the same path AND whose pid
-    passes ``is_ancestor_or_self`` (so sibling sessions sharing the same
-    cwd are excluded). Among remaining candidates picks the one with the
-    highest ``startedAt``. Returns None on any failure or no match.
+    filters to entries whose cwd resolves to the same path. When multiple
+    sessions share the cwd, returns the one with the highest ``startedAt``
+    (most recently started). Returns None on any failure or no match.
+
+    Intentionally avoids ``is_ancestor_or_self``: that check depends on
+    an intact PPID chain which may be absent in certain spawn layouts,
+    causing the function to return None for the correct session. Callers
+    that need to distinguish self from sibling can apply that check
+    separately.
     """
     try:
         result = subprocess.run(
@@ -114,18 +118,17 @@ def find_session_pid_for_cwd(
     except Exception:
         return None
     resolved = str(Path(cwd).resolve())
-    ancestor_matches = [
+    matches = [
         s for s in sessions
         if isinstance(s, dict)
         and s.get("cwd")
         and str(Path(s["cwd"]).resolve()) == resolved
         and isinstance(s.get("pid"), int)
         and s["pid"] > 0
-        and is_ancestor_or_self(s["pid"])
     ]
-    if not ancestor_matches:
+    if not matches:
         return None
-    best = max(ancestor_matches, key=lambda s: s.get("startedAt", 0))
+    best = max(matches, key=lambda s: s.get("startedAt", 0))
     return best["pid"]
 
 

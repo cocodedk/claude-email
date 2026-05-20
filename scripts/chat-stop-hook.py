@@ -6,6 +6,7 @@ are present (and non-empty), logs a hook_stop_pending_work flow event so the
 dashboard shows the session stopped with unfinished work. Best-effort
 telemetry — always exits 0.
 """
+import os
 import sys
 from pathlib import Path
 
@@ -19,6 +20,7 @@ except ImportError:
     pass
 
 from src.chat_db import ChatDB  # noqa: E402
+from src.chat_pid_reclaim import reclaim_pid_best_effort  # noqa: E402
 from src.hook_utils import caller_name, read_hook_payload, resolved_db_path  # noqa: E402
 from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
 
@@ -45,6 +47,7 @@ def main() -> int:
         print(f"chat-stop-hook: cannot open DB: {exc}", file=sys.stderr)
         return 0
     caller = caller_name()
+    reclaim_pid_best_effort(db, caller, os.getcwd())
     agent = db.get_agent(caller)
     if (
         agent is not None
