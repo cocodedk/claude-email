@@ -114,15 +114,14 @@ def find_session_pid_for_cwd(
     except Exception:
         return None
     resolved = str(Path(cwd).resolve())
-    matches = [
+    ancestor_matches = [
         s for s in sessions
         if isinstance(s, dict)
         and s.get("cwd")
         and str(Path(s["cwd"]).resolve()) == resolved
-    ]
-    ancestor_matches = [
-        s for s in matches
-        if isinstance(s.get("pid"), int) and s["pid"] > 0 and is_ancestor_or_self(s["pid"])
+        and isinstance(s.get("pid"), int)
+        and s["pid"] > 0
+        and is_ancestor_or_self(s["pid"])
     ]
     if not ancestor_matches:
         return None

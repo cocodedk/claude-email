@@ -23,7 +23,7 @@ Emits no stdout when the inbox is empty — quiet turns stay quiet.
 import json
 import os
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -34,51 +34,12 @@ try:
 except ImportError:
     pass
 
-from src.agent_name import ENV_VAR_NAME, validated_agent_name  # noqa: E402
 from src.chat_db import ChatDB  # noqa: E402
 from src.chat_pid_reclaim import reclaim_pid_best_effort  # noqa: E402
+from src.hook_utils import caller_name as _caller_name  # noqa: E402
+from src.hook_utils import read_hook_payload as _read_hook_payload  # noqa: E402
+from src.hook_utils import resolved_db_path as _resolved_db_path  # noqa: E402
 from src.process_liveness import is_alive, is_ancestor_or_self  # noqa: E402
-
-
-def _resolved_db_path() -> Path:
-    raw = os.environ.get("CHAT_DB_PATH", "")
-    if not raw:
-        raise RuntimeError(
-            "CHAT_DB_PATH not set — expected it in .env (e.g. claude-chat.db).",
-        )
-    p = Path(raw)
-    return p if p.is_absolute() else ROOT / p
-
-
-def _caller_name() -> str:
-    """Return the bus identity to drain mail for.
-
-    Honors CLAUDE_AGENT_NAME (set by the spawner / SessionStart-time
-    shell export) so a session that registered under a non-default name
-    drains its OWN inbox, not the cwd-default name's inbox. Falls back
-    to ``agent-<basename(cwd)>`` when the env var is unset or invalid —
-    matching what the SessionStart hook would have registered."""
-    fallback = "agent-" + PurePosixPath(os.getcwd()).name
-    return validated_agent_name(os.environ.get(ENV_VAR_NAME), fallback)
-
-
-def _read_hook_payload() -> dict:
-    """Parse the JSON payload that Claude Code pipes on stdin to a hook.
-
-    Returns {} when stdin is a tty, empty, unavailable, or malformed.
-    """
-    try:
-        if sys.stdin.isatty():
-            return {}
-        data = sys.stdin.read()
-    except (OSError, ValueError):
-        return {}
-    if not data.strip():
-        return {}
-    try:
-        return json.loads(data)
-    except json.JSONDecodeError:
-        return {}
 
 
 def _read_hook_event() -> str:
@@ -113,7 +74,7 @@ def main() -> int:
         return 0
     event = payload.get("hook_event_name") or "UserPromptSubmit"
     try:
-        db_path = _resolved_db_path()
+        db_path = _resolved_db_path(ROOT)
     except RuntimeError as exc:
         print(f"chat-drain-inbox: {exc}", file=sys.stderr)
         return 0  # fail open — never block a session
