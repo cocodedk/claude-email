@@ -83,14 +83,17 @@ def _read_agent_name_from_environ(pid: int) -> str | None:
 
 
 def _read_agent_name_from_file(cwd: str) -> str | None:
-    """Read agent name from .claude/agent-name in the project directory."""
-    try:
-        path = os.path.join(cwd, ".claude", "agent-name")
-        with open(path, encoding="utf-8") as f:
-            val = f.read(128).strip()
-        return val or None
-    except (OSError, ValueError):
-        return None
+    """Read agent name from .claude/agent-name or .codex/agent-name."""
+    for subdir in (".claude", ".codex"):
+        try:
+            path = os.path.join(cwd, subdir, "agent-name")
+            with open(path, encoding="utf-8") as f:
+                val = f.read(128).strip()
+            if val:
+                return val
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 def _fallback_name(cwd: str, pid: int) -> str:
