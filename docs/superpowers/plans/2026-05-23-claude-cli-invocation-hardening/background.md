@@ -1,0 +1,7 @@
+# Background: why these changes, in two sentences each
+
+**stdin=DEVNULL.** Claude-code 2.1.79 silently fixed a `claude -p` hang when invoked from `subprocess.run` without explicit stdin, but the documented robust pattern (matched today by `src/wake_spawn.py`) is still to pin `stdin=DEVNULL`. Three of our four spawn sites currently inherit stdin from the parent (a systemd journal pipe in production), which is a regression waiting to happen if a future claude release tightens TTY detection again.
+
+**`--exclude-dynamic-system-prompt-sections`.** This 2.1.115-era flag moves per-machine context (cwd, env, memory paths, git status) from the system prompt into the first user message so the system-prompt portion of the prompt cache is reusable across machines and turns. The email router fires the same `--append-system-prompt` payload on every authorized email — adding the flag is a free prompt-cache win because we don't pin a `--system-prompt` (which would suppress the flag).
+
+**`MCP_CONNECTION_NONBLOCKING=true`.** Claude-code 2.1.111 bounded `--mcp-config` server connections at 5s automatically *and* added this env var to opt out of the wait entirely. The default 5s ceiling already protects us, so this remains opt-in for operators who'd rather have `claude --print` start streaming immediately and let MCP connect lazily, accepting that early tool calls may fail before the bus is ready.
