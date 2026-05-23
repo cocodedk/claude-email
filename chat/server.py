@@ -11,6 +11,7 @@ import os
 
 from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import Tool, TextContent
 from starlette.applications import Starlette
 from starlette.responses import Response
@@ -59,6 +60,7 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
     tokens = TokenStore()
     server = Server("claude-chat", version="1.0")
     sse = SseServerTransport("/messages/")
+    streamable = StreamableHTTPSessionManager(app=server, stateless=True)
 
     @server.list_tools()
     async def handle_list_tools() -> list[Tool]:
@@ -82,9 +84,6 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
 
     @contextlib.asynccontextmanager
     async def lifespan(app_):
-        # Walk /proc on boot and refresh rows for any Claude CLI that's
-        # already running — so a claude-chat restart doesn't leave the
-        # dashboard blank until every session gets retriggered.
         try:
             reconcile_live_agents(db)
         except Exception:
@@ -102,10 +101,11 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
         app_.state.chat_db = db
         app_.state.worker_manager = manager
         try:
-            yield
+            async with streamable.run():
+                yield
         finally:
             stop.set()
-            nudge.set()  # unblock watcher sleep so shutdown is prompt
+            nudge.set()
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
@@ -114,6 +114,7 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
         routes=[
             Route("/sse", endpoint=handle_sse),
             Mount("/messages/", app=sse.handle_post_message),
+            Mount("/mcp", app=streamable.handle_request),
             *build_dashboard_routes(),
         ],
         lifespan=lifespan,
