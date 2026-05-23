@@ -38,6 +38,7 @@ class WorkerConfig:
     idle_timeout: float = 300.0
     poll_interval: float = 1.0
     yolo: bool = True
+    mcp_nonblocking: bool = False
 
 
 _PLAN_FIRST_PREFIX = (
@@ -69,11 +70,17 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
         return
     argv = _build_argv(cfg, claimed["body"], plan_first=bool(claimed.get("plan_first")))
     logger.info("worker task %d: launching claude --continue", tid)
-    proc = subprocess.Popen(
-        argv, cwd=cfg.project_path, shell=False,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-    )
+    popen_kwargs = {
+        "cwd": cfg.project_path,
+        "shell": False,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "text": True,
+    }
+    if cfg.mcp_nonblocking:
+        popen_kwargs["env"] = {**os.environ, "MCP_CONNECTION_NONBLOCKING": "true"}
+    proc = subprocess.Popen(argv, **popen_kwargs)
     queue.set_pid(tid, proc.pid)
     try:
         stdout, _ = proc.communicate(timeout=cfg.task_timeout)
@@ -147,6 +154,7 @@ def _cfg_from_env(project_path: str) -> WorkerConfig:
         task_timeout=int(os.environ.get("WORKER_TASK_TIMEOUT", "3600")),
         idle_timeout=float(os.environ.get("WORKER_IDLE_TIMEOUT", "300")),
         yolo=os.environ.get("CLAUDE_YOLO", "") == "1",
+        mcp_nonblocking=os.environ.get("CLAUDE_EMAIL_MCP_NONBLOCKING", "") == "1",
     )
 
 

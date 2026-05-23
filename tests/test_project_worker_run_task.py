@@ -109,3 +109,13 @@ class TestRunTask:
         out = tq.get(tid)["output_text"]
         assert out.startswith("…(truncated)")
         assert len(out.encode()) < 5_000
+
+    def test_popen_injects_mcp_nonblocking_env_when_enabled(self, tq, cfg, mocker):
+        cfg.mcp_nonblocking = True
+        tq.enqueue(cfg.project_path, "x")
+        claimed = tq.claim_next(cfg.project_path)
+        proc = _mock_proc(mocker, pid=1, returncode=0)
+        popen = mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
+        run_task(tq, claimed, cfg)
+        env = popen.call_args.kwargs.get("env") or {}
+        assert env.get("MCP_CONNECTION_NONBLOCKING") == "true"

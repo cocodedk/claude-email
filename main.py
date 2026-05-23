@@ -102,7 +102,7 @@ def process_email(message, config: dict, chat_db=None, task_queue=None, worker_m
             system_prompt=build_email_router_prompt(reply_to=reply_to) if on else None,
             mcp_config=(u.mcp_config if (on and u) else None),
             exclude_dynamic_prompt=config.get("claude_exclude_dynamic_prompt", True),
-        ),
+            mcp_nonblocking=config.get("claude_mcp_nonblocking", False)),
         db_path=chat_db.path if (on and chat_db is not None) else "",
         dispatch_token=token, reply_to=reply_to if on else "",
         origin_message_id=message.get("Message-ID", "") if on else "",

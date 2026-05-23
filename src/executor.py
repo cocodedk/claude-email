@@ -26,6 +26,7 @@ def execute_command(
     system_prompt: str | None = None,
     mcp_config: str | None = None,
     exclude_dynamic_prompt: bool = True,
+    mcp_nonblocking: bool = False,
 ) -> str:
     """Execute a command via the claude CLI and return the output.
 
@@ -53,7 +54,10 @@ def execute_command(
     argv += ["--print", command]
     if max_budget_usd:
         argv += ["--max-budget-usd", max_budget_usd]
-    env = {**os.environ, **extra_env} if extra_env else None
+    env_overlay = dict(extra_env or {})
+    if mcp_nonblocking:
+        env_overlay["MCP_CONNECTION_NONBLOCKING"] = "true"
+    env = {**os.environ, **env_overlay} if env_overlay else None
     logger.info("Executing command via claude CLI (timeout=%ds, yolo=%s)", timeout, yolo)
     try:
         result = subprocess.run(
