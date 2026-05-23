@@ -113,6 +113,7 @@ def find_session_pid_for_cwd(
         result = subprocess.run(
             [claude_bin, "agents", "--json"],
             capture_output=True, text=True, timeout=5, shell=False,
+            stdin=subprocess.DEVNULL,
         )
         sessions = json.loads(result.stdout)
     except Exception:
