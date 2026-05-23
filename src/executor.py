@@ -25,6 +25,7 @@ def execute_command(
     max_budget_usd: str | None = None,
     system_prompt: str | None = None,
     mcp_config: str | None = None,
+    exclude_dynamic_prompt: bool = True,
 ) -> str:
     """Execute a command via the claude CLI and return the output.
 
@@ -47,6 +48,8 @@ def execute_command(
         argv += ["--append-system-prompt", system_prompt]
     if mcp_config:
         argv += ["--mcp-config", mcp_config]
+    if exclude_dynamic_prompt:
+        argv.append("--exclude-dynamic-system-prompt-sections")
     argv += ["--print", command]
     if max_budget_usd:
         argv += ["--max-budget-usd", max_budget_usd]
