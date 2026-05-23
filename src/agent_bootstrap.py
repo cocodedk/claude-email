@@ -79,6 +79,17 @@ def approve_mcp_server_for_project(
         )
 
 
+def persist_agent_name(project_dir: str, name: str) -> None:
+    """Write agent name to .claude/agent-name so hooks resolve it consistently."""
+    agent_name_path = os.path.join(project_dir, ".claude", "agent-name")
+    try:
+        os.makedirs(os.path.dirname(agent_name_path), exist_ok=True)
+        with open(agent_name_path, "w", encoding="utf-8") as f:
+            f.write(name + "\n")
+    except OSError as exc:
+        logger.warning("Could not persist agent name to %s: %s", agent_name_path, exc)
+
+
 def inject_mcp_config(project_dir: str, chat_url: str) -> None:
     mcp_path = os.path.join(project_dir, ".mcp.json")
     data = _load_json_dict(mcp_path)

@@ -82,6 +82,17 @@ def _read_agent_name_from_environ(pid: int) -> str | None:
     return None
 
 
+def _read_agent_name_from_file(cwd: str) -> str | None:
+    """Read agent name from .claude/agent-name in the project directory."""
+    try:
+        path = os.path.join(cwd, ".claude", "agent-name")
+        with open(path, encoding="utf-8") as f:
+            val = f.read(128).strip()
+        return val or None
+    except (OSError, ValueError):
+        return None
+
+
 def _fallback_name(cwd: str, pid: int) -> str:
     """Disambiguator for basename collisions across projects.
 
@@ -112,6 +123,8 @@ def reconcile_live_agents(db, *, marker: str = _DEFAULT_MARKER) -> list[str]:
             continue
         fallback = "agent-" + PurePosixPath(cwd).name
         env_name = _read_agent_name_from_environ(pid)
+        if not env_name:
+            env_name = _read_agent_name_from_file(cwd)
         name = validated_agent_name(env_name, fallback)
         try:
             db.register_agent(name, cwd, pid=pid)

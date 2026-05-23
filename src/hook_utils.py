@@ -23,9 +23,17 @@ def resolved_db_path(root: Path) -> Path:
 
 
 def caller_name() -> str:
-    """Return the agent name from env, falling back to cwd basename."""
-    fallback = "agent-" + Path(os.getcwd()).name
-    return validated_agent_name(os.environ.get(ENV_VAR_NAME), fallback)
+    """Return the agent name from env, .claude/agent-name file, or cwd basename."""
+    cwd = Path(os.getcwd())
+    fallback = "agent-" + cwd.name
+    env_val = os.environ.get(ENV_VAR_NAME)
+    if env_val:
+        return validated_agent_name(env_val, fallback)
+    try:
+        file_val = (cwd / ".claude" / "agent-name").read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        file_val = ""
+    return validated_agent_name(file_val or None, fallback)
 
 
 def read_hook_payload() -> dict:

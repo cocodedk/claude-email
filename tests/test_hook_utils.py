@@ -42,6 +42,46 @@ class TestCallerName:
         monkeypatch.chdir(project)
         assert caller_name() == "agent-myproject"
 
+    def test_reads_agent_name_file_when_env_unset(self, monkeypatch, tmp_path):
+        from src.hook_utils import caller_name
+        monkeypatch.delenv("CLAUDE_AGENT_NAME", raising=False)
+        project = tmp_path / "earn-money-backend"
+        project.mkdir()
+        (project / ".claude").mkdir()
+        (project / ".claude" / "agent-name").write_text("agent-em-backend\n")
+        monkeypatch.chdir(project)
+        assert caller_name() == "agent-em-backend"
+
+    def test_env_var_wins_over_agent_name_file(self, monkeypatch, tmp_path):
+        from src.hook_utils import caller_name
+        monkeypatch.setenv("CLAUDE_AGENT_NAME", "agent-from-env")
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / ".claude").mkdir()
+        (project / ".claude" / "agent-name").write_text("agent-from-file\n")
+        monkeypatch.chdir(project)
+        assert caller_name() == "agent-from-env"
+
+    def test_invalid_agent_name_file_falls_back_to_cwd(self, monkeypatch, tmp_path):
+        from src.hook_utils import caller_name
+        monkeypatch.delenv("CLAUDE_AGENT_NAME", raising=False)
+        project = tmp_path / "fallback"
+        project.mkdir()
+        (project / ".claude").mkdir()
+        (project / ".claude" / "agent-name").write_text("Not Valid\n")
+        monkeypatch.chdir(project)
+        assert caller_name() == "agent-fallback"
+
+    def test_empty_agent_name_file_falls_back_to_cwd(self, monkeypatch, tmp_path):
+        from src.hook_utils import caller_name
+        monkeypatch.delenv("CLAUDE_AGENT_NAME", raising=False)
+        project = tmp_path / "fallback2"
+        project.mkdir()
+        (project / ".claude").mkdir()
+        (project / ".claude" / "agent-name").write_text("")
+        monkeypatch.chdir(project)
+        assert caller_name() == "agent-fallback2"
+
 
 class TestReadHookPayload:
     def test_parses_json_from_stdin(self, monkeypatch):

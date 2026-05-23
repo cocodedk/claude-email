@@ -10,6 +10,7 @@ from src.agent_bootstrap import (
     approve_mcp_server_for_project,
     inject_mcp_config,
     inject_session_start_hook,
+    persist_agent_name,
 )
 from src.agent_name import ENV_VAR_NAME, validated_agent_name
 
@@ -100,6 +101,7 @@ def spawn_agent(
 
     inject_mcp_config(project_dir, chat_url)
     inject_session_start_hook(project_dir, HOOK_SCRIPT)
+    persist_agent_name(project_dir, name)
 
     child_env = {**os.environ, **(extra_env or {}), ENV_VAR_NAME: name}
     agent_config_dir = child_env.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~")

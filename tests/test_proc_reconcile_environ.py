@@ -129,3 +129,28 @@ class TestEnvironNameAttribution:
         touched = reconcile_live_agents(db)
         expected = f"agent-{tmp_path.name}"
         assert touched == [expected]
+
+    def test_agent_name_file_used_when_environ_missing(
+        self, db, tmp_path, monkeypatch,
+    ):
+        """When CLAUDE_AGENT_NAME is absent from /proc environ but
+        .claude/agent-name exists in the process cwd, reconcile uses it."""
+        from src import proc_reconcile
+        from src.proc_reconcile import reconcile_live_agents
+
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "agent-name").write_text("agent-em-backend\n")
+
+        monkeypatch.setattr(
+            proc_reconcile, "_iter_claude_pids", lambda marker=None: [4242],
+        )
+        monkeypatch.setattr(
+            proc_reconcile, "_cwd_of", lambda pid: str(tmp_path),
+        )
+        monkeypatch.setattr(
+            proc_reconcile, "_read_agent_name_from_environ", lambda pid: None,
+        )
+
+        touched = reconcile_live_agents(db)
+        assert touched == ["agent-em-backend"]
+        assert db.get_agent("agent-em-backend")["pid"] == 4242
