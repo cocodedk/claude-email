@@ -23,6 +23,7 @@ class TestExecuteCommand:
             shell=False,
             cwd=None,
             env=None,
+            stdin=subprocess.DEVNULL,
         )
 
     def test_cwd_passed_to_subprocess(self, mocker):

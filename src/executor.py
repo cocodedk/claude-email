@@ -61,6 +61,7 @@ def execute_command(
             shell=False,
             cwd=cwd,
             env=env,
+            stdin=subprocess.DEVNULL,
         )
         output = result.stdout
         if result.stderr:
