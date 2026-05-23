@@ -6,7 +6,7 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (1582 tests, 100% coverage)
+- **Test runner**: pytest (1623 tests, 100% coverage)
 
 ---
 
@@ -54,7 +54,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 1582 pytest tests (100% coverage)
+├── tests/                 # 1623 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -94,6 +94,10 @@ claude-email/
 - **100% coverage on production code** — `.coveragerc` omits `tests/`, the entry-shim, and standard pragma patterns; every merged change must keep the report at 100%
 - **Docs follow code** — whenever a change alters user-visible behavior, configuration surface, or the test count, update `README.md` and the website (`website/index.html`, `website/fa/index.html` in lockstep) in the same PR
 
+### Optional knobs
+- `CLAUDE_EMAIL_EXCLUDE_DYNAMIC_PROMPT` — passes `--exclude-dynamic-system-prompt-sections` to the `claude` CLI to strip non-deterministic system-prompt sections (defaults to on; set to `0` to disable).
+- `CLAUDE_EMAIL_MCP_NONBLOCKING` — sets `MCP_CONNECTION_NONBLOCKING=true` in the spawned CLI's env so slow/unhealthy MCP servers don't stall startup (defaults to off; set to `1` to enable).
+
 ---
 
 ## Operational notes
@@ -108,7 +112,7 @@ claude-email/
 ## Build Commands
 
 ```bash
-.venv/bin/pytest tests/ -q      # Run all 1582 tests
+.venv/bin/pytest tests/ -q      # Run all 1623 tests
 .venv/bin/pytest tests/ -v      # Verbose
 scripts/check-line-limit.sh     # Enforce 200-line file limit
 ```
@@ -118,5 +122,5 @@ scripts/check-line-limit.sh     # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 1582 tests pass
+2. Run `.venv/bin/pytest tests/ -q` — confirm 1623 tests pass
 3. Invoke `superpowers:brainstorming` before any feature work

@@ -200,6 +200,8 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 | `CLAUDE_EFFORT` | *Optional.* Thinking effort: `low`, `medium`, `high`, `xhigh`, `max`. | `low` |
 | `CLAUDE_MAX_BUDGET_USD` | *Optional.* Dollar cap for `--print` calls. Only bites under API-key auth; subscription calls ignore it. | `1.00` |
 | `LLM_ROUTER` | *Optional, experimental.* When `1`, the CLI-fallback claude gets a system prompt describing `chat_spawn_agent`, so natural-language bodies like "implement tests in test-01" can spawn agents. Leave blank for deterministic keyword-only routing. | `1` |
+| `CLAUDE_EMAIL_EXCLUDE_DYNAMIC_PROMPT` | *Optional.* Passes `--exclude-dynamic-system-prompt-sections` to the `claude` CLI, stripping non-deterministic system-prompt sections. Defaults to on; set to `0` to disable. | `0` |
+| `CLAUDE_EMAIL_MCP_NONBLOCKING` | *Optional.* Sets `MCP_CONNECTION_NONBLOCKING=true` in the spawned CLI's env so slow or unhealthy MCP servers don't stall startup. Defaults to off; set to `1` to enable. | `1` |
 
 ### Chat System
 
@@ -468,7 +470,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 1582 pytest tests (100% coverage)
+├── tests/                 # 1623 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -542,7 +544,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1582 tests, 100% coverage)
+# Run all tests (1623 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -560,7 +562,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1582 tests** with **100% code coverage** across all modules
+- **1623 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
