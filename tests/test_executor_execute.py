@@ -8,7 +8,7 @@ class TestExecuteCommand:
     def test_successful_execution(self, mocker):
         mock_run = mocker.patch("subprocess.run")
         mock_run.return_value = subprocess.CompletedProcess(
-            args=["claude", "--print", "hello"],
+            args=["claude", "--exclude-dynamic-system-prompt-sections", "--print", "hello"],
             returncode=0,
             stdout="Hello world\n",
             stderr="",
@@ -16,13 +16,14 @@ class TestExecuteCommand:
         result = execute_command("hello", claude_bin="claude", timeout=30)
         assert "Hello world" in result
         mock_run.assert_called_once_with(
-            ["claude", "--print", "hello"],
+            ["claude", "--exclude-dynamic-system-prompt-sections", "--print", "hello"],
             capture_output=True,
             text=True,
             timeout=30,
             shell=False,
             cwd=None,
             env=None,
+            stdin=subprocess.DEVNULL,
         )
 
     def test_cwd_passed_to_subprocess(self, mocker):

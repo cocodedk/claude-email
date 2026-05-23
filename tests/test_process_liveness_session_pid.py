@@ -79,3 +79,13 @@ class TestFindSessionPidForCwd:
         link.symlink_to(real)
         sessions = [{"pid": 55, "cwd": str(real), "startedAt": 1000}]
         assert self._run(monkeypatch, sessions, str(link)) == 55
+
+    def test_subprocess_run_uses_stdin_devnull(self, mocker, tmp_path):
+        import subprocess
+        import src.process_liveness as pl
+        mock_run = mocker.patch.object(
+            pl.subprocess, "run",
+            return_value=type("R", (), {"stdout": "[]", "returncode": 0})(),
+        )
+        pl.find_session_pid_for_cwd(str(tmp_path))
+        assert mock_run.call_args.kwargs["stdin"] == subprocess.DEVNULL

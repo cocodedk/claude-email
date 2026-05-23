@@ -85,6 +85,7 @@ class TestSpawnAgent:
         kwargs = mock_popen.call_args.kwargs
         assert kwargs["stdout"] == subprocess.DEVNULL
         assert kwargs["stderr"] == subprocess.DEVNULL
+        assert kwargs["stdin"] == subprocess.DEVNULL
 
     def test_spawn_agent_yolo_adds_skip_permissions(self, db, tmp_path, mocker):
         from src.spawner import spawn_agent

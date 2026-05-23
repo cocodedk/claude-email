@@ -124,6 +124,7 @@ def spawn_agent(
 
     proc = subprocess.Popen(
         cmd, cwd=project_dir, shell=False,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         env=child_env,
     )

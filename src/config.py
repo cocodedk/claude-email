@@ -54,6 +54,10 @@ def build_config() -> dict:
         "claude_model": os.environ.get("CLAUDE_MODEL") or None,
         "claude_effort": validated_effort(os.environ.get("CLAUDE_EFFORT", "").strip() or None),
         "claude_max_budget_usd": os.environ.get("CLAUDE_MAX_BUDGET_USD") or None,
+        "claude_exclude_dynamic_prompt": os.environ.get(
+            "CLAUDE_EMAIL_EXCLUDE_DYNAMIC_PROMPT", "1",
+        ) != "0",
+        "claude_mcp_nonblocking": os.environ.get("CLAUDE_EMAIL_MCP_NONBLOCKING", "") == "1",
         "claude_extra_env": extra_env,
         "llm_router": os.environ.get("LLM_ROUTER", "") == "1",
         "state_file": os.environ["STATE_FILE"], "email_domain": os.environ["EMAIL_DOMAIN"],
