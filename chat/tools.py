@@ -100,6 +100,7 @@ async def ask_user(
 def check_messages(db: ChatDB, caller: str) -> dict:
     """Return pending messages for caller and mark them as delivered."""
     db.touch_agent(caller)
+    db.recover_failed_messages_for(caller)
     pending = db.claim_pending_messages_for(caller)
     return {
         "messages": [

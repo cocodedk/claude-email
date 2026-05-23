@@ -43,6 +43,21 @@ class TestCreateApp:
         else:
             pytest.fail("/messages mount not found")
 
+    def test_has_mcp_route(self, app):
+        paths = [r.path for r in app.routes]
+        assert "/mcp" in paths
+
+    def test_mcp_route_is_mount(self, app):
+        """/mcp is mounted as an ASGI app (StreamableHTTP session manager)."""
+        from starlette.routing import Mount
+        for route in app.routes:
+            if getattr(route, "path", None) == "/mcp":
+                assert isinstance(route, Mount)
+                assert route.app is not None
+                break
+        else:
+            pytest.fail("/mcp mount not found")
+
 
 class TestToolRegistration:
     """Verify tools are registered on the MCP server."""

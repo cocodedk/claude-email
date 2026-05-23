@@ -7,6 +7,7 @@ from src.chat_router import classify_email
 from chat.tools import (
     register_agent,
     notify_user,
+    message_agent,
     check_messages,
 )
 
@@ -61,3 +62,22 @@ class TestFullCommandDispatchFlow:
         assert cmd_msg["from"] == "user"
         assert cmd_msg["type"] == "command"
         assert cmd_msg["body"] == "refactor the auth module"
+
+
+# ── Test 3: check_messages recovers failed messages ──────────
+
+class TestCheckMessagesRecoversFailedMessages:
+    def test_failed_messages_returned_on_check(self, db):
+        """Messages marked failed (e.g. by wake watcher while agent was
+        offline) are recovered when the agent calls check_messages."""
+        register_agent(db, "agent-a", "/projects/a")
+        register_agent(db, "agent-b", "/projects/b")
+        message_agent(db, "agent-a", "agent-b", "hello")
+
+        pending = db.get_pending_messages_for("agent-b")
+        assert len(pending) == 1
+        db.mark_message_failed(pending[0]["id"])
+
+        result = check_messages(db, "agent-b")
+        assert len(result["messages"]) == 1
+        assert result["messages"][0]["body"] == "hello"
