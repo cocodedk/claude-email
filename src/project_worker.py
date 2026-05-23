@@ -71,6 +71,7 @@ def run_task(queue: TaskQueue, claimed: dict, cfg: WorkerConfig) -> None:
     logger.info("worker task %d: launching claude --continue", tid)
     proc = subprocess.Popen(
         argv, cwd=cfg.project_path, shell=False,
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     queue.set_pid(tid, proc.pid)

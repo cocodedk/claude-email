@@ -29,6 +29,15 @@ class TestRunTask:
         assert "--print" in argv
         assert "do X" in argv
 
+    def test_popen_uses_stdin_devnull(self, tq, cfg, mocker):
+        import subprocess
+        tq.enqueue(cfg.project_path, "x")
+        claimed = tq.claim_next(cfg.project_path)
+        proc = _mock_proc(mocker, pid=1, returncode=0)
+        popen = mocker.patch("src.project_worker.subprocess.Popen", return_value=proc)
+        run_task(tq, claimed, cfg)
+        assert popen.call_args.kwargs["stdin"] == subprocess.DEVNULL
+
     def test_nonzero_exit_marks_failed_with_output_tail(self, tq, cfg, mocker):
         tid = tq.enqueue(cfg.project_path, "broken")
         claimed = tq.claim_next(cfg.project_path)
