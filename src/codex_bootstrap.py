@@ -28,7 +28,7 @@ _HOOKS_JSON = {
             "command": f"bash .codex/scripts/chat-agent-advisor-hook.sh {event}",
             "timeout": 10,
         }]}]
-        for event in ("SessionStart", "UserPromptSubmit", "Stop")
+        for event in ("SessionStart", "UserPromptSubmit", "Stop", "PostToolUse", "PostCompact")
     },
 }
 
@@ -52,13 +52,9 @@ fi
 
 printf '%s' "$hook_payload" | "$chat_root/scripts/chat-register-self.py" >&2 || true
 
-case "$event" in
-  SessionStart|UserPromptSubmit|Stop)
-    if [[ -x "$chat_root/scripts/chat-drain-inbox.py" ]]; then
-      printf '%s' "$hook_payload" | "$chat_root/scripts/chat-drain-inbox.py" || true
-    fi
-    ;;
-esac
+if [[ -x "$chat_root/scripts/chat-drain-inbox.py" ]]; then
+  printf '%s' "$hook_payload" | "$chat_root/scripts/chat-drain-inbox.py" || true
+fi
 """
 
 

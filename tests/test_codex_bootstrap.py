@@ -19,9 +19,8 @@ class TestInjectCodexConfig:
         from src.codex_bootstrap import inject_codex_config
         inject_codex_config(str(tmp_path), "http://127.0.0.1:8420/sse", "agent-codex-backend")
         data = json.loads((tmp_path / ".codex" / "hooks.json").read_text())
-        assert "SessionStart" in data["hooks"]
-        assert "UserPromptSubmit" in data["hooks"]
-        assert "Stop" in data["hooks"]
+        for event in ("SessionStart", "UserPromptSubmit", "Stop", "PostToolUse", "PostCompact"):
+            assert event in data["hooks"], f"missing {event}"
         cmd = data["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         assert "chat-agent-advisor-hook.sh" in cmd
         assert "SessionStart" in cmd
