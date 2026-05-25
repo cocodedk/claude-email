@@ -2,10 +2,15 @@
 """Install the claude-chat MCP server entry into every project under a base dir.
 
 Usage:
-    scripts/install-chat-mcp.py [BASE_DIR]
+    scripts/install-chat-mcp.py [--single] TARGET_DIR
 
-BASE_DIR resolution (first non-empty wins):
-    1. argv[1]
+Without --single, TARGET_DIR is a parent directory whose child subdirectories
+are each treated as a separate project (batch mode).
+
+With --single, TARGET_DIR is a single project directory to install into directly.
+
+TARGET_DIR resolution (first non-empty wins):
+    1. first positional argument
     2. $CLAUDE_CWD (loaded from .env by default)
 
 CHAT_URL resolution:
@@ -13,13 +18,13 @@ CHAT_URL resolution:
 
 Both must be set — the script errors out with guidance if either is missing.
 
-Skips:
+Skips (batch mode only):
   - non-directories (loose files, logs, scripts)
   - hidden directories (starting with '.')
 
 Writes per project:
   - .mcp.json  — declares the claude-chat MCP SSE server
-  - .claude/settings.json — three Claude Code hooks:
+  - .claude/settings.json — Claude Code hooks:
       * SessionStart: register on the bus + inject the bus guide
       * UserPromptSubmit: drain pending mail into the next turn
       * Stop: reinject peer messages that arrived mid-response so the
@@ -59,17 +64,24 @@ from src.spawner import (  # noqa: E402
 SKIP_NAMES: set[str] = set()
 
 
-def main() -> int:
-    base_arg = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("CLAUDE_CWD", "")
-    if not base_arg:
-        print(
-            "error: BASE_DIR not provided.\n"
-            "  Pass it as the first argument, or set CLAUDE_CWD in .env.",
-            file=sys.stderr,
-        )
-        return 2
-    base = Path(base_arg).expanduser().resolve()
+def _parse_args(argv: list[str]) -> tuple[bool, str]:
+    single = False
+    positional = ""
+    for arg in argv[1:]:
+        if arg == "--single":
+            single = True
+        else:
+            positional = arg
+    return single, positional
 
+
+def _install_one(project_dir: str, chat_url: str, config_dir: str) -> None:
+    inject_mcp_config(project_dir, chat_url)
+    inject_session_start_hook(project_dir, HOOK_SCRIPT)
+    approve_mcp_server_for_project(config_dir, project_dir, CHAT_MCP_SERVER_NAME)
+
+
+def _resolve_env() -> tuple[str, str, int]:
     chat_url = os.environ.get("CHAT_URL", "")
     if not chat_url:
         print(
@@ -77,16 +89,44 @@ def main() -> int:
             "(e.g. http://127.0.0.1:8420/sse).",
             file=sys.stderr,
         )
+        return "", "", 2
+    config_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~")
+    return chat_url, config_dir, 0
+
+
+def main() -> int:
+    single, dir_arg = _parse_args(sys.argv)
+    dir_arg = dir_arg or os.environ.get("CLAUDE_CWD", "")
+    if not dir_arg:
+        print(
+            "error: TARGET_DIR not provided.\n"
+            "  Pass it as a positional argument, or set CLAUDE_CWD in .env.",
+            file=sys.stderr,
+        )
         return 2
 
-    if not base.is_dir():
-        print(f"error: {base} is not a directory", file=sys.stderr)
+    target = Path(dir_arg).expanduser().resolve()
+
+    chat_url, config_dir, rc = _resolve_env()
+    if rc:
+        return rc
+
+    if not target.is_dir():
+        print(f"error: {target} is not a directory", file=sys.stderr)
         return 1
 
-    config_dir = (
-        os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~")
-    )
+    if single:
+        return _main_single(target, chat_url, config_dir)
+    return _main_batch(target, chat_url, config_dir)
 
+
+def _main_single(target: Path, chat_url: str, config_dir: str) -> int:
+    _install_one(str(target), chat_url, config_dir)
+    print(f"Installed claude-chat MCP into {target.name}")
+    return 0
+
+
+def _main_batch(base: Path, chat_url: str, config_dir: str) -> int:
     installed: list[str] = []
     skipped: list[tuple[str, str]] = []
 
@@ -101,11 +141,7 @@ def main() -> int:
             skipped.append((entry.name, "excluded (hosts server)"))
             continue
         try:
-            inject_mcp_config(str(entry), chat_url)
-            inject_session_start_hook(str(entry), HOOK_SCRIPT)
-            approve_mcp_server_for_project(
-                config_dir, str(entry), CHAT_MCP_SERVER_NAME,
-            )
+            _install_one(str(entry), chat_url, config_dir)
             installed.append(entry.name)
         except Exception as exc:  # noqa: BLE001
             skipped.append((entry.name, f"error: {exc}"))

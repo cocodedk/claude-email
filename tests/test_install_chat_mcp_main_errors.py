@@ -48,7 +48,7 @@ class TestMain:
         monkeypatch.setattr(sys, "argv", ["install-chat-mcp.py"])
         rc = script_mod.main()
         assert rc == 2
-        assert "BASE_DIR not provided" in capsys.readouterr().err
+        assert "TARGET_DIR not provided" in capsys.readouterr().err
 
     def test_errors_when_chat_url_missing(
         self, script_mod, monkeypatch, projects_base, capsys,
