@@ -6,11 +6,15 @@ unit tests.
 """
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from datetime import datetime, timezone
 
 from src.process_liveness import is_alive
+from src.status_envelope import emit_stalled_for_project
+
+logger = logging.getLogger(__name__)
 
 
 def _has_live_owner(agent: dict) -> bool:
@@ -41,6 +45,62 @@ def _is_session_fresh(persisted: dict, idle_secs: float) -> bool:
         last = last.replace(tzinfo=timezone.utc)
     age = (datetime.now(timezone.utc) - last).total_seconds()
     return age <= idle_secs
+
+
+def tick_due_names(db, *, exclude: set[str], tracker: "_FailureTracker") -> list[str]:
+    """Names of tick-configured agents whose periodic wake is due.
+
+    Skips agents already being processed this round (`exclude`) and agents
+    in failure escalation — the tick must not become a respawn loop.
+    An agent with no wake_session row (or a malformed timestamp) is due.
+    """
+    due = []
+    for row in db.get_tick_candidates():
+        name = row["name"]
+        if name in exclude or tracker.should_escalate(name):
+            continue
+        if _is_session_fresh(
+            {"last_turn_at": row.get("last_turn_at")}, float(row["tick_secs"]),
+        ):
+            continue
+        due.append(name)
+    return due
+
+
+def _handle_failure(
+    db, tracker: "_FailureTracker", agent_name: str, project_path: str,
+    result, user_avatar: str,
+) -> None:
+    tracker.record_failure(agent_name)
+    logger.warning(
+        "wake: turn failed for %s (exit=%s timeout=%s error=%s)", agent_name,
+        getattr(result, "exit_code", "?"), getattr(result, "timed_out", "?"),
+        getattr(result, "error", None),
+    )
+    emit_stalled_for_project(
+        db, project_path, reason=f"wake turn failed ({tracker.count(agent_name)}x)",
+    )
+    if not tracker.should_escalate(agent_name):
+        return
+    # Always clear stuck pending messages at escalation so the watcher
+    # doesn't respawn the same failing agent forever. Rate limiting gates
+    # only the user-facing email, not the queue cleanup.
+    pending = db.get_pending_messages_for(agent_name)
+    for m in pending:
+        db.mark_message_failed(m["id"])
+    if not tracker.can_notify(agent_name):
+        return
+    body = (
+        f"[wake-watcher] persistent spawn failure\n"
+        f"agent: {agent_name}\n"
+        f"project: {project_path}\n"
+        f"stuck messages: {len(pending)}\n"
+        f"last error: exit={getattr(result, 'exit_code', '?')} "
+        f"timeout={getattr(result, 'timed_out', '?')} "
+        f"error={getattr(result, 'error', None)}"
+    )
+    db.insert_message("wake-watcher", user_avatar, body, "notify")
+    tracker.mark_notified(agent_name)
 
 
 class _AgentLocks:

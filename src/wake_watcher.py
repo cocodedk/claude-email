@@ -13,10 +13,10 @@ import uuid
 from dataclasses import dataclass
 
 from src.chat_db import ChatDB
-from src.status_envelope import clear_status_dedup_for_project, emit_stalled_for_project
+from src.status_envelope import clear_status_dedup_for_project
 from src.wake_helpers import (
-    _AgentLocks, _FailureTracker, _SessionCache,
-    _has_live_owner, _is_session_fresh,
+    _AgentLocks, _FailureTracker, _SessionCache, _handle_failure,
+    _has_live_owner, _is_session_fresh, tick_due_names,
 )
 from src.wake_spawn import WakeTurnResult, build_wake_cmd
 
@@ -39,12 +39,17 @@ class WakeWatcherConfig:
     claude_bin: str
     prompt: str
     user_avatar: str
+    tick_prompt: str = (
+        "[watcher tick] No new messages. If you have an open task with "
+        "uncommitted work, continue it now; commit a coherent green slice "
+        "before expanding. If you are idle, reply the single word \"quiet\"."
+    )
 
 
 async def process_agent(
     agent_name: str, db: ChatDB, locks: _AgentLocks, cache: _SessionCache,
     tracker: _FailureTracker, *, spawn_fn, claude_bin: str, prompt: str,
-    timeout: float, user_avatar: str,
+    timeout: float, user_avatar: str, tick: bool = False,
 ) -> None:
     """Drive one wake turn for one agent. Safe to call from the loop."""
     if not await locks.try_acquire(agent_name):
@@ -57,7 +62,7 @@ async def process_agent(
         project_path = agent["project_path"]
 
         pre_ids = {m["id"] for m in db.get_pending_messages_for(agent_name)}
-        if not pre_ids:
+        if not pre_ids and not tick:
             # Drained by another consumer between recipient scan and entry.
             return
 
@@ -82,7 +87,8 @@ async def process_agent(
         session_id = cached or str(uuid.uuid4())
 
         cmd = build_wake_cmd(claude_bin, session_id, is_resume, prompt)
-        db._log_event(agent_name, "wake_spawn_start", f"resume={is_resume} pending={len(pre_ids)}")
+        summary = f"resume={is_resume} pending={len(pre_ids)}"
+        db._log_event(agent_name, "wake_spawn_start", summary + (" tick=True" if tick else ""))
         result = await spawn_fn(cmd, cwd=project_path, timeout=timeout)
         exit_code = getattr(result, "exit_code", None)
         timed_out = getattr(result, "timed_out", "?")
@@ -92,7 +98,7 @@ async def process_agent(
             cache.set(agent_name, session_id)
             db.upsert_wake_session(agent_name, session_id)
             post_ids = {m["id"] for m in db.get_pending_messages_for(agent_name)}
-            if pre_ids <= post_ids:
+            if pre_ids and pre_ids <= post_ids:
                 # No pre-spawn message delivered — stall. Escalates after max_failures.
                 stall = WakeTurnResult(
                     exit_code=0, timed_out=False,
@@ -106,42 +112,6 @@ async def process_agent(
             _handle_failure(db, tracker, agent_name, project_path, result, user_avatar)
     finally:
         locks.release(agent_name)
-
-
-def _handle_failure(
-    db: ChatDB, tracker: _FailureTracker, agent_name: str, project_path: str,
-    result, user_avatar: str,
-) -> None:
-    tracker.record_failure(agent_name)
-    logger.warning(
-        "wake: turn failed for %s (exit=%s timeout=%s error=%s)", agent_name,
-        getattr(result, "exit_code", "?"), getattr(result, "timed_out", "?"),
-        getattr(result, "error", None),
-    )
-    emit_stalled_for_project(
-        db, project_path, reason=f"wake turn failed ({tracker.count(agent_name)}x)",
-    )
-    if not tracker.should_escalate(agent_name):
-        return
-    # Always clear stuck pending messages at escalation so the watcher
-    # doesn't respawn the same failing agent forever. Rate limiting gates
-    # only the user-facing email, not the queue cleanup.
-    pending = db.get_pending_messages_for(agent_name)
-    for m in pending:
-        db.mark_message_failed(m["id"])
-    if not tracker.can_notify(agent_name):
-        return
-    body = (
-        f"[wake-watcher] persistent spawn failure\n"
-        f"agent: {agent_name}\n"
-        f"project: {project_path}\n"
-        f"stuck messages: {len(pending)}\n"
-        f"last error: exit={getattr(result, 'exit_code', '?')} "
-        f"timeout={getattr(result, 'timed_out', '?')} "
-        f"error={getattr(result, 'error', None)}"
-    )
-    db.insert_message("wake-watcher", user_avatar, body, "notify")
-    tracker.mark_notified(agent_name)
 
 
 async def run_wake_watcher(
@@ -167,16 +137,25 @@ async def run_wake_watcher(
             logger.exception("wake: recipient query failed")
             recipients = []
         recipients = [r for r in recipients if r != cfg.user_avatar]
+        try:
+            ticks = tick_due_names(
+                db, exclude=set(recipients) | {cfg.user_avatar}, tracker=tracker,
+            )
+        except Exception:
+            logger.exception("wake: tick query failed")
+            ticks = []
+        jobs = [(r, cfg.prompt, False) for r in recipients]
+        jobs += [(t, cfg.tick_prompt, True) for t in ticks]
         results = await asyncio.gather(*[
             process_agent(
-                r, db, locks, cache, tracker,
+                name, db, locks, cache, tracker,
                 spawn_fn=spawn_fn, claude_bin=cfg.claude_bin,
-                prompt=cfg.prompt, timeout=cfg.timeout_secs,
-                user_avatar=cfg.user_avatar,
+                prompt=job_prompt, timeout=cfg.timeout_secs,
+                user_avatar=cfg.user_avatar, tick=is_tick,
             )
-            for r in recipients
+            for name, job_prompt, is_tick in jobs
         ], return_exceptions=True)
-        for recipient, result in zip(recipients, results):
+        for (recipient, _prompt, _tick), result in zip(jobs, results):
             if isinstance(result, Exception):
                 logger.error(
                     "wake: process_agent failed for %s", recipient,

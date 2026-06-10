@@ -43,3 +43,26 @@ class WakeSessionStoreMixin:
         self._conn.execute(
             "DELETE FROM wake_sessions WHERE agent_name=?", (agent_name,),
         )
+
+    # ── Periodic tick (agents.tick_secs) ───────────────────
+
+    def set_agent_tick(self, agent_name: str, tick_secs: int | None) -> None:
+        self._run_tx(self._impl_set_agent_tick, agent_name, tick_secs)
+
+    def _impl_set_agent_tick(self, agent_name: str, tick_secs: int | None) -> None:
+        self._conn.execute(
+            "UPDATE agents SET tick_secs=? WHERE name=?", (tick_secs, agent_name),
+        )
+
+    def get_tick_candidates(self) -> list[dict]:
+        """Running agents with a tick configured, plus their last wake turn."""
+        return self._read(self._impl_get_tick_candidates)
+
+    def _impl_get_tick_candidates(self) -> list[dict]:
+        rows = self._conn.execute(
+            """SELECT a.name, a.tick_secs, w.last_turn_at
+               FROM agents a
+               LEFT JOIN wake_sessions w ON w.agent_name = a.name
+               WHERE a.tick_secs IS NOT NULL AND a.status = 'running'""",
+        ).fetchall()
+        return [dict(row) for row in rows]

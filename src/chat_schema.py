@@ -117,4 +117,7 @@ MIGRATIONS = [
     "ON messages(in_reply_to_eid) WHERE in_reply_to_eid IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS outbound_emails_in_reply_to_eid_idx "
     "ON outbound_emails(in_reply_to_eid) WHERE in_reply_to_eid IS NOT NULL",
+    # Per-agent periodic wake tick: NULL = no tick (default behavior);
+    # N = the watcher drives a turn every N seconds even with an empty inbox.
+    "ALTER TABLE agents ADD COLUMN tick_secs INTEGER",
 ]

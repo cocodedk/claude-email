@@ -44,6 +44,11 @@ def _wake_config_from_env() -> WakeWatcherConfig:
         claude_bin=os.environ.get("CLAUDE_BIN", "claude"),
         prompt=os.environ.get("WAKE_PROMPT", "Handle any pending bus messages."),
         user_avatar=os.environ.get("WAKE_USER_AVATAR_NAME", "user"),
+        **(
+            {"tick_prompt": os.environ["WAKE_TICK_PROMPT"]}
+            if os.environ.get("WAKE_TICK_PROMPT")
+            else {}
+        ),
     )
 
 
