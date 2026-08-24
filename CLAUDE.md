@@ -6,7 +6,7 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (1648 tests, 100% coverage)
+- **Test runner**: pytest (1666 tests, 100% coverage)
 
 ---
 
@@ -54,7 +54,7 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 1648 pytest tests (100% coverage)
+├── tests/                 # 1666 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -68,6 +68,7 @@ claude-email/
 - All TLS connections use `ssl.create_default_context()` (verified, not default unverified)
 - `processed_ids.json` is the idempotency store — never delete it in production
 - `claude-chat.db` is the shared SQLite database (WAL mode) — used by both services
+- `tests/conftest.py` is the **only** root conftest and holds **no fixtures** — it exists solely to unset inherited `GIT_*` redirection vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_PREFIX`). Git exports these into pre-commit hooks; in a linked worktree they point at the real repo and `GIT_DIR` beats `cwd=`, so any test shelling out to git would corrupt it. Shared fixtures still belong in underscore-prefixed helper modules. `tests/test_git_env_isolation.py` pins the guarantee.
 
 ### Chat system
 - **claude-email** is the user's avatar on the chat bus — routes emails to agents, relays agent messages back as emails
@@ -112,7 +113,7 @@ claude-email/
 ## Build Commands
 
 ```bash
-.venv/bin/pytest tests/ -q      # Run all 1648 tests
+.venv/bin/pytest tests/ -q      # Run all 1666 tests
 .venv/bin/pytest tests/ -v      # Verbose
 scripts/check-line-limit.sh     # Enforce 200-line file limit
 ```
@@ -122,5 +123,5 @@ scripts/check-line-limit.sh     # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 1648 tests pass
+2. Run `.venv/bin/pytest tests/ -q` — confirm 1666 tests pass
 3. Invoke `superpowers:brainstorming` before any feature work

@@ -1,13 +1,17 @@
 """Shared helpers for git_ops test modules (underscore prefix → pytest skips collection)."""
 
+from tests.conftest import scrub_git_env
+
 
 def _git_env():
     import os
-    return {
+    # Defence in depth: this dict is handed to subprocess as ``env=``, so it
+    # must not smuggle back a GIT_DIR the root conftest already scrubbed.
+    return scrub_git_env({
         **os.environ,
         "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
         "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x",
-    }
+    })
 
 
 def _init_repo(path):
