@@ -8,6 +8,26 @@ import ssl
 logger = logging.getLogger(__name__)
 
 
+def _one_line(value: str) -> str:
+    """Collapse a header value onto one line — the header-injection defence."""
+    return " ".join(value.splitlines()).strip()
+
+
+def _reply_subject(subject: str) -> str:
+    """Prefix ``Re: `` unless the subject already carries one, in any case."""
+    clean = _one_line(subject)
+    return clean if clean[:3].lower() == "re:" else f"Re: {clean}"
+
+
+def _references_chain(references: str, in_reply_to: str) -> str:
+    """Build an RFC 5322 References chain: parent's chain, then the parent id."""
+    chain = _one_line(references).split()
+    parent = _one_line(in_reply_to)
+    if parent and parent not in chain:
+        chain.append(parent)
+    return " ".join(chain)
+
+
 def send_reply(
     smtp_host: str,
     smtp_port: int,
@@ -32,13 +52,13 @@ def send_reply(
     """
     msg = email.message.EmailMessage()
     msg["From"] = username
-    msg["To"] = to
-    clean_subject = " ".join(subject.splitlines()).strip()
-    msg["Subject"] = clean_subject if clean_subject.startswith("Re:") else f"Re: {clean_subject}"
+    msg["To"] = _one_line(to)
+    msg["Subject"] = _reply_subject(subject)
     if in_reply_to:
-        msg["In-Reply-To"] = " ".join(in_reply_to.splitlines()).strip()
-    if references:
-        msg["References"] = " ".join(references.splitlines()).strip()
+        msg["In-Reply-To"] = _one_line(in_reply_to)
+    chain = _references_chain(references, in_reply_to)
+    if chain:
+        msg["References"] = chain
     maintype, _, subtype = content_type.partition("/")
     if maintype == "text" or not maintype:
         msg.set_content(body, subtype=subtype or "plain")
