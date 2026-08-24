@@ -1,0 +1,32 @@
+# Real mail server for the e2e suite.
+#
+# GreenMail is a full SMTP/IMAP server implementation, not a stub: the tests
+# talk to it over ordinary TCP sockets with ordinary clients. It is used here
+# rather than Postfix+Dovecot because this file is the *whole* configuration —
+# no Dockerfile, no mounted config tree — which keeps the harness reproducible
+# on a machine that has nothing but docker.
+#
+# Every published port is bound to 127.0.0.1 and deliberately NOT a default
+# mail port, so a running suite can never reach, or be reached by, the
+# operator's real mailbox. Override via the CLAUDE_EMAIL_E2E_* environment
+# variables if 13025/13143/13465/13993 collide on your machine.
+services:
+  mailserver:
+    image: greenmail/standalone:2.1.9
+    container_name: ${CLAUDE_EMAIL_E2E_CONTAINER:-claude-email-e2e-mailserver}
+    environment:
+      # setup.test.all brings up SMTP, SMTPS, IMAP, IMAPS, POP3 and POP3S on
+      # GreenMail's standard in-container ports. The TLS listeners are mapped
+      # now, unused by this slice, so later slices — which must drive
+      # src/mailer.py and src/poller.py, both of which speak implicit TLS
+      # only — do not have to reshape this file.
+      GREENMAIL_OPTS: >-
+        -Dgreenmail.setup.test.all
+        -Dgreenmail.hostname=0.0.0.0
+        -Dgreenmail.users=e2e-sender:sender-pw@e2e.test,e2e-recipient:recipient-pw@e2e.test,e2e-bystander:bystander-pw@e2e.test
+        -Dgreenmail.verbose
+    ports:
+      - "127.0.0.1:${CLAUDE_EMAIL_E2E_SMTP_PORT:-13025}:3025"
+      - "127.0.0.1:${CLAUDE_EMAIL_E2E_IMAP_PORT:-13143}:3143"
+      - "127.0.0.1:${CLAUDE_EMAIL_E2E_SMTPS_PORT:-13465}:3465"
+      - "127.0.0.1:${CLAUDE_EMAIL_E2E_IMAPS_PORT:-13993}:3993"

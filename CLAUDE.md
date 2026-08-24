@@ -6,7 +6,7 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (1666 tests, 100% coverage)
+- **Test runner**: pytest (1669 tests: 1666 unit + 3 docker-gated e2e, 100% coverage on production code)
 
 ---
 
@@ -54,7 +54,8 @@ claude-email/
 ├── chat/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
-├── tests/                 # 1666 pytest tests (100% coverage)
+├── tests/                 # 1666 unit tests (100% coverage)
+│   └── e2e/               # 3 docker-gated end-to-end tests — real mail server, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -68,6 +69,10 @@ claude-email/
 - All TLS connections use `ssl.create_default_context()` (verified, not default unverified)
 - `processed_ids.json` is the idempotency store — never delete it in production
 - `claude-chat.db` is the shared SQLite database (WAL mode) — used by both services
+- `tests/e2e/` is the only mock-free tree: every test there talks to a real mail server in
+  docker over real sockets. It carries the `e2e` marker (applied automatically by
+  `tests/e2e/conftest.py`), so `-m "not e2e"` gives a docker-free run and `-m e2e` an
+  opt-in one. Without docker it skips with a reason; it never fails. See `docs/e2e-testing.md`.
 - `tests/conftest.py` is the **only** root conftest and holds **no fixtures** — it exists solely to unset inherited `GIT_*` redirection vars (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`, `GIT_PREFIX`). Git exports these into pre-commit hooks; in a linked worktree they point at the real repo and `GIT_DIR` beats `cwd=`, so any test shelling out to git would corrupt it. Shared fixtures still belong in underscore-prefixed helper modules. `tests/test_git_env_isolation.py` pins the guarantee.
 
 ### Chat system
@@ -113,9 +118,11 @@ claude-email/
 ## Build Commands
 
 ```bash
-.venv/bin/pytest tests/ -q      # Run all 1666 tests
-.venv/bin/pytest tests/ -v      # Verbose
-scripts/check-line-limit.sh     # Enforce 200-line file limit
+.venv/bin/pytest tests/ -q            # Run all 1669 tests (e2e included)
+.venv/bin/pytest tests/ -q -m "not e2e"  # Unit tests only — no docker needed
+.venv/bin/pytest tests/ -q -m e2e     # End-to-end only — needs docker
+.venv/bin/pytest tests/ -v            # Verbose
+scripts/check-line-limit.sh           # Enforce 200-line file limit
 ```
 
 ---
@@ -123,5 +130,5 @@ scripts/check-line-limit.sh     # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 1666 tests pass
+2. Run `.venv/bin/pytest tests/ -q` — confirm 1669 tests pass (3 of them e2e, skipped without docker)
 3. Invoke `superpowers:brainstorming` before any feature work
