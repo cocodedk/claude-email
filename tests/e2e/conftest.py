@@ -213,3 +213,27 @@ def pytest_collection_modifyitems(items):
     for item in items:
         if here in Path(str(item.fspath)).parents:
             item.add_marker(pytest.mark.e2e)
+
+
+@pytest.fixture(scope="session")
+def stack(mailserver, tmp_path_factory):
+    """The whole system, running: mail server, GPG keyring, chat bus, poller.
+
+    Session-scoped because booting real processes costs seconds and every
+    later e2e slice wants the same live stack. Everything it creates lives
+    under a pytest tmp directory and is torn down unconditionally — see
+    ``_stack.boot_stack`` for the ordering and why it matters.
+    """
+    # ``tests/e2e`` has no ``__init__.py``, so pytest's prepend import mode puts
+    # this directory on sys.path and the helper is a top-level module. The
+    # repo's ``from tests._x import ...`` form would need a new package file,
+    # which is outside this slice's declared scope.
+    import _stack
+
+    reason = _stack.missing_tooling()
+    if reason is not None:
+        pytest.skip(f"e2e stack needs local tooling — {reason}")
+
+    workdir = tmp_path_factory.mktemp("e2e-stack")
+    with _stack.boot_stack(mailserver, workdir) as booted:
+        yield booted
