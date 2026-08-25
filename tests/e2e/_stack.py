@@ -98,6 +98,15 @@ class TlsTerminator:
             threading.Thread(target=self._handle, args=(raw,), daemon=True).start()
 
     def _handle(self, raw: socket.socket) -> None:
+        """Own one connection for its whole life, including the close.
+
+        The two pump threads share both sockets, so neither may close either
+        one: closing an ``ssl.SSLSocket`` while the sibling thread is blocked
+        in ``recv()`` on it frees the OpenSSL connection out from under that
+        read and segfaults the interpreter. Ownership therefore stays here —
+        the pumps only half-close the direction they finished writing, and the
+        sockets are closed once both have joined and nobody can touch them.
+        """
         try:
             client = self._ctx.wrap_socket(raw, server_side=True)
         except OSError:
@@ -108,22 +117,37 @@ class TlsTerminator:
         except OSError:
             client.close()
             return
-        for src, dst in ((client, upstream), (upstream, client)):
-            threading.Thread(target=self._pump, args=(src, dst), daemon=True).start()
+        # create_connection leaves its connect timeout on the socket, which
+        # would abort an idle-but-healthy IMAP session after 30s and tear the
+        # pair down mid-protocol. The pumps want to block until EOF.
+        upstream.settimeout(None)
+        pumps = [threading.Thread(target=self._pump, args=(src, dst), daemon=True)
+                 for src, dst in ((client, upstream), (upstream, client))]
+        for pump in pumps:
+            pump.start()
+        for pump in pumps:
+            pump.join()
+        for sock in (client, upstream):
+            with contextlib.suppress(OSError):
+                sock.close()
 
     @staticmethod
     def _pump(src: socket.socket, dst: socket.socket) -> None:
+        """Copy ``src`` to ``dst`` until EOF, then half-close ``dst``.
+
+        ``shutdown(SHUT_WR)`` acts on the file descriptor and touches no
+        OpenSSL state, so it is safe while the opposite pump is reading. It
+        also propagates the EOF, which is what lets that pump finish and
+        ``_handle`` reach its close.
+        """
         try:
             while chunk := src.recv(65536):
                 dst.sendall(chunk)
         except OSError:
             pass
         finally:
-            for sock in (src, dst):
-                with contextlib.suppress(OSError):
-                    sock.shutdown(socket.SHUT_RDWR)
-                with contextlib.suppress(OSError):
-                    sock.close()
+            with contextlib.suppress(OSError):
+                dst.shutdown(socket.SHUT_WR)
 
     def close(self) -> None:
         self._closed.set()
