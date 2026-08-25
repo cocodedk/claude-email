@@ -6,7 +6,7 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (1792 tests: 1713 unit + 79 docker-gated e2e, 100% coverage on production code)
+- **Test runner**: pytest (1805 tests: 1713 unit + 92 docker-gated e2e, 100% coverage on production code)
 
 ---
 
@@ -57,7 +57,7 @@ claude-email/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
 ├── tests/                 # 1713 unit tests (100% coverage)
-│   └── e2e/               # 79 docker-gated end-to-end tests — real stack, zero mocks
+│   └── e2e/               # 92 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -135,6 +135,29 @@ claude-email/
   because the `[Running]` ack dies on the wire with the process. It boots its
   own mail server (own compose project, container and ports) since killing a
   GreenMail destroys every mailbox on it. See `docs/e2e-failure-injection.md`.
+  `tests/e2e/test_concurrency.py` drives **genuinely parallel** delivery: a
+  blocking command holds the poller inside `execute_command` while six
+  messages are pushed onto the wire from six threads released by one
+  `threading.Barrier`, so the next `fetch_unseen` sees them all in one batch.
+  Two distinct commands run exactly once each; the same signed credential
+  delivered twice under two different `Message-ID`s runs once; the same
+  message delivered twice byte-for-byte by the real server runs once. The
+  batch is **asserted, not assumed** — every message is confirmed in the
+  mailbox (via flag-free `SEARCH HEADER`, never `FETCH (RFC822)`, which would
+  set `\Seen` and eat the messages under test) before the blocker's own
+  wall-clock `end` stamp. `fetch_unseen` holds two barriers and only the
+  persisted `STATE_FILE` one is reachable sequentially; the in-memory `batch`
+  set is what this file exists to reach. `fetch_unseen` checks the
+  `Message-ID` first and the content-bound replay key second, and for a
+  *signed byte-identical* duplicate the two are fully redundant — the copies
+  share both, so either alone would refuse the second and the `Message-ID` is
+  simply the one that fires. They stop overlapping across route classes: only
+  the replay key catches a signed payload re-sent under a **fresh**
+  `Message-ID`, and only `msg_id in batch` stands on the unsigned
+  shared-secret routes, where `replay_key` returns `""`. So the file also
+  boots a second real poller with `GPG_FINGERPRINT=""` and re-delivers an
+  unsigned bearer command twice in parallel — the one delivery on which the
+  `Message-ID` guard is alone. See `docs/e2e-concurrency.md`.
   It carries the `e2e` marker (applied automatically by
   `tests/e2e/conftest.py`), so `-m "not e2e"` gives a docker-free run and `-m e2e` an
   opt-in one. Without docker it skips with a reason; it never fails. See `docs/e2e-testing.md`.
@@ -183,7 +206,7 @@ claude-email/
 ## Build Commands
 
 ```bash
-.venv/bin/pytest tests/ -q            # Run all 1792 tests (e2e included)
+.venv/bin/pytest tests/ -q            # Run all 1805 tests (e2e included)
 .venv/bin/pytest tests/ -q -m "not e2e"  # Unit tests only — no docker needed
 .venv/bin/pytest tests/ -q -m e2e     # End-to-end only — needs docker
 .venv/bin/pytest tests/ -v            # Verbose
@@ -195,5 +218,5 @@ scripts/check-line-limit.sh           # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 1792 tests pass (79 of them e2e, skipped without docker)
+2. Run `.venv/bin/pytest tests/ -q` — confirm 1805 tests pass (92 of them e2e, skipped without docker)
 3. Invoke `superpowers:brainstorming` before any feature work

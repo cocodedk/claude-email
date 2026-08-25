@@ -257,6 +257,17 @@ hostile headers; it is never handed a spent credential. See
 [docs/e2e-metamorphic-headers.md](docs/e2e-metamorphic-headers.md) for the
 mutant set, the reversion evidence and the residual coupling.
 
+**Duplicate and concurrent delivery.** Commands that arrive at the same moment
+do not interfere: two different commands delivered simultaneously both run, and
+a command delivered twice — whether as the same signed credential under two
+different `Message-ID`s, or as the same message re-delivered byte-for-byte by
+the mail server — runs exactly once. The poller deduplicates inside a single
+poll batch as well as across batches, which matters because the persisted
+idempotency store is only written once a message has been fully handled: without
+the in-batch check, two copies fetched in the same cycle would both execute.
+See [docs/e2e-concurrency.md](docs/e2e-concurrency.md) for how the parallel
+delivery is forced and proved, and for which barrier holds which case.
+
 ## Sending Commands
 
 ### Direct CLI Commands
@@ -508,7 +519,7 @@ claude-email/
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
 ├── tests/                 # 1713 unit tests (100% coverage)
-│   └── e2e/               # 79 docker-gated end-to-end tests — real stack, zero mocks
+│   └── e2e/               # 92 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -582,7 +593,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1792 tests, 100% coverage on production code)
+# Run all tests (1805 tests, 100% coverage on production code)
 .venv/bin/pytest tests/ -q
 
 # Unit tests only — no docker needed
@@ -607,7 +618,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1792 tests** — 1713 unit tests with **100% code coverage** across all modules, plus 79 docker-gated end-to-end tests
+- **1805 tests** — 1713 unit tests with **100% code coverage** across all modules, plus 92 docker-gated end-to-end tests
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
