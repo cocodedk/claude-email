@@ -6,7 +6,7 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (1787 tests: 1713 unit + 74 docker-gated e2e, 100% coverage on production code)
+- **Test runner**: pytest (1792 tests: 1713 unit + 79 docker-gated e2e, 100% coverage on production code)
 
 ---
 
@@ -57,7 +57,7 @@ claude-email/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
 ├── tests/                 # 1713 unit tests (100% coverage)
-│   └── e2e/               # 74 docker-gated end-to-end tests — real stack, zero mocks
+│   └── e2e/               # 79 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -120,6 +120,21 @@ claude-email/
   **byte-identical redeliveries**: a bearer message under a fresh
   `Message-ID` executes again by design, since no credential on that route
   covers any header. See `docs/e2e-invariants.md`.
+  `tests/e2e/test_failure_injection.py` breaks the real dependencies
+  mid-flight — `docker compose kill` on a private GreenMail container, a
+  SIGKILL on a real `src.project_worker` and its CLI child, a TCP severance
+  of the live IMAP session at the instant the poller issues `FETCH`, and a
+  SIGKILL on `main.py` inside the accept→execute window — and asserts the
+  documented outcome of each. It pins the delivery guarantee as
+  **at most once**: `UID FETCH (RFC822)` sets `\Seen` server-side (asserted
+  against the live server, not quoted from the RFC) and `mark_processed` runs
+  only after dispatch, so a crash can never duplicate an effect and a crash
+  after the fetch drops the command outright. The drop leaves three durable
+  traces — the message still in the mailbox and `\Seen`, its `Message-ID`
+  absent from `STATE_FILE`, no ledger entry — but the user is **not** notified,
+  because the `[Running]` ack dies on the wire with the process. It boots its
+  own mail server (own compose project, container and ports) since killing a
+  GreenMail destroys every mailbox on it. See `docs/e2e-failure-injection.md`.
   It carries the `e2e` marker (applied automatically by
   `tests/e2e/conftest.py`), so `-m "not e2e"` gives a docker-free run and `-m e2e` an
   opt-in one. Without docker it skips with a reason; it never fails. See `docs/e2e-testing.md`.
@@ -168,7 +183,7 @@ claude-email/
 ## Build Commands
 
 ```bash
-.venv/bin/pytest tests/ -q            # Run all 1787 tests (e2e included)
+.venv/bin/pytest tests/ -q            # Run all 1792 tests (e2e included)
 .venv/bin/pytest tests/ -q -m "not e2e"  # Unit tests only — no docker needed
 .venv/bin/pytest tests/ -q -m e2e     # End-to-end only — needs docker
 .venv/bin/pytest tests/ -v            # Verbose
@@ -180,5 +195,5 @@ scripts/check-line-limit.sh           # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 1787 tests pass (74 of them e2e, skipped without docker)
+2. Run `.venv/bin/pytest tests/ -q` — confirm 1792 tests pass (79 of them e2e, skipped without docker)
 3. Invoke `superpowers:brainstorming` before any feature work
