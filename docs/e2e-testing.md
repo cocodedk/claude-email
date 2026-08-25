@@ -15,7 +15,8 @@ tests/e2e/
 ├── test_mailserver_roundtrip.py     # SMTP -> IMAP round trip
 ├── test_stack_boots.py              # the whole system is genuinely running
 ├── test_happy_path.py               # one real command in, real reply out
-└── test_auth_matrix.py              # every route x every auth condition
+├── test_auth_matrix.py              # every route x every auth condition
+└── test_replay.py                   # a captured real message, replayed twice
 ```
 
 `test_auth_matrix.py` is the authentication grid — six inbound routes against
@@ -24,6 +25,11 @@ every cell asserted over real mail. It also boots a second poller with
 `SHARED_SECRET=""` to cover the GPG-only deployment. See
 [the authentication matrix](e2e-auth-matrix.md) for the grid, the
 no-freshness-window finding and the operator hand-off it carries.
+
+`test_replay.py` captures one real signed command off the wire and hands it
+back twice — byte-identical, then under a fresh `Message-ID` — and counts the
+effect rather than the rejection. See [replaying a captured
+message](e2e-replay.md).
 
 ## Running it
 

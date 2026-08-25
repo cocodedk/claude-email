@@ -234,6 +234,18 @@ See [docs/e2e-auth-matrix.md](docs/e2e-auth-matrix.md) for the full
 route x condition grid, including the finding that no route enforces a
 timestamp freshness window.
 
+**Replay protection.** A captured command mail is single-use *if it is GPG
+signed*. The poller keys its idempotency store on two things: the `Message-ID`,
+and a fingerprint of the OpenPGP signature the message carries. The second key
+is what matters, because no credential this system accepts covers the
+`Message-ID` header — without it, an interceptor could rewrite that header (and
+the equally unsigned `Date`), re-send the untouched signed payload, and the
+command would run again. Routes that authenticate on a bearer value instead — a
+thread reply, a reaction, a JSON envelope — bind nothing about the message and
+so keep the `Message-ID` store as their only control. See
+[docs/e2e-replay.md](docs/e2e-replay.md) for the reasoning, the residual
+findings and why no digest fallback was added for the unsigned routes.
+
 ## Sending Commands
 
 ### Direct CLI Commands
@@ -464,7 +476,8 @@ claude-email/
 ├── src/
 │   ├── security.py        # Sender validation: From, Return-Path, GPG or shared secret
 │   ├── executor.py        # Extract command from body, run claude CLI (shell=False)
-│   ├── poller.py          # IMAP4_SSL polling, Message-ID idempotency store
+│   ├── poller.py          # IMAP4_SSL polling, idempotency + replay store
+│   ├── replay_guard.py    # Content-bound replay key (digest of the OpenPGP signature)
 │   ├── mailer.py          # SMTP_SSL reply with threading headers + Message-ID generation
 │   ├── chat_db.py         # Shared SQLite layer (WAL mode) — agents, messages, events
 │   ├── chat_router.py     # Email-to-chat routing: reply, @agent, meta, CLI fallback
@@ -482,8 +495,8 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 1666 unit tests (100% coverage)
-│   └── e2e/               # 47 docker-gated end-to-end tests — real stack, zero mocks
+├── tests/                 # 1697 unit tests (100% coverage)
+│   └── e2e/               # 55 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -557,7 +570,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1713 tests, 100% coverage on production code)
+# Run all tests (1752 tests, 100% coverage on production code)
 .venv/bin/pytest tests/ -q
 
 # Unit tests only — no docker needed
@@ -582,7 +595,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1713 tests** — 1666 unit tests with **100% code coverage** across all modules, plus 47 docker-gated end-to-end tests
+- **1752 tests** — 1697 unit tests with **100% code coverage** across all modules, plus 55 docker-gated end-to-end tests
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit

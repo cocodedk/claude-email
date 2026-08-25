@@ -54,17 +54,29 @@ The stale-timestamp column therefore asserts *acceptance* — that is the truthf
 state of the system, and the tests are the evidence for the claim.
 
 The consequence: **the replayed-nonce column is the only temporal control.**
-Replay protection is the poller's `Message-ID` idempotency store
-(`STATE_FILE`, default `processed_ids.json`), which holds the most recent 10 000
-IDs. An intercepted, validly signed message stays executable indefinitely if its
-Message-ID ever ages out of that store or the store is deleted.
+Replay protection is the poller's idempotency store (`STATE_FILE`, default
+`processed_ids.json`), which holds the most recent 20 000 keys.
+
+That column was written when the store held `Message-ID`s alone, and
+`tests/e2e/test_replay.py` later showed why that was not enough: nothing in
+this system signs the `Message-ID`, so re-sending a captured signed payload
+under a fresh one executed it again. The store now also holds a `sig:<sha256>`
+digest of the OpenPGP signature (`src/replay_guard.py`), which makes a captured
+*signed* credential single-use however its envelope is rewritten. The unsigned
+bearer routes — thread reply, reaction, JSON envelope — are unchanged and still
+rest on the `Message-ID` alone; see [replaying a captured
+message](e2e-replay.md) for why a digest fallback there would buy nothing. On
+every route, an intercepted message stays executable if its keys age out of the
+store or the store is deleted.
 
 Adding a freshness window would be a behaviour change with new configuration
 surface, so it is recorded here as a decision for the operator rather than made
 unilaterally. **Operator hand-off:** decide whether a `Date`/`meta.sent_at`
 skew limit is wanted; until then, do not delete `processed_ids.json` in
-production (already a repo invariant) and treat signed command mails as
-replayable secrets.
+production (already a repo invariant). Treat command mails as replayable
+secrets for as long as their keys sit in that bounded store — content-bound
+keys make a captured signed message single-use, but they do not bound how long
+a signature stays valid.
 
 ## Fixed here: the JSON envelope path fails closed
 
