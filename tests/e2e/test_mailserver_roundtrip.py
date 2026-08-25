@@ -71,6 +71,23 @@ def _send(mailserver, sender, recipient_address: str, raw: bytes) -> dict:
         return smtp.sendmail(sender.address, [recipient_address], raw)
 
 
+def _rfc822_bytes(fetched) -> bytes:
+    """Pull the single RFC822 literal out of a FETCH response.
+
+    A plain ``FETCH ... (RFC822)`` implicitly sets ``\\Seen`` — verified against
+    this very server — so any other client reading the mailbox makes it emit
+    untagged ``* n FETCH (FLAGS (\\Seen))`` lines, and a concurrent delivery makes
+    it emit ``* n EXISTS``. The server may interleave either into *this* fetch's
+    response, and imaplib returns them in the same list as bare ``bytes`` rather
+    than ``(descriptor, literal)`` tuples. Indexing ``[0][1]`` blindly then hands
+    back one byte of a flag update — an ``int`` — instead of the message.
+    """
+    literals = [part[1] for part in fetched
+                if isinstance(part, tuple) and isinstance(part[1], (bytes, bytearray))]
+    assert len(literals) == 1, f"expected one RFC822 literal, got {fetched!r}"
+    return literals[0]
+
+
 def _fetch_by_nonce(imap: imaplib.IMAP4, nonce: str) -> bytes:
     """Return the raw RFC822 bytes of the message carrying ``nonce``."""
     status, _ = imap.select("INBOX")
@@ -81,7 +98,7 @@ def _fetch_by_nonce(imap: imaplib.IMAP4, nonce: str) -> bytes:
     assert len(uids) == 1, f"expected exactly one message for nonce {nonce}, got {uids!r}"
     status, fetched = imap.fetch(uids[0], "(RFC822)")
     assert status == "OK", f"IMAP FETCH failed: {status}"
-    return fetched[0][1]
+    return _rfc822_bytes(fetched)
 
 
 def test_smtp_to_imap_roundtrip_preserves_body_bytes(mailserver):

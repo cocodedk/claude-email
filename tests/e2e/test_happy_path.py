@@ -185,6 +185,23 @@ def _send(mailserver, account, recipient: str, raw: bytes) -> dict:
         return smtp.sendmail(account.address, [recipient], raw)
 
 
+def _rfc822_bytes(fetched) -> bytes:
+    """Pull the single RFC822 literal out of a FETCH response.
+
+    A plain ``FETCH ... (RFC822)`` implicitly sets ``\\Seen`` — verified against
+    this very server — so any other client reading the mailbox makes it emit
+    untagged ``* n FETCH (FLAGS (\\Seen))`` lines, and a concurrent delivery makes
+    it emit ``* n EXISTS``. The server may interleave either into *this* fetch's
+    response, and imaplib returns them in the same list as bare ``bytes`` rather
+    than ``(descriptor, literal)`` tuples. Indexing ``[0][1]`` blindly then hands
+    back one byte of a flag update — an ``int`` — instead of the message.
+    """
+    literals = [part[1] for part in fetched
+                if isinstance(part, tuple) and isinstance(part[1], (bytes, bytearray))]
+    assert len(literals) == 1, f"expected one RFC822 literal, got {fetched!r}"
+    return literals[0]
+
+
 def _tagged_replies(imap: imaplib.IMAP4, message_id: str) -> dict:
     """Return ``{tag: message}`` for every reply threaded on ``message_id``.
 
@@ -199,7 +216,7 @@ def _tagged_replies(imap: imaplib.IMAP4, message_id: str) -> dict:
     for uid in data[0].split():
         status, fetched = imap.fetch(uid, "(RFC822)")
         assert status == "OK", f"IMAP FETCH failed: {status}"
-        parsed = email.message_from_bytes(fetched[0][1])
+        parsed = email.message_from_bytes(_rfc822_bytes(fetched))
         if parsed.get("In-Reply-To", "").strip() != message_id:
             continue
         subject = parsed.get("Subject", "")

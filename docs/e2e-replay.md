@@ -104,10 +104,15 @@ the Message-ID store as their only control.
    captured credential becoming usable again. Both still age out eventually —
    `processed_ids.json` remains a file you must not delete in production
    (already a repo invariant).
-4. **Skipped messages stay unseen.** A refused replay is never handed to
-   `mark_processed`, so it is re-fetched and re-refused on every poll cycle.
-   That is the same behaviour the Message-ID skip has always had; it costs one
-   FETCH per cycle per refused message.
+4. **Refusal leans on IMAP's implicit `\Seen`.** A refused replay is never
+   handed to `mark_processed`, so nothing in this codebase flags it or records
+   its Message-ID. It is not re-fetched anyway, because a plain
+   `UID FETCH (RFC822)` — exactly what `fetch_unseen` issues — implicitly sets
+   `\Seen`, so the message drops out of the `UNSEEN` search on the next cycle.
+   Verified against the live server rather than assumed. The dependency is
+   real and nobody chose it: switching the poller to `BODY.PEEK[]` for any
+   reason would leave every refused message in the `UNSEEN` set forever, to be
+   re-fetched and re-refused once a second.
 5. **The armour parser is a reimplementation.** `_dearmor` is a short reader
    for a forgiving format, so a re-encoding gpg accepts but this canonicalises
    differently would mint a fresh key and buy the attacker one replay — never a
