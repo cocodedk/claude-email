@@ -4,6 +4,9 @@ import email.utils
 import logging
 import smtplib
 import ssl
+from collections.abc import Sequence
+
+from src.secret_redact import scrub_message, scrub_text
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +23,7 @@ def send_reply(
     references: str = "",
     email_domain: str = "",
     content_type: str = "text/plain",
+    secrets: Sequence[str] = (),
 ) -> str:
     """Send a reply via SMTP_SSL with verified TLS.
 
@@ -27,9 +31,16 @@ def send_reply(
     structured-client envelopes; body must already be the serialized
     payload in that case.
 
+    ``secrets`` are shared secrets to redact from the subject, the body and
+    every header before the message is built — this is the single choke point
+    all outbound mail passes through, so scrubbing here covers every caller.
+    See ``src/secret_redact.py`` for why the bare secret, encoded-words and
+    non-Subject headers all have to be covered.
+
     Creates a fresh connection per send to avoid stale-connection issues in
     long-running service deployments. Returns the Message-ID of the sent email.
     """
+    body = scrub_text(body, secrets)
     msg = email.message.EmailMessage()
     msg["From"] = username
     msg["To"] = to
@@ -48,6 +59,7 @@ def send_reply(
         )
         msg.replace_header("Content-Type", f"{content_type}; charset=utf-8")
     msg["Message-ID"] = email.utils.make_msgid(domain=email_domain) if email_domain else email.utils.make_msgid()
+    scrub_message(msg, secrets)
 
     ctx = ssl.create_default_context()
     try:

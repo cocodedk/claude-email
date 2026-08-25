@@ -13,6 +13,7 @@ from src.json_kinds import (
     handle_cancel, handle_command, handle_list_projects, handle_status,
 )
 from src.mailer import send_reply
+from src.secret_redact import configured_secrets
 from src.task_queue import TaskQueue
 from src.worker_manager import WorkerManager
 
@@ -133,6 +134,7 @@ def _send_json_reply(
             body=body_json, in_reply_to=msg_id, references=msg_id,
             email_domain=config.get("email_domain", ""),
             content_type="application/json",
+            secrets=configured_secrets(config),
         )
     except Exception:
         logger.exception("JSON reply send failed")

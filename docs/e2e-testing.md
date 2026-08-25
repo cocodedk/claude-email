@@ -17,7 +17,8 @@ tests/e2e/
 ├── test_happy_path.py               # one real command in, real reply out
 ├── test_auth_matrix.py              # every route x every auth condition
 ├── test_replay.py                   # a captured real message, replayed twice
-└── test_metamorphic_headers.py      # one payload, mutated unsigned headers
+├── test_metamorphic_headers.py      # one payload, mutated unsigned headers
+└── test_invariants.py               # properties over a whole stream of real mail
 ```
 
 `test_auth_matrix.py` is the authentication grid — six inbound routes against
@@ -36,6 +37,15 @@ message](e2e-replay.md).
 mutated `Subject` / `In-Reply-To` / `References` / `To` and asserts the
 executed command, the routing target and the reconstructed prompt never move
 — see [mutating the unsigned envelope](e2e-metamorphic-headers.md).
+
+`test_invariants.py` runs a generated stream of real messages through a second
+live poller in shared-secret mode and asserts three properties over the whole
+batch: the secret appears in no outbound body **and no outbound header**, every
+accepted inbound message has exactly one ledger row, and no effect is observed
+twice. The header half found a live leak — replies thread on the inbound
+Subject, and `AUTH:<secret> <command>` is a supported Subject. See
+[invariants over real traffic](e2e-invariants.md), which also carries the
+secret-rotation hand-off.
 
 ## Running it
 

@@ -16,6 +16,7 @@ from src.mailer import send_reply
 from src.relay_routing import (
     recipient_for_message, subject_base_for_message, thread_id_for_message,
 )
+from src.secret_redact import configured_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,7 @@ def relay_outbound_messages(config: dict, chat_db: ChatDB) -> None:
                 in_reply_to=thread_id, references=thread_id,
                 email_domain=config.get("email_domain", ""),
                 content_type=content_type,
+                secrets=configured_secrets(config),
             )
         except _PERMANENT_SMTP_ERRORS as exc:
             logger.error("Permanent SMTP error relaying message %d: %s — marking failed", msg["id"], exc)
