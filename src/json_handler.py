@@ -3,6 +3,7 @@
 Per-kind handlers live in ``src/json_kinds.py`` so this file stays
 focused on entry, auth, dispatch routing, and the SMTP reply send.
 """
+import hmac
 import logging
 
 from src.chat_db import ChatDB
@@ -16,6 +17,36 @@ from src.task_queue import TaskQueue
 from src.worker_manager import WorkerManager
 
 logger = logging.getLogger(__name__)
+
+
+def _auth_ok(presented: str, expected: str) -> bool:
+    """Constant-time secret check that fails closed when unconfigured.
+
+    An unset shared secret used to skip this check altogether, which left a
+    GPG-only deployment — one ``main.py``'s startup guard explicitly permits —
+    accepting every envelope from anyone able to forge a ``From`` /
+    ``Return-Path`` pair. GPG is never consulted on the JSON path, so "no
+    secret configured" means "no credential exists", not "no credential
+    required". Bytes, not ``str``: ``compare_digest`` rejects non-ASCII
+    ``str`` inputs and ``meta.auth`` is attacker-controlled JSON.
+    """
+    if not expected:
+        return False
+    return hmac.compare_digest(presented.encode("utf-8"), expected.encode("utf-8"))
+
+
+def _auth_failure_text(expected: str) -> tuple[str, str]:
+    """(message, hint) for the rejection — the two causes need different fixes."""
+    if expected:
+        return (
+            "meta.auth does not match",
+            "Open Settings and re-enter the shared secret.",
+        )
+    return (
+        "SHARED_SECRET is not configured, so the JSON envelope path is closed",
+        "Set SHARED_SECRET on the server and in the app; GPG does not "
+        "authenticate this path.",
+    )
 
 
 def handle_json_email(
@@ -36,17 +67,15 @@ def handle_json_email(
 
     universe = config.get("_universe")
     expected = (universe.shared_secret if universe else config.get("shared_secret", "")) or ""
-    if expected and env.auth != expected:
+    if not _auth_ok(env.auth, expected):
         logger.warning(
-            "JSON auth mismatch: meta.auth len=%d, expected len=%d",
+            "JSON auth rejected: meta.auth len=%d, expected len=%d",
             len(env.auth), len(expected),
         )
+        detail, hint = _auth_failure_text(expected)
         _send_json_reply(config, message, build_envelope(
             "error", body="auth failed",
-            error=make_error(
-                "unauthorized", "meta.auth does not match",
-                hint="Open Settings and re-enter the shared secret.",
-            ),
+            error=make_error("unauthorized", detail, hint=hint),
             ask_id=env.ask_id,
         ), chat_db=chat_db)
         return True

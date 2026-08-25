@@ -14,8 +14,16 @@ tests/e2e/
 ├── _stack.py                        # boots the real stack: TLS, GPG, bus, poller
 ├── test_mailserver_roundtrip.py     # SMTP -> IMAP round trip
 ├── test_stack_boots.py              # the whole system is genuinely running
-└── test_happy_path.py               # one real command in, real reply out
+├── test_happy_path.py               # one real command in, real reply out
+└── test_auth_matrix.py              # every route x every auth condition
 ```
+
+`test_auth_matrix.py` is the authentication grid — six inbound routes against
+five conditions (unsigned, wrong key, stale timestamp, replayed nonce, valid),
+every cell asserted over real mail. It also boots a second poller with
+`SHARED_SECRET=""` to cover the GPG-only deployment. See
+[the authentication matrix](e2e-auth-matrix.md) for the grid, the
+no-freshness-window finding and the operator hand-off it carries.
 
 ## Running it
 

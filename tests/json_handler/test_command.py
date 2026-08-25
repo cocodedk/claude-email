@@ -58,7 +58,16 @@ class TestCommand:
         })
         handle_json_email(msg, cfg, cdb, tq, wm)  # must not raise
 
-    def test_no_auth_required_when_universe_secret_empty(self, resources, tmp_path, mocker):
+    def test_auth_rejected_when_universe_secret_empty(self, resources, tmp_path, mocker):
+        """An unconfigured secret closes the JSON path; it does not open it.
+
+        This test previously asserted the opposite — that no auth was required
+        when the universe had no shared secret. That pinned a hole: GPG is
+        never consulted on the JSON path, so a GPG-only deployment (permitted
+        by ``main.py``'s startup guard) accepted every envelope whose ``From``
+        an attacker could forge. ``tests/e2e/test_auth_matrix.py`` demonstrates
+        it over real mail.
+        """
         cdb, tq, wm = resources
         cfg = base_config(tmp_path, secret="")
         mock_send = mocker.patch("src.json_handler.send_reply", return_value="<r@x>")
@@ -68,7 +77,11 @@ class TestCommand:
         })
         handle_json_email(msg, cfg, cdb, tq, wm)
         body = json.loads(mock_send.call_args.kwargs["body"])
-        assert body["kind"] == "ack"
+        assert body["kind"] == "error"
+        assert body["error"]["code"] == "unauthorized"
+        assert "SHARED_SECRET" in body["error"]["message"]
+        assert "SHARED_SECRET" in body["error"]["hint"]
+        assert tq.get(1) is None, "an unauthenticated command must not queue work"
 
     def test_inbound_subject_persisted_as_origin_subject(self, resources, tmp_path, mocker):
         """JSON command path threads inbound Subject into tasks.origin_subject

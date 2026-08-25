@@ -119,7 +119,7 @@
         <li>
           <span class="num">№ 02</span>
           <h3>Dual Authentication</h3>
-          <p>Every incoming message is verified by <code>From</code>, <code>Return-Path</code>, and either a GPG signature or a rotating shared secret. Unsigned mail from strangers is dropped on sight.</p>
+          <p>Every incoming message is verified by <code>From</code>, <code>Return-Path</code>, and either a GPG signature or a rotating shared secret. Unsigned mail from strangers is dropped on sight. The structured JSON envelope path used by the companion app authenticates on the shared secret alone and never consults GPG, so it fails closed when <code>SHARED_SECRET</code> is unset — set it on both server and app to use that path. No route enforces a timestamp freshness window; replay protection is the poller's Message-ID store.</p>
         </li>
         <li>
           <span class="num">№ 03</span>
@@ -139,7 +139,7 @@
         <li>
           <span class="num">№ 06</span>
           <h3>Tested to the Margins</h3>
-          <p>1679 tests (1666 unit + 13 end-to-end against a real mail server and a real running stack), 100% coverage, Python 3.12, fully typed, <code>shell=False</code> everywhere, verified TLS contexts. Boring on purpose; invasive vectors locked out.</p>
+          <p>1713 tests (1666 unit + 47 end-to-end against a real mail server and a real running stack), 100% coverage, Python 3.12, fully typed, <code>shell=False</code> everywhere, verified TLS contexts. Boring on purpose; invasive vectors locked out. The end-to-end suite includes the full authentication matrix: six inbound routes (plaintext command, JSON envelope, thread reply, <code>@agent</code>, meta, reaction) crossed with five conditions (unsigned, wrong key, stale timestamp, replayed nonce, valid) — thirty cells, every one asserted over real mail.</p>
         </li>
         <li>
           <span class="num">№ 07</span>

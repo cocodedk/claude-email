@@ -218,9 +218,21 @@ Every config value is read from `.env` — no hardcoded defaults in code.
 
 | Variable | Description | Example |
 |---|---|---|
-| `SHARED_SECRET` | Subject prefix secret | `change_this` |
+| `SHARED_SECRET` | Subject prefix secret — **also required for the JSON envelope path** | `change_this` |
 | `GPG_FINGERPRINT` | GPG key fingerprint (enables GPG mode) | |
 | `GPG_HOME` | Custom GPG home directory | |
+
+At least one of `SHARED_SECRET` / `GPG_FINGERPRINT` must be set or the service
+refuses to start. The two are not interchangeable everywhere: the structured
+**JSON envelope** path (used by the companion app) authenticates on `meta.auth`
+against `SHARED_SECRET` and never consults GPG. With `SHARED_SECRET` unset that
+path fails closed — every envelope is answered
+`error.code == "unauthorized"` — because there is no credential to check, not
+because none is required. Set `SHARED_SECRET` on the server and in the app to
+use it. Plain-text routes are unaffected and keep working under GPG alone.
+See [docs/e2e-auth-matrix.md](docs/e2e-auth-matrix.md) for the full
+route x condition grid, including the finding that no route enforces a
+timestamp freshness window.
 
 ## Sending Commands
 
@@ -471,7 +483,7 @@ claude-email/
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
 ├── tests/                 # 1666 unit tests (100% coverage)
-│   └── e2e/               # 13 docker-gated end-to-end tests — real stack, zero mocks
+│   └── e2e/               # 47 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -545,7 +557,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1679 tests, 100% coverage on production code)
+# Run all tests (1713 tests, 100% coverage on production code)
 .venv/bin/pytest tests/ -q
 
 # Unit tests only — no docker needed
@@ -570,7 +582,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1679 tests** — 1666 unit tests with **100% code coverage** across all modules, plus 13 docker-gated end-to-end tests
+- **1713 tests** — 1666 unit tests with **100% code coverage** across all modules, plus 47 docker-gated end-to-end tests
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
