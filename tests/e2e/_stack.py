@@ -50,6 +50,7 @@ import dataclasses
 import http.client
 import os
 import re
+import select
 import shutil
 import signal
 import socket
@@ -98,14 +99,25 @@ class TlsTerminator:
             threading.Thread(target=self._handle, args=(raw,), daemon=True).start()
 
     def _handle(self, raw: socket.socket) -> None:
-        """Own one connection for its whole life, including the close.
+        """Own one connection for its whole life, in a single thread.
 
-        The two pump threads share both sockets, so neither may close either
-        one: closing an ``ssl.SSLSocket`` while the sibling thread is blocked
-        in ``recv()`` on it frees the OpenSSL connection out from under that
-        read and segfaults the interpreter. Ownership therefore stays here —
-        the pumps only half-close the direction they finished writing, and the
-        sockets are closed once both have joined and nobody can touch them.
+        Both directions are pumped by this one thread, and that is the whole
+        point. An OpenSSL ``SSL`` object is not thread-safe, and CPython's
+        ``_ssl`` releases the GIL around ``SSL_read`` and ``SSL_write`` without
+        taking any per-object lock. The previous design ran the two directions
+        in two threads, so on every TLS session one thread sat inside
+        ``SSL_read`` on the client socket while the other was inside
+        ``SSL_write`` on that same socket — and under TLS 1.3 a read can itself
+        write (session tickets, KeyUpdate). That corrupts the connection state:
+        it surfaced as ``ssl.SSLError: [SSL] internal error`` under load, and as
+        a segmentation fault that killed the whole suite, reported in whichever
+        thread next touched the poisoned heap rather than in the SSL call that
+        did the damage.
+
+        Owning the connection in one thread removes the concurrency instead of
+        trying to survive it. It also removes the cross-thread half-close that
+        the previous fix had to work around, since the one thread that half-
+        closes a direction is the one that just read its EOF.
         """
         try:
             client = self._ctx.wrap_socket(raw, server_side=True)
@@ -119,35 +131,56 @@ class TlsTerminator:
             return
         # create_connection leaves its connect timeout on the socket, which
         # would abort an idle-but-healthy IMAP session after 30s and tear the
-        # pair down mid-protocol. The pumps want to block until EOF.
+        # pair down mid-protocol. The relay blocks in select() instead.
         upstream.settimeout(None)
-        pumps = [threading.Thread(target=self._pump, args=(src, dst), daemon=True)
-                 for src, dst in ((client, upstream), (upstream, client))]
-        for pump in pumps:
-            pump.start()
-        for pump in pumps:
-            pump.join()
-        for sock in (client, upstream):
-            with contextlib.suppress(OSError):
-                sock.close()
+        try:
+            self._relay(client, upstream)
+        finally:
+            for sock in (client, upstream):
+                with contextlib.suppress(OSError):
+                    sock.close()
 
     @staticmethod
-    def _pump(src: socket.socket, dst: socket.socket) -> None:
-        """Copy ``src`` to ``dst`` until EOF, then half-close ``dst``.
+    def _relay(client: ssl.SSLSocket, upstream: socket.socket) -> None:
+        """Copy bytes both ways until both directions have reached EOF.
 
-        ``shutdown(SHUT_WR)`` acts on the file descriptor and touches no
-        OpenSSL state, so it is safe while the opposite pump is reading. It
-        also propagates the EOF, which is what lets that pump finish and
-        ``_handle`` reach its close.
+        Two details are load-bearing, both about not lying to OpenSSL:
+
+        ``select`` cannot see data OpenSSL has already decrypted into the
+        SSLSocket's own buffer. One TLS record can carry several IMAP lines, so
+        a relay that waited on the file descriptor after reading part of a
+        record would stall a healthy session; ``pending()`` closes that gap.
+
+        The half-close goes through ``socket.socket.shutdown`` rather than the
+        ``ssl.SSLSocket`` override, which does ``self._sslobj = None``. After
+        that, ``recv`` on the still-open direction silently falls back to the
+        plain socket and forwards raw ciphertext instead of the protocol. Going
+        to the socket layer performs the fd-level half-close and nothing else,
+        which is all the EOF propagation needs.
         """
-        try:
-            while chunk := src.recv(65536):
-                dst.sendall(chunk)
-        except OSError:
-            pass
-        finally:
-            with contextlib.suppress(OSError):
-                dst.shutdown(socket.SHUT_WR)
+        peers: dict = {client: upstream, upstream: client}
+        while peers:
+            ready, _, _ = select.select(list(peers), [], [], 1.0)
+            if client in peers and client.pending():
+                ready = [client, *(s for s in ready if s is not client)]
+            for src in ready:
+                if src not in peers:
+                    continue
+                dst = peers[src]
+                try:
+                    chunk = src.recv(65536)
+                except OSError:
+                    chunk = b""
+                if not chunk:
+                    with contextlib.suppress(OSError):
+                        socket.socket.shutdown(dst, socket.SHUT_WR)
+                    del peers[src]
+                    continue
+                try:
+                    dst.sendall(chunk)
+                except OSError:
+                    peers.clear()
+                    break
 
     def close(self) -> None:
         self._closed.set()
