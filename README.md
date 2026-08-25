@@ -246,6 +246,17 @@ so keep the `Message-ID` store as their only control. See
 [docs/e2e-replay.md](docs/e2e-replay.md) for the reasoning, the residual
 findings and why no digest fallback was added for the unsigned routes.
 
+**Unsigned headers and routing.** A GPG signature here covers the
+`multipart/signed` MIME part and nothing else, so `Subject`, `In-Reply-To`,
+`References` and `To` are writable by anyone who can read the mailbox and
+re-send — and those headers are exactly what selects the agent, the meta-command
+and the thread whose prior turns get prepended to the prompt. Replay protection
+is what closes that: a captured payload is single-use, so a mutated re-send is
+dropped before any routing code sees it. The router is *not* hardened against
+hostile headers; it is never handed a spent credential. See
+[docs/e2e-metamorphic-headers.md](docs/e2e-metamorphic-headers.md) for the
+mutant set, the reversion evidence and the residual coupling.
+
 ## Sending Commands
 
 ### Direct CLI Commands
@@ -496,7 +507,7 @@ claude-email/
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
 ├── tests/                 # 1697 unit tests (100% coverage)
-│   └── e2e/               # 55 docker-gated end-to-end tests — real stack, zero mocks
+│   └── e2e/               # 63 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -570,7 +581,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1752 tests, 100% coverage on production code)
+# Run all tests (1760 tests, 100% coverage on production code)
 .venv/bin/pytest tests/ -q
 
 # Unit tests only — no docker needed
@@ -595,7 +606,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1752 tests** — 1697 unit tests with **100% code coverage** across all modules, plus 55 docker-gated end-to-end tests
+- **1760 tests** — 1697 unit tests with **100% code coverage** across all modules, plus 63 docker-gated end-to-end tests
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit

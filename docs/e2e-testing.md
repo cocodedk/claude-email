@@ -16,7 +16,8 @@ tests/e2e/
 ├── test_stack_boots.py              # the whole system is genuinely running
 ├── test_happy_path.py               # one real command in, real reply out
 ├── test_auth_matrix.py              # every route x every auth condition
-└── test_replay.py                   # a captured real message, replayed twice
+├── test_replay.py                   # a captured real message, replayed twice
+└── test_metamorphic_headers.py      # one payload, mutated unsigned headers
 ```
 
 `test_auth_matrix.py` is the authentication grid — six inbound routes against
@@ -30,6 +31,11 @@ no-freshness-window finding and the operator hand-off it carries.
 back twice — byte-identical, then under a fresh `Message-ID` — and counts the
 effect rather than the rejection. See [replaying a captured
 message](e2e-replay.md).
+
+`test_metamorphic_headers.py` re-sends one captured signed payload under
+mutated `Subject` / `In-Reply-To` / `References` / `To` and asserts the
+executed command, the routing target and the reconstructed prompt never move
+— see [mutating the unsigned envelope](e2e-metamorphic-headers.md).
 
 ## Running it
 

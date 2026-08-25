@@ -6,7 +6,7 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (1752 tests: 1697 unit + 55 docker-gated e2e, 100% coverage on production code)
+- **Test runner**: pytest (1760 tests: 1697 unit + 63 docker-gated e2e, 100% coverage on production code)
 
 ---
 
@@ -56,7 +56,7 @@ claude-email/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
 ├── tests/                 # 1697 unit tests (100% coverage)
-│   └── e2e/               # 55 docker-gated end-to-end tests — real stack, zero mocks
+│   └── e2e/               # 63 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -96,6 +96,15 @@ claude-email/
   append-only ledger, one `[Result]`, one bus row), with an out-of-band
   `gpg --verify` proving the replay was still authentic and a later tracer
   proving the poller was awake. See `docs/e2e-replay.md`.
+  `tests/e2e/test_metamorphic_headers.py` is the metamorphic property: one
+  captured signed payload re-sent under mutated `Subject` / `In-Reply-To` /
+  `References` / `To`, asserting the executed command, the routing target and
+  the reconstructed prompt never move. It takes the **rejection** branch of
+  that disjunction — the router still reads those headers and would still act
+  on them; nothing reaches it holding a spent credential, because
+  `fetch_unseen` refuses the replayed signature first. Any future inbound path
+  that reaches routing without passing `fetch_unseen` reopens the exposure.
+  See `docs/e2e-metamorphic-headers.md`.
   It carries the `e2e` marker (applied automatically by
   `tests/e2e/conftest.py`), so `-m "not e2e"` gives a docker-free run and `-m e2e` an
   opt-in one. Without docker it skips with a reason; it never fails. See `docs/e2e-testing.md`.
@@ -144,7 +153,7 @@ claude-email/
 ## Build Commands
 
 ```bash
-.venv/bin/pytest tests/ -q            # Run all 1752 tests (e2e included)
+.venv/bin/pytest tests/ -q            # Run all 1760 tests (e2e included)
 .venv/bin/pytest tests/ -q -m "not e2e"  # Unit tests only — no docker needed
 .venv/bin/pytest tests/ -q -m e2e     # End-to-end only — needs docker
 .venv/bin/pytest tests/ -v            # Verbose
@@ -156,5 +165,5 @@ scripts/check-line-limit.sh           # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 1752 tests pass (55 of them e2e, skipped without docker)
+2. Run `.venv/bin/pytest tests/ -q` — confirm 1760 tests pass (63 of them e2e, skipped without docker)
 3. Invoke `superpowers:brainstorming` before any feature work
