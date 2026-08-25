@@ -8,7 +8,8 @@ that shells out to git against its own ``tmp_path`` repo is silently redirected
 onto the real repository and rewrites its config, index and refs.
 
 These tests pin the guarantee end to end: with all three variables pointing at
-a foreign repository, the full suite still passes and that repository's
+a foreign repository, the suite still passes (the docker-gated ``e2e`` tree
+excepted — see the end-to-end test's docstring) and that repository's
 ``config``, ``HEAD``, ``packed-refs`` and ``refs/**`` are byte-identical
 afterwards.
 """
@@ -103,17 +104,22 @@ def test_git_env_helper_drops_redirecting_vars(monkeypatch, tmp_path):
 def test_full_suite_leaves_a_foreign_repo_byte_identical(tmp_path):
     """The acceptance criterion, end to end.
 
-    The inner run excludes only *this* file, purely to stop it recursing into
-    itself — nothing is skipped: the outer gate always runs this file, and the
-    inner run is the full suite minus one module that would otherwise re-spawn
-    the suite forever.
+    The inner run excludes this file, purely to stop it recursing into itself,
+    and the ``e2e`` tree, because nesting real infrastructure inside a nested
+    pytest is unsound: the outer session already holds a live poller on the
+    shared e2e mailbox, so both pollers race for the same UNSEEN command mail
+    and whichever loses fails. Excluding it costs no coverage of *this*
+    guarantee — ``tests/e2e`` never shells out to git, and the stack children
+    are handed an environment built from scratch by ``_stack.build_stack_env``,
+    so a poisoned ``GIT_*`` cannot reach them by construction. Everything that
+    does touch git still runs here.
     """
     git_dir = _make_foreign_repo(tmp_path / "foreign")
     before = _snapshot(git_dir)
     assert before, "snapshot must not be empty"
 
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/", "-q",
+        [sys.executable, "-m", "pytest", "tests/", "-q", "-m", "not e2e",
          f"--ignore={SELF}", "-p", "no:cacheprovider"],
         cwd=REPO_ROOT, env=_poisoned_env(git_dir),
         capture_output=True, text=True, timeout=900,

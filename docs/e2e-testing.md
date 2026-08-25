@@ -13,7 +13,8 @@ tests/e2e/
 ├── conftest.py                      # session fixtures + the `e2e` marker
 ├── _stack.py                        # boots the real stack: TLS, GPG, bus, poller
 ├── test_mailserver_roundtrip.py     # SMTP -> IMAP round trip
-└── test_stack_boots.py              # the whole system is genuinely running
+├── test_stack_boots.py              # the whole system is genuinely running
+└── test_happy_path.py               # one real command in, real reply out
 ```
 
 ## Running it
@@ -200,3 +201,49 @@ server, then the terminators, then the `gpg-agent` holding the throwaway
 keyring open. Both children run in their own process group and are stopped with
 `SIGTERM` to the group, escalating to `SIGKILL` — the chat server supervises
 workers and a wake watcher, and those must not outlive it.
+
+
+## One real command, end to end
+
+`test_happy_path.py` is the first test that drives the product rather than the
+harness. A GPG-signed `multipart/signed` mail is handed to the real SMTP server
+by a real client; the real `main.py` polls it over real IMAP, verifies the
+signature with the real `gpg` binary, routes it, forks the configured CLI, and
+mails the output back. Everything asserted is read from **outside** the poller
+process — the reply mail pulled back over IMAP, the file the executed process
+left on disk, and the rows in the real SQLite bus. No `Child` handle, no log
+scraping, no patching.
+
+### The designed oracle
+
+The expected effect is computed *before* the mail is sent: the exact prompt
+string the CLI must receive, its byte length, and its SHA-256, all derived from
+the bytes put on the wire using the standard library alone. Nothing is asserted
+against a value the system itself produced. The command carries CRLF and two
+non-ASCII scripts, so any normalisation between MIME and `execve` shows up as a
+mismatch.
+
+Two mutations were run to confirm the test bites: signing the wrong bytes (the
+mail is dropped as unauthorised — no reply ever arrives, all four tests fail),
+and appending one byte to the body in flight while leaving the prediction alone
+(the digest, the receipt and the bus row all diverge).
+
+### Signing what the verifier will actually check
+
+`src/gpg_verify.py` verifies `part.as_bytes()` of the *parsed* message, and the
+stdlib parser normalises the part's line endings on reserialisation. The test
+does not guess at that transformation: it parses a copy of the very message it
+is about to send and signs whatever comes out. The signature part cannot affect
+the first part's serialisation, so a placeholder is enough.
+
+### Why the CLI is a stand-in, and why that is not a mock
+
+The `claude` CLI is outside the system under test — it is the third-party
+program claude-email shells out to, and it is non-deterministic, costs money,
+and needs network. So this test replaces the harness's refusing `CLAUDE_BIN`
+stub with a deterministic real executable that reports a pure function of its
+prompt and writes a receipt file, then restores the original bytes on teardown.
+It is reached by a real `fork`/`exec` from the real `src/executor.py`, with a
+real argv, and its real stdout travels back through the real mailer. Every
+component in scope — IMAP, GPG, routing, subprocess, SMTP, SQLite — runs
+unmodified.

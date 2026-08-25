@@ -471,7 +471,7 @@ claude-email/
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
 ├── tests/                 # 1666 unit tests (100% coverage)
-│   └── e2e/               # 9 docker-gated end-to-end tests — real stack, zero mocks
+│   └── e2e/               # 13 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -545,7 +545,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1675 tests, 100% coverage on production code)
+# Run all tests (1679 tests, 100% coverage on production code)
 .venv/bin/pytest tests/ -q
 
 # Unit tests only — no docker needed
@@ -570,7 +570,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1675 tests** — 1666 unit tests with **100% code coverage** across all modules, plus 9 docker-gated end-to-end tests
+- **1679 tests** — 1666 unit tests with **100% code coverage** across all modules, plus 13 docker-gated end-to-end tests
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit

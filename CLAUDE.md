@@ -6,7 +6,7 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (1675 tests: 1666 unit + 9 docker-gated e2e, 100% coverage on production code)
+- **Test runner**: pytest (1679 tests: 1666 unit + 13 docker-gated e2e, 100% coverage on production code)
 
 ---
 
@@ -55,7 +55,7 @@ claude-email/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
 ├── tests/                 # 1666 unit tests (100% coverage)
-│   └── e2e/               # 9 docker-gated end-to-end tests — real stack, zero mocks
+│   └── e2e/               # 13 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -72,6 +72,10 @@ claude-email/
 - `tests/e2e/` is the only mock-free tree: every test there talks to a real mail server in
   docker over real sockets, and the `stack` fixture additionally boots the real
   `chat_server.py` and `main.py` as processes on throwaway ports with a throwaway GNUPGHOME.
+  `tests/e2e/test_happy_path.py` drives one real command through that stack and
+  asserts only on outside observables (reply mail, receipt file, DB rows); it
+  swaps the harness's refusing `CLAUDE_BIN` stub for a deterministic executable
+  and restores it on teardown — the CLI is outside the SUT, everything else is real.
   It carries the `e2e` marker (applied automatically by
   `tests/e2e/conftest.py`), so `-m "not e2e"` gives a docker-free run and `-m e2e` an
   opt-in one. Without docker it skips with a reason; it never fails. See `docs/e2e-testing.md`.
@@ -120,7 +124,7 @@ claude-email/
 ## Build Commands
 
 ```bash
-.venv/bin/pytest tests/ -q            # Run all 1675 tests (e2e included)
+.venv/bin/pytest tests/ -q            # Run all 1679 tests (e2e included)
 .venv/bin/pytest tests/ -q -m "not e2e"  # Unit tests only — no docker needed
 .venv/bin/pytest tests/ -q -m e2e     # End-to-end only — needs docker
 .venv/bin/pytest tests/ -v            # Verbose
@@ -132,5 +136,5 @@ scripts/check-line-limit.sh           # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 1675 tests pass (9 of them e2e, skipped without docker)
+2. Run `.venv/bin/pytest tests/ -q` — confirm 1679 tests pass (13 of them e2e, skipped without docker)
 3. Invoke `superpowers:brainstorming` before any feature work
