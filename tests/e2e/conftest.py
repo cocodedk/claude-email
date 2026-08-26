@@ -66,13 +66,19 @@ ACCOUNTS = {
 
 @dataclasses.dataclass(frozen=True)
 class MailServer:
-    """Connection details for the running server."""
+    """Connection details for the running server.
+
+    ``cafile`` is the public half of the throwaway keypair whose private half
+    the container holds in its keystore, so it is both the certificate the TLS
+    listeners serve and the only certificate the children are told to trust.
+    """
 
     host: str
     smtp_port: int
     imap_port: int
     smtps_port: int
     imaps_port: int
+    cafile: Path
     domain: str = DOMAIN
     accounts: dict = dataclasses.field(default_factory=lambda: dict(ACCOUNTS))
 
@@ -105,14 +111,23 @@ class MailServer:
         raise AssertionError(f"message {nonce} never arrived within {timeout}s: {last}")
 
 
-def _compose(*args: str, timeout: float) -> subprocess.CompletedProcess:
-    """Run a docker compose subcommand for this project (shell=False)."""
+def _compose(*args: str, timeout: float,
+             env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    """Run a docker compose subcommand for this project (shell=False).
+
+    ``env`` is layered over the inherited environment rather than replacing it:
+    compose needs ``PATH``, ``HOME`` and the docker context variables, and the
+    keystore path and password the file interpolates are added on top. Both are
+    written ``${VAR:?...}`` in the compose file, so a caller that forgets them
+    gets a refusal naming the variable instead of a silent misconfiguration.
+    """
     return subprocess.run(
         ["docker", "compose", "-f", str(COMPOSE_FILE), "-p", COMPOSE_PROJECT, *args],
         capture_output=True,
         text=True,
         timeout=timeout,
         check=False,
+        env={**os.environ, **(env or {})},
     )
 
 
@@ -177,28 +192,51 @@ def _await_banners(expected: dict[int, bytes], timeout: float) -> None:
 
 
 @pytest.fixture(scope="session")
-def mailserver():
-    """Start the real mail server for the session and tear it down after."""
+def mailserver(tmp_path_factory):
+    """Start the real mail server for the session and tear it down after.
+
+    The keystore is built *before* ``compose up`` and bind-mounted in, because
+    GreenMail reads it once at startup. Its certificate is what the container's
+    IMAPS and SMTPS listeners serve, and its public half is the only CA the
+    child processes are given — see ``_stack.boot_stack``.
+    """
     reason = _docker_unavailable_reason()
     if reason is not None:
         pytest.skip(f"e2e mail server needs docker — {reason}")
 
+    # Imported here, not at module scope: pytest's prepend import mode puts this
+    # directory on sys.path while importing this conftest, and the helper is a
+    # top-level module rather than a package member (see the ``stack`` fixture).
+    import _stack
+
+    if shutil.which("openssl") is None:
+        pytest.skip("e2e mail server needs openssl to build its TLS keystore")
+
     smtp_port, imap_port = _port("SMTP", 13025), _port("IMAP", 13143)
     smtps_port, imaps_port = _port("SMTPS", 13465), _port("IMAPS", 13993)
 
+    tlsdir = tmp_path_factory.mktemp("e2e-mailserver-tls")
+    cert, key = _stack.generate_tls_cert(tlsdir)
+    keystore = _stack.make_keystore(cert, key, tlsdir / "e2e-keystore.p12")
+    compose_env = {
+        "CLAUDE_EMAIL_E2E_KEYSTORE": str(keystore),
+        "CLAUDE_EMAIL_E2E_KEYSTORE_PASSWORD": _stack.KEYSTORE_PASSWORD,
+    }
+
     try:
         # A first run may have to pull the image, hence the long timeout.
-        up = _compose("up", "-d", "--remove-orphans", timeout=STARTUP_TIMEOUT)
+        up = _compose("up", "-d", "--remove-orphans",
+                      timeout=STARTUP_TIMEOUT, env=compose_env)
         if up.returncode != 0:
             pytest.fail(f"docker compose up failed:\n{up.stdout}\n{up.stderr}")
-        # The TLS listeners (smtps_port/imaps_port) come up in the same
-        # GreenMail startup as these two and are published for later slices;
-        # gating on the two plaintext greetings is what proves that startup
-        # finished.
         _await_banners({smtp_port: b"220", imap_port: b"* OK"}, timeout=90.0)
-        yield MailServer(HOST, smtp_port, imap_port, smtps_port, imaps_port)
+        # These two are the listeners the children actually talk to, so they
+        # are gated on a verified handshake rather than a bare connect.
+        for port, greeting in ((smtps_port, b"220"), (imaps_port, b"* OK")):
+            _stack.await_tls_greeting(HOST, port, greeting, cert, timeout=90.0)
+        yield MailServer(HOST, smtp_port, imap_port, smtps_port, imaps_port, cert)
     finally:
-        _compose("down", "-v", "--remove-orphans", timeout=120.0)
+        _compose("down", "-v", "--remove-orphans", timeout=120.0, env=compose_env)
 
 
 def pytest_configure(config):

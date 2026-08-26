@@ -5,23 +5,31 @@ Nothing here simulates a component of the system under test. It starts the
 a purpose-built environment, and gives the tests handles for asking the kernel
 and the network whether those processes are really there.
 
-Why a TLS terminator sits in front of the mail server
------------------------------------------------------
+How the children reach TLS
+--------------------------
 ``src/poller.py`` and ``src/mailer.py`` speak *implicit* TLS through
 ``ssl.create_default_context()`` — certificate and hostname verification on,
-by repo invariant. GreenMail's built-in TLS listeners present a self-signed
-certificate whose subject is ``CN=GreenMail selfsigned Test Certificate`` with
-no subjectAltName at all, so no client that verifies hostnames can ever accept
-it, whatever CA it trusts. Reshaping the container's keystore would mean
-editing ``docker-compose.yml``, which is outside this slice's declared scope.
+by repo invariant — and they now speak it straight to GreenMail's own IMAPS and
+SMTPS listeners. Nothing sits in the path.
 
-So the harness runs the equivalent of ``stunnel``: a protocol-blind byte pump
-that terminates TLS with a locally generated certificate (SAN ``127.0.0.1``)
-and forwards the plaintext to GreenMail's plaintext port. It parses nothing and
-answers nothing — every byte of SMTP and IMAP is spoken by the real server. The
-poller's verification path stays fully armed: the child process is handed
-``SSL_CERT_FILE`` pointing at the generated CA, and a connection made without
-it still fails, which the tests assert as a negative control.
+That needs one thing from the container, because GreenMail's bundled keystore
+holds a certificate whose subject is ``CN=GreenMail selfsigned Test
+Certificate`` with no subjectAltName at all, and CPython has required a SAN for
+hostname verification since 3.7 — so no verifying client can ever accept it,
+whatever CA it trusts. :func:`generate_tls_cert` and :func:`make_keystore` build
+a throwaway keypair with SAN ``127.0.0.1`` + ``localhost`` and wrap it in a
+PKCS12 keystore, which ``docker-compose.yml`` bind-mounts and names via
+``-Dgreenmail.tls.keystore.file``. The children are handed the public half as
+``SSL_CERT_FILE``; a connection made without it still fails, which the tests
+assert as a negative control.
+
+The harness used to answer this with a hand-rolled TLS terminator instead — a
+protocol-blind byte pump in front of GreenMail's cleartext ports. It cost two
+crash fixes (a segfault on connection teardown, a two-thread OpenSSL race)
+before it stopped killing the suite, and it is deleted. The only TLS server
+socket left in this directory is the one-shot fault injector in
+``test_failure_injection.py``, where severing a live session *is* the failure
+under test.
 
 Why the children run from a staged run-root
 -------------------------------------------
@@ -50,13 +58,11 @@ import dataclasses
 import http.client
 import os
 import re
-import select
 import shutil
 import signal
 import socket
 import ssl
 import subprocess
-import threading
 import time
 from pathlib import Path
 
@@ -69,127 +75,14 @@ BOOT_TIMEOUT = 60.0
 STOP_GRACE = 10.0
 
 
-class TlsTerminator:
-    """Accept TLS on 127.0.0.1 and pump the plaintext to ``upstream``.
-
-    Deliberately dumb: it copies bytes in both directions and has no idea
-    whether it is carrying SMTP or IMAP. That is what keeps it out of the
-    "mocked the thing under test" category — the protocol peer is GreenMail.
-    """
-
-    def __init__(self, upstream: tuple[str, int], certfile: str, keyfile: str) -> None:
-        self._upstream = upstream
-        self._ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        self._ctx.load_cert_chain(certfile, keyfile)
-        self._sock = socket.socket()
-        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._sock.bind(("127.0.0.1", 0))
-        self._sock.listen(16)
-        self.port: int = self._sock.getsockname()[1]
-        self._closed = threading.Event()
-        self._thread = threading.Thread(target=self._serve, daemon=True)
-        self._thread.start()
-
-    def _serve(self) -> None:
-        while not self._closed.is_set():
-            try:
-                raw, _ = self._sock.accept()
-            except OSError:
-                return
-            threading.Thread(target=self._handle, args=(raw,), daemon=True).start()
-
-    def _handle(self, raw: socket.socket) -> None:
-        """Own one connection for its whole life, in a single thread.
-
-        Both directions are pumped by this one thread, and that is the whole
-        point. An OpenSSL ``SSL`` object is not thread-safe, and CPython's
-        ``_ssl`` releases the GIL around ``SSL_read`` and ``SSL_write`` without
-        taking any per-object lock. The previous design ran the two directions
-        in two threads, so on every TLS session one thread sat inside
-        ``SSL_read`` on the client socket while the other was inside
-        ``SSL_write`` on that same socket — and under TLS 1.3 a read can itself
-        write (session tickets, KeyUpdate). That corrupts the connection state:
-        it surfaced as ``ssl.SSLError: [SSL] internal error`` under load, and as
-        a segmentation fault that killed the whole suite, reported in whichever
-        thread next touched the poisoned heap rather than in the SSL call that
-        did the damage.
-
-        Owning the connection in one thread removes the concurrency instead of
-        trying to survive it. It also removes the cross-thread half-close that
-        the previous fix had to work around, since the one thread that half-
-        closes a direction is the one that just read its EOF.
-        """
-        try:
-            client = self._ctx.wrap_socket(raw, server_side=True)
-        except OSError:
-            raw.close()
-            return
-        try:
-            upstream = socket.create_connection(self._upstream, timeout=30)
-        except OSError:
-            client.close()
-            return
-        # create_connection leaves its connect timeout on the socket, which
-        # would abort an idle-but-healthy IMAP session after 30s and tear the
-        # pair down mid-protocol. The relay blocks in select() instead.
-        upstream.settimeout(None)
-        try:
-            self._relay(client, upstream)
-        finally:
-            for sock in (client, upstream):
-                with contextlib.suppress(OSError):
-                    sock.close()
-
-    @staticmethod
-    def _relay(client: ssl.SSLSocket, upstream: socket.socket) -> None:
-        """Copy bytes both ways until both directions have reached EOF.
-
-        Two details are load-bearing, both about not lying to OpenSSL:
-
-        ``select`` cannot see data OpenSSL has already decrypted into the
-        SSLSocket's own buffer. One TLS record can carry several IMAP lines, so
-        a relay that waited on the file descriptor after reading part of a
-        record would stall a healthy session; ``pending()`` closes that gap.
-
-        The half-close goes through ``socket.socket.shutdown`` rather than the
-        ``ssl.SSLSocket`` override, which does ``self._sslobj = None``. After
-        that, ``recv`` on the still-open direction silently falls back to the
-        plain socket and forwards raw ciphertext instead of the protocol. Going
-        to the socket layer performs the fd-level half-close and nothing else,
-        which is all the EOF propagation needs.
-        """
-        peers: dict = {client: upstream, upstream: client}
-        while peers:
-            ready, _, _ = select.select(list(peers), [], [], 1.0)
-            if client in peers and client.pending():
-                ready = [client, *(s for s in ready if s is not client)]
-            for src in ready:
-                if src not in peers:
-                    continue
-                dst = peers[src]
-                try:
-                    chunk = src.recv(65536)
-                except OSError:
-                    chunk = b""
-                if not chunk:
-                    with contextlib.suppress(OSError):
-                        socket.socket.shutdown(dst, socket.SHUT_WR)
-                    del peers[src]
-                    continue
-                try:
-                    dst.sendall(chunk)
-                except OSError:
-                    peers.clear()
-                    break
-
-    def close(self) -> None:
-        self._closed.set()
-        with contextlib.suppress(OSError):
-            self._sock.close()
-
-
 def generate_tls_cert(directory: Path) -> tuple[Path, Path]:
-    """Generate a self-signed cert with an IP SAN the poller can verify against."""
+    """Generate a self-signed cert with an IP SAN the poller can verify against.
+
+    Self-signed deliberately: the certificate GreenMail serves and the CA the
+    children trust are then the same file, so ``test_tls_direct.py`` can assert
+    the DER on the wire is byte-identical to ``SSL_CERT_FILE`` — which is what
+    rules out something having terminated TLS in between with a key of its own.
+    """
     cert, key = directory / "e2e-tls.crt", directory / "e2e-tls.key"
     subprocess.run(
         ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
@@ -200,6 +93,31 @@ def generate_tls_cert(directory: Path) -> tuple[Path, Path]:
     )
     key.chmod(0o600)
     return cert, key
+
+
+#: Protects a keypair that is generated fresh per session and thrown away with
+#: the temp directory. It reaches the container on GreenMail's command line, so
+#: it is a literal rather than a secret: there is nothing here worth hiding.
+KEYSTORE_PASSWORD = "e2e-throwaway-keystore"
+
+
+def make_keystore(cert: Path, key: Path, destination: Path) -> Path:
+    """Pack ``cert``/``key`` into the PKCS12 keystore GreenMail is pointed at.
+
+    PKCS12 rather than JKS because ``KeyStore.getDefaultType()`` has been
+    ``pkcs12`` since JDK 9 and GreenMail's ``DummySSLServerSocketFactory`` asks
+    for the default type. World-readable because the JVM inside the container
+    runs as a different uid and the bind mount preserves the host mode; the
+    private key it protects exists only for this session.
+    """
+    subprocess.run(
+        ["openssl", "pkcs12", "-export", "-inkey", str(key), "-in", str(cert),
+         "-name", "greenmail", "-out", str(destination),
+         "-passout", f"pass:{KEYSTORE_PASSWORD}"],
+        capture_output=True, text=True, timeout=120, check=True,
+    )
+    destination.chmod(0o644)
+    return destination
 
 
 def gpg(gnupghome: Path, *args: str, stdin: bytes | None = None) -> subprocess.CompletedProcess:
@@ -390,6 +308,39 @@ def verified_ssl_context(cafile: Path | None) -> ssl.SSLContext:
     return ctx
 
 
+def await_tls_greeting(host: str, port: int, prefix: bytes, cafile: Path,
+                       timeout: float = BOOT_TIMEOUT) -> None:
+    """Block until ``port`` answers a *verified* handshake with its greeting.
+
+    Readiness for the listeners ``src/poller.py`` and ``src/mailer.py`` talk to
+    has to mean "serving the certificate we expect", not "accepting
+    connections": docker publishes a port through a userland proxy that accepts
+    from the moment the container is created, well before the JVM has bound
+    anything, and a keystore GreenMail failed to load would still accept and
+    then fail the handshake. Requiring the greeting *through* a verified session
+    is the only signal that covers both, and it surfaces a keystore problem here
+    — naming the port — rather than as a child that never logs that it
+    connected.
+    """
+    ctx = verified_ssl_context(cafile)
+    deadline, problem = time.monotonic() + timeout, "never attempted"
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=5) as raw, \
+                    ctx.wrap_socket(raw, server_hostname=host) as tls:
+                tls.settimeout(5)
+                with tls.makefile("rb") as stream:
+                    greeting = stream.readline()
+            if greeting.startswith(prefix):
+                return
+            problem = f"greeting {greeting!r} did not start with {prefix!r}"
+        except (OSError, ssl.SSLError) as exc:
+            problem = f"{type(exc).__name__}: {exc}"
+        time.sleep(0.5)
+    raise AssertionError(
+        f"not serving verified TLS on {host}:{port} — {problem}")
+
+
 def http_get(port: int, path: str, timeout: float = 15.0) -> tuple[int, dict, bytes]:
     """GET over a real socket, reading headers only for streaming endpoints.
 
@@ -461,8 +412,9 @@ def build_stack_env(mailserver, *, imaps_port: int, smtps_port: int, chat_port: 
         "HOME": str(workdir / "home"),
         "LANG": "C.UTF-8",
         "PYTHONUNBUFFERED": "1",
-        # Trust the terminator's certificate — and nothing else that is not
-        # already in the system store. Read by ssl.create_default_context().
+        # Trust the certificate GreenMail serves from the harness keystore —
+        # and nothing else that is not already in the system store. Read by
+        # ssl.create_default_context() inside the child.
         "SSL_CERT_FILE": str(cafile),
         "IMAP_HOST": mailserver.host, "IMAP_PORT": str(imaps_port),
         "SMTP_HOST": mailserver.host, "SMTP_PORT": str(smtps_port),
@@ -543,8 +495,8 @@ def boot_stack(mailserver, workdir: Path):
 
     Teardown is unconditional and runs in reverse dependency order even if
     *any* step of the boot raised: the poller first (it is the component that
-    talks to a mailbox), then the chat server, then the TLS terminators, then
-    the gpg-agent holding the throwaway keyring open. ExitStack unwinds in
+    talks to a mailbox), then the chat server, then the gpg-agent holding the
+    throwaway keyring open. ExitStack unwinds in
     reverse registration order, so registering the poller's stop() last is
     what puts it first — and a leaked poller, still consuming a mailbox after
     the suite ends, is the single worst failure this harness could produce.
@@ -562,16 +514,15 @@ def boot_stack(mailserver, workdir: Path):
         stack.callback(shutdown_gpg, gnupghome)
         fingerprint = generate_gpg_key(gnupghome, gpg_uid)
 
-        cert, key = generate_tls_cert(workdir)
-        imaps = TlsTerminator((mailserver.host, mailserver.imap_port), str(cert), str(key))
-        stack.callback(imaps.close)
-        smtps = TlsTerminator((mailserver.host, mailserver.smtp_port), str(cert), str(key))
-        stack.callback(smtps.close)
-
+        # The children go straight to the container's own TLS listeners, which
+        # serve the certificate the ``mailserver`` fixture generated and handed
+        # GreenMail in a keystore before it started. Nothing to set up here and
+        # nothing to tear down — that is the point of the terminator's deletion.
         chat_port = free_port()
         env = build_stack_env(
-            mailserver, imaps_port=imaps.port, smtps_port=smtps.port,
-            chat_port=chat_port, cafile=cert, gnupghome=gnupghome,
+            mailserver, imaps_port=mailserver.imaps_port,
+            smtps_port=mailserver.smtps_port,
+            chat_port=chat_port, cafile=mailserver.cafile, gnupghome=gnupghome,
             fingerprint=fingerprint, workdir=workdir, shared_secret=shared_secret,
         )
 
@@ -585,8 +536,9 @@ def boot_stack(mailserver, workdir: Path):
 
         yield Stack(
             mailserver=mailserver, env=env, workdir=workdir, runroot=runroot,
-            cafile=cert,
+            cafile=mailserver.cafile,
             gnupghome=gnupghome, gpg_fingerprint=fingerprint, gpg_uid=gpg_uid,
-            shared_secret=shared_secret, imaps_port=imaps.port,
-            smtps_port=smtps.port, chat_port=chat_port, chat=chat, poller=poller,
+            shared_secret=shared_secret, imaps_port=mailserver.imaps_port,
+            smtps_port=mailserver.smtps_port, chat_port=chat_port,
+            chat=chat, poller=poller,
         )

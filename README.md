@@ -519,7 +519,7 @@ claude-email/
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
 ├── tests/                 # 1713 unit tests (100% coverage)
-│   └── e2e/               # 92 docker-gated end-to-end tests — real stack, zero mocks
+│   └── e2e/               # 101 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -593,7 +593,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1805 tests, 100% coverage on production code)
+# Run all tests (1814 tests, 100% coverage on production code)
 .venv/bin/pytest tests/ -q
 
 # Unit tests only — no docker needed
@@ -618,7 +618,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1805 tests** — 1713 unit tests with **100% code coverage** across all modules, plus 92 docker-gated end-to-end tests
+- **1814 tests** — 1713 unit tests with **100% code coverage** across all modules, plus 101 docker-gated end-to-end tests
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit
@@ -631,7 +631,7 @@ scripts/check-line-limit.sh
 - **The shared secret never leaves**: `src/secret_redact.py` scrubs it from every outbound mail — subject, body and *all* headers — at the single choke point every reply passes through (`src/mailer.send_reply`). It matters most in the Subject: `AUTH:<secret> <command>` is a supported auth route, and replies are threaded on the inbound Subject, so without the scrub the credential shipped back out in every `[Running]` and `[Result]`. The scrub covers the bare secret as well as the `AUTH:` token, sees through RFC 2047 encoded-words, and covers `In-Reply-To` / `References` (copied verbatim from the inbound `Message-ID`). A thread whose own `Message-ID` contained the secret loses its threading headers — that is the intended trade.
 - **Local MCP**: No authentication on the MCP server. Any localhost process can connect. Acceptable for single-user machines.
 - **No shell=True**: All subprocess calls use `shell=False` to prevent command injection
-- **Verified TLS**: All IMAP and SMTP connections use `ssl.create_default_context()`
+- **Verified TLS**: All IMAP and SMTP connections use `ssl.create_default_context()` — certificate *and* hostname verification. The end-to-end suite proves it against a real server rather than asserting it about the code: the mail-server container is handed a generated PKCS12 keystore with a real subjectAltName, `src/poller.py` and `src/mailer.py` reach its IMAPS/SMTPS listeners directly with nothing terminating TLS in between, the certificate on the wire is checked byte-for-byte against the one CA the processes trust, and the same endpoints are still refused to a client without it. See [docs/e2e-testing.md](docs/e2e-testing.md).
 - **No secrets in logs**: Passwords, secrets, and raw command output are never logged
 - **Idempotent**: Processed Message-IDs tracked to prevent replay attacks
 

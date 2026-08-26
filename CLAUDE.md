@@ -6,7 +6,7 @@ Email-driven wrapper for the Claude Code CLI with an integrated chat relay for m
 
 - **Language / Runtime**: Python 3.12
 - **Architecture**: Two user-level systemd services — claude-email (poller + user avatar) and claude-chat (MCP SSE server + SQLite message bus)
-- **Test runner**: pytest (1805 tests: 1713 unit + 92 docker-gated e2e, 100% coverage on production code)
+- **Test runner**: pytest (1814 tests: 1713 unit + 101 docker-gated e2e, 100% coverage on production code)
 
 ---
 
@@ -57,7 +57,7 @@ claude-email/
 │   ├── tools.py           # MCP tool implementations (register, ask, notify, check, list, deregister)
 │   └── server.py          # MCP SSE server (Starlette + low-level mcp.server)
 ├── tests/                 # 1713 unit tests (100% coverage)
-│   └── e2e/               # 92 docker-gated end-to-end tests — real stack, zero mocks
+│   └── e2e/               # 101 docker-gated end-to-end tests — real stack, zero mocks
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -68,7 +68,13 @@ claude-email/
 ### Key invariants
 - `security.py` never imports from `executor.py`, `poller.py`, or `mailer.py`
 - All subprocess calls use `shell=False`
-- All TLS connections use `ssl.create_default_context()` (verified, not default unverified)
+- All TLS connections use `ssl.create_default_context()` (verified, not default unverified).
+  In `tests/e2e/` that context reaches **GreenMail's own IMAPS/SMTPS listeners** — nothing
+  terminates TLS in between. The container is handed a PKCS12 keystore the `mailserver`
+  fixture generates (SAN `127.0.0.1` + `localhost`) via `-Dgreenmail.tls.keystore.file`,
+  because GreenMail's bundled certificate has no subjectAltName and CPython has required
+  one since 3.7. The harness's old hand-rolled TLS terminator is deleted, and
+  `tests/e2e/test_tls_direct.py` keeps it deleted.
 - `processed_ids.json` is the idempotency store — never delete it in production.
   It holds two kinds of key: `Message-ID`s (idempotent redelivery) and
   `sig:<sha256>` content-bound replay keys from `src/replay_guard.py` (a
@@ -120,6 +126,21 @@ claude-email/
   **byte-identical redeliveries**: a bearer message under a fresh
   `Message-ID` executes again by design, since no credential on that route
   covers any header. See `docs/e2e-invariants.md`.
+  `tests/e2e/test_tls_direct.py` pins the transport itself: the DER on the wire
+  is byte-identical to the CA the children are handed (which is what rules out
+  an intermediary holding its own key), the ports they are configured with are
+  the container's own published TLS ports, and an untrusted client is still
+  refused on both. Two of its properties are *absences* — no TLS server socket
+  in the shared harness, no weakening anywhere in `src/` — and are asserted
+  against the source, because a terminator re-added tomorrow would leave every
+  connection-level assertion passing. The server-side-TLS sweep covers **every**
+  `*.py` in `tests/e2e/` with a two-name exemption list — not an allowlist of
+  files to scan — so a terminator added to a new module tomorrow trips it.
+  `test_failure_injection.py` is the exemption: its `FetchSeveringProxy` is the
+  fault under test (you cannot sever a wire you are not standing on) and it
+  reaches exactly one poller in one test, built on demand by
+  `Cell.severing_imaps()` rather than by the `cell` fixture, so that module's
+  other three injections go straight to GreenMail too. See `docs/e2e-testing.md`.
   `tests/e2e/test_failure_injection.py` breaks the real dependencies
   mid-flight — `docker compose kill` on a private GreenMail container, a
   SIGKILL on a real `src.project_worker` and its CLI child, a TCP severance
@@ -206,7 +227,7 @@ claude-email/
 ## Build Commands
 
 ```bash
-.venv/bin/pytest tests/ -q            # Run all 1805 tests (e2e included)
+.venv/bin/pytest tests/ -q            # Run all 1814 tests (e2e included)
 .venv/bin/pytest tests/ -q -m "not e2e"  # Unit tests only — no docker needed
 .venv/bin/pytest tests/ -q -m e2e     # End-to-end only — needs docker
 .venv/bin/pytest tests/ -v            # Verbose
@@ -218,5 +239,5 @@ scripts/check-line-limit.sh           # Enforce 200-line file limit
 ## Starting a New Session
 
 1. Read this file
-2. Run `.venv/bin/pytest tests/ -q` — confirm 1805 tests pass (92 of them e2e, skipped without docker)
+2. Run `.venv/bin/pytest tests/ -q` — confirm 1814 tests pass (101 of them e2e, skipped without docker)
 3. Invoke `superpowers:brainstorming` before any feature work

@@ -94,9 +94,10 @@ suite can neither reach nor be reached by the operator's real mailbox.
 | IMAPS    | 13993     | 3993           | `CLAUDE_EMAIL_E2E_IMAPS_PORT` |
 
 `src/mailer.py` and `src/poller.py` speak implicit TLS only (`SMTP_SSL` /
-`IMAP4_SSL` with a verified context). GreenMail's own TLS listeners cannot
-serve them — see *The TLS terminator* below — so the `stack` fixture puts its
-own terminator in front of the plaintext ports instead.
+`IMAP4_SSL` with a verified context), and they speak it **straight to the SMTPS
+and IMAPS listeners above** — nothing sits in the path. That needs one thing
+from the container: a keystore with a subjectAltName the client can verify. See
+*The TLS keystore* below.
 
 ### Accounts
 
@@ -163,22 +164,59 @@ What it starts, in order, and tears down in reverse:
 | chat bus       | `GET /api/agents` → 200 JSON, `GET /sse` → `text/event-stream` |
 | poller         | `IMAP connected to …` in its output — printed only after a verified handshake **and** a successful `login()` |
 
-### The TLS terminator
+### The TLS keystore
 
-GreenMail's built-in TLS presents a self-signed certificate whose subject is
-`CN=GreenMail selfsigned Test Certificate` with **no subjectAltName**. No client
-that verifies hostnames can accept that, whatever CA it trusts — and turning
+GreenMail's bundled keystore holds a self-signed certificate whose subject is
+`CN=GreenMail selfsigned Test Certificate` with **no subjectAltName**. CPython
+has required a SAN for hostname verification since 3.7, so no client that
+verifies hostnames can accept it, whatever CA it trusts — and turning
 verification off in `src/poller.py` would break a repo invariant.
 
-So the harness runs the equivalent of `stunnel`: a protocol-blind byte pump
-that terminates TLS with a locally generated certificate (SAN `127.0.0.1`) and
-forwards plaintext to GreenMail's plaintext port. It parses nothing; every byte
-of SMTP and IMAP is still spoken by the real server. The child processes get
-`SSL_CERT_FILE` pointing at that certificate, so
-`ssl.create_default_context()` trusts it — and
-`test_mail_server_answers_verified_tls_on_both_transports` asserts the negative
-control: without that CA the same endpoint is rejected with
-`SSLCertVerificationError`.
+The fix is to replace the keystore, not the transport. The `mailserver` fixture,
+**before** `docker compose up`:
+
+1. generates a throwaway self-signed keypair with SAN `DNS:localhost,
+   IP:127.0.0.1` (`_stack.generate_tls_cert`);
+2. packs it into a PKCS12 keystore (`_stack.make_keystore`) — PKCS12 because
+   `KeyStore.getDefaultType()` has been `pkcs12` since JDK 9 and GreenMail's
+   `DummySSLServerSocketFactory` asks for the default type;
+3. passes the path and password through `docker compose`'s environment, where
+   the compose file bind-mounts the file read-only and names it via
+   `-Dgreenmail.tls.keystore.file`. Both `-Dgreenmail.tls.keystore.password`
+   and `-Dgreenmail.tls.key.password` are set to the same value: the former
+   defaults to `changeit`, the latter has no default at all, and a PKCS12
+   keystore holds its key under the store password.
+
+| Variable | Meaning |
+|----------|---------|
+| `CLAUDE_EMAIL_E2E_KEYSTORE` | host path of the generated PKCS12 keystore |
+| `CLAUDE_EMAIL_E2E_KEYSTORE_PASSWORD` | its password — a literal, since it reaches the container on GreenMail's command line and protects a keypair thrown away with the temp directory |
+
+Both are written `${VAR:?…}` in the compose file, so a hand-run
+`docker compose up` fails naming the variable instead of silently bind-mounting
+a directory over the keystore path.
+
+The children get `SSL_CERT_FILE` pointing at the public half, so
+`ssl.create_default_context()` inside the real `main.py` trusts exactly that one
+certificate and nothing else new. `test_tls_direct.py` asserts the whole chain:
+the DER on the wire is byte-identical to that file (which is what rules out an
+intermediary holding a key of its own), the ports the children are configured
+with are the container's own published TLS ports, the SAN covers `127.0.0.1`
+and `localhost`, and — the negative control — the same endpoints are rejected
+with `SSLCertVerificationError` by a client without the CA.
+
+**There used to be a TLS terminator here.** Before the keystore was
+configurable within scope, the harness ran the equivalent of `stunnel`: a
+protocol-blind byte pump terminating TLS in front of GreenMail's cleartext
+ports. It cost two crash fixes — a segfault on connection teardown and a
+two-thread OpenSSL race — before it stopped killing the suite, and it is gone.
+`test_no_tls_terminator_is_left_anywhere_in_the_e2e_tree` keeps it gone: it
+sweeps every `*.py` in the directory for a server-side TLS wrap, with a
+two-name exemption list rather than a list of files to scan. The one TLS server
+socket left is `FetchSeveringProxy` in `test_failure_injection.py`, which exists
+because severing a live IMAP session *before* the server executes the `FETCH`
+means standing on the wire. It reaches exactly one poller in one test — three
+of that module's four injections go straight to GreenMail like everything else.
 
 ### The child environment
 
@@ -227,8 +265,7 @@ an accidental CLI invocation pass unnoticed.
 
 Unconditional, in reverse dependency order, even if the boot itself raised:
 poller first (it is the component that talks to a mailbox), then the chat
-server, then the terminators, then the `gpg-agent` holding the throwaway
-keyring open. Both children run in their own process group and are stopped with
+server, then the `gpg-agent` holding the throwaway keyring open. Both children run in their own process group and are stopped with
 `SIGTERM` to the group, escalating to `SIGKILL` — the chat server supervises
 workers and a wake watcher, and those must not outlive it.
 

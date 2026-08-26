@@ -54,14 +54,32 @@ back off a real IMAP socket. Task rows are read read-only from outside the
 writing process. Process liveness comes from ``/proc`` and ``waitpid``, not from
 anything the SUT reports about itself.
 
+Where the TLS in this module comes from
+--------------------------------------
+Every ordinary path here goes straight to GreenMail's own IMAPS and SMTPS
+listeners, verified: the fixture below generates a throwaway SAN keypair, hands
+the private half to the container in a PKCS12 keystore and the public half to
+the pollers as ``SSL_CERT_FILE``. There is no transport shim.
+
+Injection C is the exception, and it is the exception on purpose. Severing a
+live IMAP session *before* GreenMail executes the ``FETCH`` — the whole point,
+because a fetch the server executed would have set ``\\Seen`` and the command
+would be gone — requires seeing the command as it is issued, which means
+standing on the wire. :class:`FetchSeveringProxy` is that, and its blast radius
+is exactly one fixture method and one test: it is built by
+``Cell.severing_imaps()``, which only
+``test_severing_the_imap_connection_mid_fetch_loses_no_command`` calls, and only
+that test's poller is pointed at its port. Injections A, B and D reach
+GreenMail's own verified IMAPS and SMTPS listeners like every other e2e module.
+Everything the proxy does not sever it forwards untouched, so the protocol peer
+is still the real server. The shared harness has no such object;
+``test_tls_direct.py`` asserts that across the whole directory and exempts this
+file by name.
+
 Scope note
 ----------
-The slice's declared scope is this file plus documentation, so the shared
-harness (``tests/e2e/_stack.py``, ``tests/e2e/conftest.py``) is imported, never
-edited: the two failure-injecting network objects below subclass
-``_stack.TlsTerminator`` rather than changing it, and the private mail server is
-described by a local dataclass with the same shape ``_stack.build_stack_env``
-expects.
+The private mail server is described by a local dataclass with the same shape
+``_stack.build_stack_env`` expects.
 """
 from __future__ import annotations
 
@@ -72,9 +90,11 @@ import email.utils
 import json
 import os
 import signal
+import select
 import smtplib
 import socket
 import sqlite3
+import ssl
 import subprocess
 import threading
 import time
@@ -183,6 +203,13 @@ class PrivateServer:
     accounts: dict
     smtp_port: int
     imap_port: int
+    smtps_port: int
+    imaps_port: int
+    #: Public half of the keypair whose private half this container's keystore
+    #: holds — both the certificate its TLS listeners serve and the only CA the
+    #: pollers in this module are told to trust.
+    cafile: Path
+    keyfile: Path
     project: str
     container: str
     compose_env: dict
@@ -207,6 +234,11 @@ class PrivateServer:
     def await_serving(self, timeout: float = SERVER_TIMEOUT) -> None:
         await_banner(self.smtp_port, b"220", timeout)
         await_banner(self.imap_port, b"* OK", timeout)
+        # These two are what src/mailer.py and src/poller.py talk to here, so
+        # readiness has to mean "serving the harness certificate", not merely
+        # "accepting" — otherwise the pollers race the JVM's listener bind.
+        _stack.await_tls_greeting(HOST, self.smtps_port, b"220", self.cafile, timeout)
+        _stack.await_tls_greeting(HOST, self.imaps_port, b"* OK", self.cafile, timeout)
 
     def unreachable(self) -> bool:
         """True when a plain TCP+greeting probe of the IMAP port fails."""
@@ -268,69 +300,51 @@ def docker_unavailable() -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Failure-injecting network objects. Both subclass the harness terminator so
-# the shared TLS/ownership logic — including the segfault-avoiding close
-# discipline documented there — is inherited, not re-implemented.
+# The fault injector for injection C. See "Where the TLS in this module comes
+# from" in the module docstring for why this one object terminates TLS.
 # ---------------------------------------------------------------------------
 
-def half_close(sock: socket.socket, how: int) -> None:
-    """``shutdown`` without ``ssl.SSLSocket``'s ``_sslobj = None``.
+class FetchSeveringProxy:
+    """Front an IMAP server with TLS and cut one session on its first ``FETCH``.
 
-    CPython's ``SSLSocket.shutdown`` drops the SSL object *before* doing the
-    syscall::
-
-        def shutdown(self, how):
-            self._checkClosed()
-            self._sslobj = None
-            super().shutdown(how)
-
-    Doing that while a sibling thread is inside ``recv()`` or ``sendall()`` on
-    the same socket frees the OpenSSL connection out from under it and
-    segfaults the interpreter — the same use-after-free the harness's
-    close-ownership fix addressed, reached through ``shutdown()`` rather than
-    ``close()``. Calling the plain socket method performs the fd-level
-    half-close and nothing else, which is what the pumps actually want.
-    """
-    with contextlib.suppress(OSError):
-        socket.socket.shutdown(sock, how)
-
-
-def pump(src: socket.socket, dst: socket.socket) -> None:
-    """Copy ``src`` to ``dst`` until EOF, then half-close ``dst`` safely."""
-    try:
-        while chunk := src.recv(65536):
-            dst.sendall(chunk)
-    except OSError:
-        pass
-    finally:
-        half_close(dst, socket.SHUT_WR)
-
-
-class SafeTerminator(_stack.TlsTerminator):
-    """The harness terminator with the SSL-safe half-close in its pumps.
-
-    Only ``_pump`` changes: the inherited ``_handle`` retains the connection
-    ownership discipline the base class documents, and every byte of SMTP and
-    IMAP is still spoken by the real server.
-    """
-
-    _pump = staticmethod(pump)
-
-
-class FetchSeveringTerminator(SafeTerminator):
-    """Sever one live IMAP session the moment the client issues ``FETCH``.
-
-    The severance happens *before* the command is forwarded, so GreenMail never
+    Severance happens *before* the command is forwarded, so GreenMail never
     executes it and never sets ``\\Seen``: the message survives the failure and
     the poller must recover it. Triggering is one-shot and only while armed;
-    every other byte in both directions is carried through untouched, so the
-    protocol peer is still the real server.
+    every other byte in both directions is carried through untouched.
+
+    One thread owns a connection for its whole life, and that is load-bearing.
+    An OpenSSL ``SSL`` object is not thread-safe and CPython's ``_ssl`` releases
+    the GIL around ``SSL_read``/``SSL_write`` without taking a per-object lock,
+    so pumping the two directions from two threads puts one inside ``SSL_read``
+    on the same socket another is writing — and under TLS 1.3 a read can itself
+    write (session tickets, KeyUpdate). That corrupted the connection state in
+    an earlier design, surfacing as ``SSLError: internal error`` under load and
+    as a segfault reported in whichever thread next touched the poisoned heap.
+    Owning the connection in one thread removes the concurrency rather than
+    trying to survive it.
     """
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, upstream: tuple[str, int], certfile: str, keyfile: str) -> None:
+        self._upstream = upstream
+        self._ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self._ctx.load_cert_chain(certfile, keyfile)
+        self._sock = socket.socket()
+        self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self._sock.bind((HOST, 0))
+        self._sock.listen(16)
+        self.port: int = self._sock.getsockname()[1]
         self.armed = threading.Event()
         self.tripped = threading.Event()
+        self._closed = threading.Event()
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def _serve(self) -> None:
+        while not self._closed.is_set():
+            try:
+                raw, _ = self._sock.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._handle, args=(raw,), daemon=True).start()
 
     def _handle(self, raw: socket.socket) -> None:
         try:
@@ -343,47 +357,66 @@ class FetchSeveringTerminator(SafeTerminator):
         except OSError:
             client.close()
             return
+        # create_connection leaves its connect timeout on the socket, which
+        # would abort an idle-but-healthy IMAP session after 30s. The relay
+        # blocks in select() instead.
         upstream.settimeout(None)
-        pumps = [
-            threading.Thread(target=self._inspecting_pump,
-                             args=(client, upstream), daemon=True),
-            threading.Thread(target=self._pump, args=(upstream, client), daemon=True),
-        ]
-        for pump in pumps:
-            pump.start()
-        for pump in pumps:
-            pump.join()
-        for sock in (client, upstream):
-            with contextlib.suppress(OSError):
-                sock.close()
-
-    def _inspecting_pump(self, src: socket.socket, dst: socket.socket) -> None:
-        """Client→server pump that aborts the pair on the first ``FETCH``.
-
-        Severance goes through :func:`half_close` on the *upstream* socket
-        only — see that function for why ``SSLSocket.shutdown`` is not the
-        fd-level no-op the base class's docstring assumes.
-        """
-        seen = bytearray()
         try:
-            while chunk := src.recv(65536):
-                if not self.tripped.is_set() and self.armed.is_set():
-                    seen += chunk
-                    if b"FETCH" in seen.upper():
-                        self.tripped.set()
-                        # Only the plain upstream socket is touched. Severing
-                        # it both stops the command reaching GreenMail and
-                        # propagates EOF to the sibling pump, which tears the
-                        # client side down through the inherited path — no SSL
-                        # operation from this thread, so no race with the
-                        # sibling's in-flight sendall().
-                        half_close(dst, socket.SHUT_RDWR)
-                        return
-                dst.sendall(chunk)
-        except OSError:
-            pass
+            self._relay(client, upstream)
         finally:
-            half_close(dst, socket.SHUT_WR)
+            for sock in (client, upstream):
+                with contextlib.suppress(OSError):
+                    sock.close()
+
+    def _relay(self, client: ssl.SSLSocket, upstream: socket.socket) -> None:
+        """Copy both ways until EOF, or until an armed ``FETCH`` goes past.
+
+        Two details are about not lying to OpenSSL. ``select`` cannot see data
+        OpenSSL has already decrypted into the SSLSocket's own buffer, and one
+        TLS record can carry several IMAP lines, so ``pending()`` closes that
+        gap. And the half-close goes through ``socket.socket.shutdown`` rather
+        than ``ssl.SSLSocket``'s override, which sets ``self._sslobj = None`` —
+        after which ``recv`` on the still-open direction silently forwards raw
+        ciphertext instead of the protocol.
+
+        Severance is a plain ``return``: the caller's ``finally`` closes both
+        sockets, so the command never reaches GreenMail and the poller sees its
+        session die. Client-side bytes are accumulated rather than matched per
+        read, so a command split across two records still trips it.
+        """
+        peers: dict = {client: upstream, upstream: client}
+        issued = bytearray()
+        while peers:
+            ready, _, _ = select.select(list(peers), [], [], 1.0)
+            if client in peers and client.pending():
+                ready = [client, *(s for s in ready if s is not client)]
+            for src in ready:
+                if src not in peers:
+                    continue
+                dst = peers[src]
+                try:
+                    chunk = src.recv(65536)
+                except OSError:
+                    chunk = b""
+                if not chunk:
+                    with contextlib.suppress(OSError):
+                        socket.socket.shutdown(dst, socket.SHUT_WR)
+                    del peers[src]
+                    continue
+                if src is client and self.armed.is_set() and not self.tripped.is_set():
+                    issued += chunk
+                    if b"FETCH" in issued.upper():
+                        self.tripped.set()
+                        return
+                try:
+                    dst.sendall(chunk)
+                except OSError:
+                    return
+
+    def close(self) -> None:
+        self._closed.set()
+        with contextlib.suppress(OSError):
+            self._sock.close()
 
 
 class SmtpGate:
@@ -397,7 +430,10 @@ class SmtpGate:
     which is the window injection D needs to kill in.
 
     Later connections are forwarded to ``upstream`` so a poller left running
-    behind the gate is not permanently mute.
+    behind the gate is not permanently mute. That forwarding is ciphertext-
+    blind — ``upstream`` is GreenMail's own SMTPS listener and this object never
+    terminates TLS, so the poller still verifies the container's certificate
+    end to end and nothing here can see or alter a byte of SMTP.
     """
 
     def __init__(self, upstream: tuple[str, int]) -> None:
@@ -582,22 +618,39 @@ def kill_now(pid: int) -> None:
 
 @pytest.fixture(scope="module")
 def private_server(tmp_path_factory):
-    """A GreenMail all to this module, safe to kill."""
+    """A GreenMail all to this module, safe to kill.
+
+    The keystore is built before ``compose up`` and bind-mounted in, because
+    GreenMail reads it once at startup: its certificate is what this
+    container's IMAPS and SMTPS listeners serve, and the same file is the CA
+    every poller in this module is given.
+    """
     reason = docker_unavailable()
     if reason is not None:
         pytest.skip(f"failure injection needs docker — {reason}")
 
+    tls_reason = _stack.missing_tooling()
+    if tls_reason is not None:
+        pytest.skip(f"failure injection needs local tooling — {tls_reason}")
+
     ports = {name: _stack.free_port() for name in ("SMTP", "IMAP", "SMTPS", "IMAPS")}
     project = f"claude-email-e2e-fail-{os.getpid()}"
     container = f"{project}-mailserver"
+    tlsdir = tmp_path_factory.mktemp("e2e-failure-tls")
+    cert, key = _stack.generate_tls_cert(tlsdir)
+    keystore = _stack.make_keystore(cert, key, tlsdir / "e2e-keystore.p12")
     compose_env = {
         **os.environ,
         "CLAUDE_EMAIL_E2E_CONTAINER": container,
+        "CLAUDE_EMAIL_E2E_KEYSTORE": str(keystore),
+        "CLAUDE_EMAIL_E2E_KEYSTORE_PASSWORD": _stack.KEYSTORE_PASSWORD,
         **{f"CLAUDE_EMAIL_E2E_{name}_PORT": str(port) for name, port in ports.items()},
     }
     server = PrivateServer(
         host=HOST, domain=DOMAIN, accounts=dict(ACCOUNTS),
         smtp_port=ports["SMTP"], imap_port=ports["IMAP"],
+        smtps_port=ports["SMTPS"], imaps_port=ports["IMAPS"],
+        cafile=cert, keyfile=key,
         project=project, container=container, compose_env=compose_env,
     )
     try:
@@ -612,26 +665,36 @@ def private_server(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def lab(private_server, tmp_path_factory):
-    """Staged code and a TLS certificate, shared by every test in the module."""
-    reason = _stack.missing_tooling()
-    if reason is not None:
-        pytest.skip(f"failure injection needs local tooling — {reason}")
+    """Staged code, shared by every test in the module.
+
+    ``cert``/``key`` are the container's own keypair, not a second one: the
+    pollers verify GreenMail directly against ``cert``, and
+    :class:`FetchSeveringProxy` presents the same certificate so the one
+    connection it stands on verifies against the same CA as every other.
+    """
     root = tmp_path_factory.mktemp("e2e-failure")
     runroot = _stack.stage_run_root(root / "run-root")
-    cert, key = _stack.generate_tls_cert(root)
-    return {"root": root, "runroot": runroot, "cert": cert, "key": key,
+    return {"root": root, "runroot": runroot,
+            "cert": private_server.cafile, "key": private_server.keyfile,
             "server": private_server}
 
 
 class Cell:
-    """One test's private slice of the world: terminators, env, children."""
+    """One test's private slice of the world: env, children, ledger.
 
-    def __init__(self, lab, workdir: Path, imaps: _stack.TlsTerminator,
-                 smtps: _stack.TlsTerminator) -> None:
+    By default *both* transports go straight to the container's own verified
+    listeners — ``self.server.imaps_port`` and ``self.server.smtps_port``. The
+    severing proxy is not built here and is not in the path of any test that
+    does not ask for it: injection C asks, with :meth:`severing_imaps`, and
+    starts its poller against that port explicitly. Three of the four tests in
+    this module therefore have no TLS terminator anywhere near them.
+    """
+
+    def __init__(self, lab, workdir: Path) -> None:
         self.lab = lab
         self.server: PrivateServer = lab["server"]
         self.workdir = workdir
-        self.imaps, self.smtps = imaps, smtps
+        self._imaps: FetchSeveringProxy | None = None
         self.ledger = workdir / "ledger.jsonl"
         self.state_file = workdir / "processed_ids.json"
         self.db_path = workdir / "claude-chat-failure.db"
@@ -648,7 +711,8 @@ class Cell:
         gnupghome = self.workdir / "gnupg"
         gnupghome.mkdir(mode=0o700, exist_ok=True)
         env = _stack.build_stack_env(
-            self.server, imaps_port=self.imaps.port, smtps_port=self.smtps.port,
+            self.server, imaps_port=self.server.imaps_port,
+            smtps_port=self.server.smtps_port,
             chat_port=_stack.free_port(), cafile=self.lab["cert"],
             gnupghome=gnupghome, fingerprint="", workdir=self.workdir,
             shared_secret=os.urandom(24).hex(),
@@ -678,6 +742,24 @@ class Cell:
     def secret(self) -> str:
         return self.env["SHARED_SECRET"]
 
+    def severing_imaps(self) -> FetchSeveringProxy:
+        """Build this cell's one severing proxy — injection C only.
+
+        Deliberately not built in the fixture. A proxy constructed per cell
+        would sit in the IMAPS path of every test that takes ``cell``, three of
+        which have nothing to do with severing a session: they would run the
+        real poller's LOGIN and its ``AUTH:<secret>`` body through a
+        pytest-owned TLS terminator and out to the cleartext IMAP port for no
+        reason. The caller passes ``IMAP_PORT=str(proxy.port)`` to
+        :meth:`start_poller`, so the exception's blast radius is one poller in
+        one test.
+        """
+        assert self._imaps is None, "a cell gets at most one severing proxy"
+        self._imaps = FetchSeveringProxy(
+            (self.server.host, self.server.imap_port),
+            str(self.lab["cert"]), str(self.lab["key"]))
+        return self._imaps
+
     def start_poller(self, name: str, **overrides) -> _stack.Child:
         env = {**self.env, **overrides}
         child = _stack.spawn(name, "main.py", env, self.workdir / "logs",
@@ -700,8 +782,8 @@ class Cell:
     def stop(self) -> None:
         for child in reversed(self.children):
             child.stop()
-        self.imaps.close()
-        self.smtps.close()
+        if self._imaps is not None:
+            self._imaps.close()
 
 
 @pytest.fixture
@@ -710,11 +792,7 @@ def cell(lab, tmp_path):
     workdir = tmp_path / "cell"
     for sub in ("logs", "projects", "home"):
         (workdir / sub).mkdir(parents=True, exist_ok=True)
-    server = lab["server"]
-    cert, key = str(lab["cert"]), str(lab["key"])
-    imaps = FetchSeveringTerminator((server.host, server.imap_port), cert, key)
-    smtps = SafeTerminator((server.host, server.smtp_port), cert, key)
-    made = Cell(lab, workdir, imaps, smtps)
+    made = Cell(lab, workdir)
     try:
         yield made
     finally:
@@ -977,20 +1055,25 @@ def test_severing_the_imap_connection_mid_fetch_loses_no_command(cell):
     of after dispatch and the state-file assertion below still passes, but the
     duplicate-execution assertion is what would catch a retry that re-ran it.
     """
-    poller = cell.start_poller("poller-sever")
+    # The one poller in this module that does not go straight to GreenMail's
+    # own IMAPS listener. Built here rather than in the fixture so the other
+    # three injections have no terminator in their path — see
+    # ``Cell.severing_imaps``.
+    severing = cell.severing_imaps()
+    poller = cell.start_poller("poller-sever", IMAP_PORT=str(severing.port))
     send_tracer(cell, poller, "pre-sever")
     errors_before = count_in_output(poller, "IMAP error")
 
     # The polled mailbox is empty and fully read at this point, so the poller
     # issues no FETCH at all until the message below lands: arming now makes
     # the trip and the command the same event.
-    cell.imaps.armed.set()
+    severing.armed.set()
     nonce = os.urandom(8).hex()
     message_id = cell.message_id("sever")
     cell.send(f"AUTH:{cell.secret} e2e sever {nonce}", message_id,
               f"e2e sever {nonce}: echo this line back.")
 
-    assert cell.imaps.tripped.wait(timeout=120), (
+    assert severing.tripped.wait(timeout=120), (
         "the poller never issued a FETCH to sever:\n" + poller.output()[-4000:])
     assert await_count(poller, "IMAP error", errors_before + 1, timeout=60.0)
 
@@ -1038,7 +1121,7 @@ def test_sigkill_between_accepting_and_executing_loses_the_command(cell):
     is the correct signal, because the delivery guarantee would then have
     changed and the docs would be wrong.
     """
-    gate = SmtpGate((HOST, cell.smtps.port))
+    gate = SmtpGate((HOST, cell.server.smtps_port))
     try:
         poller = cell.start_poller("poller-gated", SMTP_PORT=str(gate.port))
         nonce = os.urandom(8).hex()

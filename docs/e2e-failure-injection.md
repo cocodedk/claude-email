@@ -96,10 +96,10 @@ for a settle window and re-counts.
 
 `test_severing_the_imap_connection_mid_fetch_loses_no_command`.
 
-The harness's TLS terminator is subclassed into one that watches the decrypted
-client→server stream and tears the socket pair down the instant it sees
-`FETCH`, before forwarding the command. GreenMail therefore never executes the
-fetch and never sets `\Seen`: the message survives, the poller logs the error,
+`FetchSeveringProxy` — a TLS front end owned by this module — watches the
+decrypted client→server stream and tears the socket pair down the instant it
+sees `FETCH`, before forwarding the command. GreenMail therefore never executes
+the fetch and never sets `\Seen`: the message survives, the poller logs the error,
 retries on the next tick and executes it **exactly once** — one `[Running]`,
 one `[Result]`, one ledger start and one ledger end, `Message-ID` recorded in
 `STATE_FILE`, message now `\Seen`.
@@ -111,8 +111,8 @@ statement about *when* the crash lands rather than about crashes as such.
 
 `test_sigkill_between_accepting_and_executing_loses_the_command`.
 
-A TCP gate in front of the SMTP terminator swallows the first connection the
-poller makes. That connection is the `[Running]` acknowledgement, which
+A TCP gate in front of GreenMail's own SMTPS listener swallows the first
+connection the poller makes. That connection is the `[Running]` acknowledgement, which
 `main.process_email` sends after the command has been authenticated and
 extracted and before `execute_command` forks the CLI — so accepting it and
 never answering pins the process in exactly the accept→execute window. SIGKILL
@@ -131,7 +131,36 @@ container name and ephemeral ports, and each test gets its own poller, ledger,
 state file and database. The session-scoped `stack` fixture and every other e2e
 module are untouched.
 
-## A footgun this module had to work around
+## Why this module still owns a TLS server socket
+
+Every other path here — the pollers' SMTPS, and the harness's own observation
+of the mailbox — goes straight to GreenMail, which serves a real SAN
+certificate out of a keystore the fixture generates. See *The TLS keystore* in
+[e2e-testing.md](e2e-testing.md).
+
+Injection C cannot. Severing the session *before* the server executes the
+`FETCH` is the whole point — a fetch GreenMail executed would have set `\Seen`
+and the command would be gone, which is injection D, not C — and knowing the
+command was issued means reading it as it goes past. You cannot sever a wire
+you are not standing on. So `FetchSeveringProxy` terminates TLS for the one
+IMAP session under test, presents the container's own certificate so the poller
+verifies against the same CA as everywhere else, and forwards every byte it
+does not sever. It is the fault, not the transport.
+
+Its blast radius is exactly one fixture method and one test. The `cell` fixture
+does **not** build it: `Cell` points both transports at the container's own
+verified listeners, and `Cell.severing_imaps()` builds the proxy on demand for
+the single test that calls it, which then starts its poller with
+`IMAP_PORT=str(proxy.port)`. Injections A, B and D never touch it — a proxy
+built per cell would have put their LOGIN credentials and `AUTH:<secret>`
+bodies through a pytest-owned terminator for nothing.
+
+`test_tls_direct.py` sweeps **every** `*.py` in `tests/e2e/` for a server-side
+TLS wrap and exempts this file by name (and itself, since it must spell the
+patterns it searches for). It is an exemption list, not an allowlist of files
+to scan, so a terminator added to a new module tomorrow trips it.
+
+### The footgun that shaped it
 
 `ssl.SSLSocket.shutdown()` is not the fd-level no-op it looks like:
 
@@ -144,20 +173,14 @@ def shutdown(self, how):
 
 It drops the OpenSSL connection before doing the syscall, so calling it while a
 sibling thread is inside `recv()` or `sendall()` on the same socket segfaults
-the interpreter — the same use-after-free `d029947` fixed for `close()`,
-reached through `shutdown()`. A segfaulted run never reaches fixture teardown,
-so it also leaks live pollers that go on consuming the shared mailbox and
-corrupt every later run.
+the interpreter. A segfaulted run never reaches fixture teardown, so it also
+leaks live pollers that go on consuming a mailbox and corrupt every later run.
 
-This module therefore uses its own `half_close()` (`socket.socket.shutdown`
-directly), a `pump()` built on it and a `SafeTerminator` that swaps it into the
-inherited pumps; the mid-fetch severance touches only the plain upstream
-socket and lets EOF propagate to the client through the inherited path.
-
-`tests/e2e/_stack.py` still has the original form, so the same race remains
-open for the session-scoped terminators the other e2e modules share. Lifting
-`half_close`/`pump` into the harness is the fix, and it belongs in its own
-change.
+`FetchSeveringProxy` sidesteps it structurally: one thread owns a connection for
+its whole life, so there is no sibling to race, and the half-close it does use
+goes through `socket.socket.shutdown` directly. The deleted harness terminator
+needed two commits (`d029947`, `fa74f81`) to reach the same place, which is a
+large part of why it is deleted.
 
 ## Running it
 
