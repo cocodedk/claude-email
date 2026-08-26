@@ -25,8 +25,11 @@ from src.task_queue import TaskQueue
 from src.wake_spawn import run_wake_turn
 from src.wake_watcher import WakeWatcherConfig, run_wake_watcher
 from src.worker_manager import WorkerManager
+from chat.dashboard_auth import DashboardAuthenticator
+from chat.dashboard_auth import build_routes as build_dashboard_auth_routes
 from chat.dashboard import build_routes as build_dashboard_routes
 from chat.dispatch import dispatch
+from chat.http_security import HttpSecurityMiddleware, build_transport_security
 from chat.tool_definitions import TOOLS
 
 logger = logging.getLogger(__name__)
@@ -54,6 +57,7 @@ def _wake_config_from_env() -> WakeWatcherConfig:
 
 def create_app(db_path: str, host: str, port: int) -> Starlette:
     """Build a Starlette app with MCP SSE transport and tool handlers."""
+    security_settings = build_transport_security(host, port)
     db = ChatDB(db_path)
     queue = TaskQueue(db_path)
     router_mcp_config = os.environ.get("ROUTER_MCP_CONFIG") or ROUTER_MCP_CONFIG_PATH
@@ -64,8 +68,17 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
     )
     tokens = TokenStore()
     server = Server("claude-chat", version="1.0")
-    sse = SseServerTransport("/messages/")
-    streamable = StreamableHTTPSessionManager(app=server, stateless=True)
+    sse = SseServerTransport(
+        "/messages/", security_settings=security_settings,
+    )
+    streamable = StreamableHTTPSessionManager(
+        app=server,
+        stateless=True,
+        security_settings=security_settings,
+    )
+    dashboard_auth = DashboardAuthenticator(
+        os.environ.get("DASHBOARD_TOKEN", ""),
+    )
 
     @server.list_tools()
     async def handle_list_tools() -> list[Tool]:
@@ -120,11 +133,18 @@ def create_app(db_path: str, host: str, port: int) -> Starlette:
             Route("/sse", endpoint=handle_sse),
             Mount("/messages/", app=sse.handle_post_message),
             Mount("/mcp", app=streamable.handle_request),
+            *build_dashboard_auth_routes(),
             *build_dashboard_routes(),
         ],
         lifespan=lifespan,
     )
+    app.add_middleware(
+        HttpSecurityMiddleware,
+        security_settings=security_settings,
+        dashboard_auth=dashboard_auth,
+    )
     app.state.mcp_server = server
+    app.state.dashboard_auth = dashboard_auth
     app.state.dashboard_poll_secs = float(
         os.environ.get("DASHBOARD_POLL_SECS", "1.0"),
     )

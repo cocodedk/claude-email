@@ -24,7 +24,7 @@ Skips (batch mode only):
 
 Writes per project:
   - .mcp.json  — declares the claude-chat MCP SSE server
-  - .claude/settings.json — Claude Code hooks:
+  - .claude/settings.local.json — Claude Code hooks:
       * SessionStart: register on the bus + inject the bus guide
       * UserPromptSubmit: drain pending mail into the next turn
       * Stop: reinject peer messages that arrived mid-response so the

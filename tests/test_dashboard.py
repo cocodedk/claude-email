@@ -157,16 +157,27 @@ class TestServerWiring:
         assert app.state.dashboard_poll_secs == 1.0
 
     def test_dashboard_endpoint_on_full_server(self, tmp_path, monkeypatch):
-        # The server now runs reconcile_live_agents at startup; disable it
-        # here so this test is about the HTTP wiring, not /proc state.
+        import httpx
         from chat import server as chat_server
-        monkeypatch.setattr(
-            chat_server, "reconcile_live_agents", lambda db: [],
-        )
-        app = chat_server.create_app(str(tmp_path / "t.db"), "127.0.0.1", 0)
-        with TestClient(app) as c:
-            r = c.get("/dashboard")
-            assert r.status_code == 200
-            assert "CLAUDE.CHAT" in r.text
-            r = c.get("/api/agents")
-            assert r.json() == {"agents": []}
+        monkeypatch.setenv("DASHBOARD_TOKEN", "dashboard-test-token")
+        db_path = str(tmp_path / "t.db")
+        app = chat_server.create_app(db_path, "127.0.0.1", 0)
+        app.state.chat_db = ChatDB(db_path)
+        headers = {
+            "host": "127.0.0.1:0",
+            "authorization": "Bearer dashboard-test-token",
+        }
+
+        async def exercise():
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://127.0.0.1:0",
+                headers=headers,
+            ) as client:
+                return await client.get("/dashboard"), await client.get("/api/agents")
+
+        page, agents = asyncio.run(exercise())
+        assert page.status_code == 200
+        assert "CLAUDE.CHAT" in page.text
+        assert agents.json() == {"agents": []}

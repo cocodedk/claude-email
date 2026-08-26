@@ -37,7 +37,7 @@ class TestInjectSessionStartHookEvents:
         dedicated entry under the empty matcher with commands pointing at
         the right scripts (Stop gets drain + stop-hook; PreCompact gets one)."""
         self._inject(str(tmp_path))
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         entries = data["hooks"][event]
         assert len(entries) == 1
         assert entries[0]["matcher"] == ""
@@ -62,7 +62,7 @@ class TestInjectSessionStartHookEvents:
                 stop_hook_script_path=self.STOP_HOOK,
             )
         self._inject(str(tmp_path))
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         cmds = [h["command"] for h in data["hooks"][event][0]["hooks"]]
         assert cmds == [getattr(self, a) for a in script_attrs]
         assert old_path not in cmds
@@ -81,9 +81,9 @@ class TestInjectSessionStartHookEvents:
                 {"type": "command", "command": cmd},
             ]}]},
         }
-        (tmp_path / ".claude" / "settings.json").write_text(json.dumps(existing))
+        (tmp_path / ".claude" / "settings.local.json").write_text(json.dumps(existing))
         self._inject(str(tmp_path))
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         entries = data["hooks"][event]
         assert [h["command"] for h in entries[0]["hooks"]] == [
             getattr(self, a) for a in script_attrs

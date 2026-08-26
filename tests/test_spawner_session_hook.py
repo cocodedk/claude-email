@@ -1,5 +1,5 @@
 """Tests for spawner's inject_session_start_hook — core wiring,
-idempotency, settings.json normalization."""
+idempotency, settings.local.json normalization."""
 import json
 import os
 import pytest
@@ -18,7 +18,7 @@ class TestInjectSessionStartHook:
         inject_session_start_hook(
             str(tmp_path), self.HOOK, self.DRAIN, precompact, posttool, stop_hook,
         )
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         assert data == {
             "hooks": {
                 "SessionStart": [{
@@ -61,9 +61,9 @@ class TestInjectSessionStartHook:
                 ]}],
             },
         }
-        (tmp_path / ".claude" / "settings.json").write_text(json.dumps(existing))
+        (tmp_path / ".claude" / "settings.local.json").write_text(json.dumps(existing))
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         assert data["theme"] == "dark"
         ups_entries = data["hooks"]["UserPromptSubmit"]
         our_cmds = [h["command"] for h in ups_entries[0]["hooks"]]
@@ -79,14 +79,14 @@ class TestInjectSessionStartHook:
         from src.spawner import inject_session_start_hook
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         ss_cmds = [h["command"] for h in data["hooks"]["SessionStart"][0]["hooks"]]
         ups_cmds = [h["command"] for h in data["hooks"]["UserPromptSubmit"][0]["hooks"]]
         assert ss_cmds == [self.HOOK, self.DRAIN]
         assert ups_cmds == [self.DRAIN]
 
     def test_precompact_relative_path_raises(self, tmp_path):
-        """All hook paths in settings.json must be absolute — Claude Code
+        """All hook paths in settings.local.json must be absolute — Claude Code
         resolves them relative to nothing useful otherwise."""
         from src.spawner import inject_session_start_hook
         with pytest.raises(ValueError, match="precompact_script_path"):
@@ -102,7 +102,7 @@ class TestInjectSessionStartHook:
         script in this repo's scripts/ directory."""
         from src.spawner import inject_session_start_hook
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         pc_entries = data["hooks"].get("PreCompact")
         assert pc_entries is not None
         cmds = [h["command"] for h in pc_entries[0]["hooks"]]
@@ -118,7 +118,7 @@ class TestInjectSessionStartHook:
         old_drain = "/old/install/scripts/chat-drain-inbox.py"
         inject_session_start_hook(str(tmp_path), old_hook, old_drain)
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         ss = [h["command"] for h in data["hooks"]["SessionStart"][0]["hooks"]]
         assert ss == [self.HOOK, self.DRAIN]
         assert old_hook not in ss
@@ -139,16 +139,16 @@ class TestInjectSessionStartHook:
         from src.spawner import inject_session_start_hook
         from src.agent_bootstrap import DRAIN_SCRIPT
         inject_session_start_hook(str(tmp_path), self.HOOK)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         ups_cmds = [h["command"] for h in data["hooks"]["UserPromptSubmit"][0]["hooks"]]
         assert ups_cmds == [DRAIN_SCRIPT]
 
     def test_normalizes_wrong_shape_top_level(self, tmp_path):
         from src.spawner import inject_session_start_hook
         (tmp_path / ".claude").mkdir()
-        (tmp_path / ".claude" / "settings.json").write_text(json.dumps([1, 2, 3]))
+        (tmp_path / ".claude" / "settings.local.json").write_text(json.dumps([1, 2, 3]))
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         assert isinstance(data, dict)
         assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == self.HOOK
 
@@ -156,22 +156,22 @@ class TestInjectSessionStartHook:
         """Malformed entries (e.g., a bare string where a dict was expected) are silently skipped."""
         from src.spawner import inject_session_start_hook
         (tmp_path / ".claude").mkdir()
-        (tmp_path / ".claude" / "settings.json").write_text(json.dumps({
+        (tmp_path / ".claude" / "settings.local.json").write_text(json.dumps({
             "hooks": {
                 "UserPromptSubmit": ["bogus-string-entry"],
             }
         }))
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         ups_cmds = [h["command"] for h in data["hooks"]["UserPromptSubmit"][0]["hooks"]]
         assert ups_cmds == [self.DRAIN]
 
     def test_normalizes_hooks_key_when_list(self, tmp_path):
         from src.spawner import inject_session_start_hook
         (tmp_path / ".claude").mkdir()
-        (tmp_path / ".claude" / "settings.json").write_text(json.dumps({"hooks": []}))
+        (tmp_path / ".claude" / "settings.local.json").write_text(json.dumps({"hooks": []}))
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         assert isinstance(data["hooks"], dict)
         assert data["hooks"]["SessionStart"][0]["hooks"][0]["command"] == self.HOOK
 
@@ -190,9 +190,9 @@ class TestInjectSessionStartHook:
                 ],
             },
         }
-        (tmp_path / ".claude" / "settings.json").write_text(json.dumps(existing))
+        (tmp_path / ".claude" / "settings.local.json").write_text(json.dumps(existing))
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         stop_entries = data["hooks"]["Stop"]
         our_cmds = [h["command"] for h in stop_entries[0]["hooks"]]
         from src.agent_bootstrap import STOP_HOOK_SCRIPT

@@ -18,7 +18,7 @@ class TestInjectSessionStartHookPostTool:
             str(tmp_path), self.HOOK, self.DRAIN, self.PRECOMPACT,
             self.POSTTOOL,
         )
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         entries = data["hooks"]["PostToolUse"]
         assert len(entries) == 1
         assert entries[0]["matcher"] == "Bash"
@@ -40,7 +40,7 @@ class TestInjectSessionStartHookPostTool:
         scripts/ directory."""
         from src.spawner import inject_session_start_hook
         inject_session_start_hook(str(tmp_path), self.HOOK, self.DRAIN)
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         pt_entries = data["hooks"].get("PostToolUse")
         assert pt_entries is not None
         cmds = [h["command"] for h in pt_entries[0]["hooks"]]
@@ -60,7 +60,7 @@ class TestInjectSessionStartHookPostTool:
         inject_session_start_hook(
             str(tmp_path), self.HOOK, self.DRAIN, self.PRECOMPACT, self.POSTTOOL,
         )
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         cmds = [h["command"] for h in data["hooks"]["PostToolUse"][0]["hooks"]]
         assert cmds == [self.POSTTOOL]
         assert old_posttool not in cmds
@@ -80,11 +80,11 @@ class TestInjectSessionStartHookPostTool:
                 }],
             },
         }
-        (tmp_path / ".claude" / "settings.json").write_text(json.dumps(existing))
+        (tmp_path / ".claude" / "settings.local.json").write_text(json.dumps(existing))
         inject_session_start_hook(
             str(tmp_path), self.HOOK, self.DRAIN, self.PRECOMPACT, self.POSTTOOL,
         )
-        data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        data = json.loads((tmp_path / ".claude" / "settings.local.json").read_text())
         entries = data["hooks"]["PostToolUse"]
         # Our wrapper landed first as its own entry.
         assert [h["command"] for h in entries[0]["hooks"]] == [self.POSTTOOL]

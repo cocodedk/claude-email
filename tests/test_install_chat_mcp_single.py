@@ -50,7 +50,7 @@ class TestSingleFlag:
         mcp = json.loads((single_project / ".mcp.json").read_text())
         assert mcp["mcpServers"]["claude-chat"]["type"] == "sse"
         settings = json.loads(
-            (single_project / ".claude" / "settings.json").read_text(),
+            (single_project / ".claude" / "settings.local.json").read_text(),
         )
         assert "SessionStart" in settings["hooks"]
 

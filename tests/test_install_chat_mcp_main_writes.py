@@ -54,7 +54,7 @@ class TestMain:
             proj = projects_base / name
             mcp = json.loads((proj / ".mcp.json").read_text())
             assert mcp["mcpServers"]["claude-chat"]["type"] == "sse"
-            settings = json.loads((proj / ".claude" / "settings.json").read_text())
+            settings = json.loads((proj / ".claude" / "settings.local.json").read_text())
             # All three hook events are present
             assert "SessionStart" in settings["hooks"]
             assert "UserPromptSubmit" in settings["hooks"]

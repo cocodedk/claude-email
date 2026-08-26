@@ -131,7 +131,7 @@ class TestSpawnAgent:
         spawn_agent(db, str(project_dir), "http://localhost:8080/mcp")
 
         assert (project_dir / ".mcp.json").exists()
-        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        settings = json.loads((project_dir / ".claude" / "settings.local.json").read_text())
         cmd = settings["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         assert os.path.isabs(cmd)
         assert cmd.endswith("/scripts/chat-session-start-hook.sh")

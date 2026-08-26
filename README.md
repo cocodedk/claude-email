@@ -83,7 +83,7 @@ In short: Agent View is the cockpit when you're at the laptop; `claude-email` is
 
 ### Agent Management
 - Spawn Claude Code agents in any project directory via email
-- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.json` wires five Claude Code hooks:
+- Automatic per-project bootstrap: `.mcp.json` declares the chat server and `.claude/settings.local.json` wires five Claude Code hooks:
   - `SessionStart` runs `scripts/chat-session-start-hook.sh` (pre-registers server-side via `chat-register-self.py` + injects the bus guide from `chat-agent-instruction.txt`) and `scripts/chat-drain-inbox.py` (drains any queued mail into the session's opening context).
   - `UserPromptSubmit` runs `chat-drain-inbox.py` again so every user turn auto-delivers messages that arrived mid-session — messages you send while the agent is idle get picked up on its next turn without relying on the model to poll.
   - `Stop` runs `chat-drain-inbox.py` at the end of every agent response; when peer messages are pending it emits `{"decision":"block","reason":...}`, cancelling the stop and reinjecting the messages as the agent's next turn. Closes the "peer sent something while I was mid-response" gap without polling.
@@ -168,7 +168,7 @@ cp .env.example .env
 
 The installer creates a Python virtual environment, installs dependencies, and enables both systemd services. `claude-chat` starts first, then `claude-email`.
 
-After install (or after moving the repo), run `scripts/install-chat-mcp.py <projects-base-dir>` once to bootstrap `.mcp.json` and `.claude/settings.json` in every project directory that should participate on the chat bus. Both files are gitignored per-project and host-specific — the SessionStart hook's command path is resolved from this repo's location at install time.
+After install (or after moving the repo), run `scripts/install-chat-mcp.py <projects-base-dir>` once to bootstrap `.mcp.json` and `.claude/settings.local.json` in every project directory that should participate on the chat bus. Both files are gitignored per-project and host-specific — the SessionStart hook's command path is resolved from this repo's location at install time.
 
 ## Configuration (.env)
 
@@ -470,7 +470,7 @@ claude-email/
 │   ├── dashboard_js.py          # JS concatenator (graph + stream)
 │   ├── dashboard_js_graph.py    # Node positioning, edges, pulse animation
 │   └── dashboard_js_stream.py   # Fetch + SSE + entry rendering
-├── tests/                 # 1623 pytest tests (100% coverage)
+├── tests/                 # 1685 pytest tests (100% coverage)
 ├── main.py                # Poll loop, signal handling, config from .env, chat integration
 ├── chat_server.py         # Systemd entry point for claude-chat service
 ├── install.sh             # Installer: venv + both systemd services
@@ -544,7 +544,7 @@ tail -f claude-email.log
 ## Development
 
 ```bash
-# Run all tests (1623 tests, 100% coverage)
+# Run all tests (1685 tests, 100% coverage)
 .venv/bin/pytest tests/ -q
 
 # Run verbose
@@ -562,7 +562,7 @@ scripts/check-line-limit.sh
 
 ## Quality
 
-- **1623 tests** with **100% code coverage** across all modules
+- **1685 tests** with **100% code coverage** across all modules
 - **200-line file limit** enforced by automated linter in pre-commit hook and CI
 - **Conventional commits** enforced by commit-msg hook
 - **Pre-commit testing** — all tests must pass before every commit

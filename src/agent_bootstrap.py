@@ -1,9 +1,10 @@
 """Per-project bootstrap helpers — MCP config, Claude settings, hook wiring."""
-import json
 import logging
 import os
 
 from src.hook_merge import _merge_hook_event
+from src.json_file import load_json_dict as _load_json_dict
+from src.json_file import write_json as _write_json
 
 logger = logging.getLogger(__name__)
 
@@ -24,22 +25,6 @@ def _resolve_script(path: str | None, default: str, name: str) -> str:
     if not os.path.isabs(path):
         raise ValueError(f"{name} must be absolute; got {path!r}")
     return path
-
-
-def _load_json_dict(path: str) -> dict:
-    """Read a JSON object from path. Return {} if missing, corrupt, or not an object."""
-    try:
-        with open(path, "r") as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def _write_json(path: str, data: dict) -> None:
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
 
 
 def approve_mcp_server_for_project(
@@ -153,7 +138,7 @@ def inject_session_start_hook(
         stop_hook_script_path, STOP_HOOK_SCRIPT, "stop_hook_script_path",
     )
     settings_dir = os.path.join(project_dir, ".claude")
-    settings_path = os.path.join(settings_dir, "settings.json")
+    settings_path = os.path.join(settings_dir, "settings.local.json")
     os.makedirs(settings_dir, exist_ok=True)
     data = _load_json_dict(settings_path)
     hooks = data.setdefault("hooks", {})
