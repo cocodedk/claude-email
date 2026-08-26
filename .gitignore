@@ -39,3 +39,16 @@ claude-email.log*
 *.swo
 .claude/tasks.jsonl
 .claude/CHANGELOG-claude.md
+
+# agent-loop campaign: keep the plan data + generator, ignore generated stages and run state
+.agent-loops/*/[0-9]*-*/
+.agent-loops/*/99-signoff/
+.agent-loops/*/state/.done/
+.agent-loops/*/state/gate-hashes.txt
+.agent-loops/*/chain.json
+.agent-loops/*/logs/
+
+# local SQLite database — never commit
+chat.db
+chat.db-wal
+chat.db-shm

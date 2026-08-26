@@ -1,0 +1,1128 @@
+{
+  "objective": "Execute docs/claude-email-remediation-plan.md \u2014 security hardening + app-only client",
+  "plan_file": "docs/claude-email-remediation-plan.md",
+  "repo": "/home/cocodedk/0-projects/claude-email",
+  "section_to_phase": {
+    "note": "SECTION NUMBERS ARE NOT PHASE NUMBERS. An agent told to 'implement section 6' will build the wrong phase.",
+    "\u00a74": "Phase 0",
+    "\u00a75": "Phase 1",
+    "\u00a76": "Phase 2",
+    "\u00a77": "Phase 3",
+    "\u00a78": "Phase 4",
+    "\u00a79": "Phase 5",
+    "\u00a710": "Phase 6",
+    "\u00a711": "protocol v3 spec (cross-cutting)",
+    "\u00a712": "ceremony spec (cross-cutting)",
+    "\u00a713": "MCP ACL matrix (cross-cutting)",
+    "\u00a714": "migration/rollback (cross-cutting)",
+    "\u00a715": "app-repo changes (cross-cutting)",
+    "\u00a716": "open decisions D1-D7 (gate)",
+    "AppA": "finding->phase matrix L326-354",
+    "AppB": "per-phase acceptance L356-364",
+    "AppC": "docs + cross-repo coordination L366-372"
+  },
+  "global_invariants": {
+    "line_cap": "200 lines for src/**/*.py, chat/**/*.py, main.py, chat_server.py (scripts/check-line-limit.sh). tests/ and scripts/ are EXEMPT.",
+    "tdd": "Write the failing test first. The gate is red at slice start by construction.",
+    "docs": "AppC L368 \u2014 any behaviour/config/contract change updates README.md + website/index.html + website/fa/index.html in the SAME commit.",
+    "commit_msg": "^(feat|fix|chore|docs|style|refactor|test|ci|build|perf|revert)(\\(.+\\))?: .+  (.githooks/commit-msg:4)",
+    "never": "Do not weaken/skip/delete/xfail a test. Do not edit anything under .agent-loops/. Do not touch master. Never --no-verify.",
+    "baseline": "1685 tests passing as of 2026-08-24"
+  },
+  "slices": [
+    {
+      "id": "s0-baseline",
+      "order": 0,
+      "gate": "human",
+      "eligible": false,
+      "title": "Land or park the 17 in-flight working-tree files; both repos baseline-green",
+      "phase": "0",
+      "plan_ref": {
+        "section": "\u00a74 item 1",
+        "lines": "97"
+      },
+      "prereqs": [],
+      "scope_files": [
+        "(working tree)"
+      ],
+      "acceptance": "AppB P0 (L358): both repos baseline-green; check-line-limit clean; suite green",
+      "exclude_reason": "Judgement about a prior session's uncommitted work. Every loop iteration inherits this tree until it is clean, so this is a hard prerequisite for the whole chain \u2014 a human does it.",
+      "notes": "Untracked: chat/http_security.py, chat/dashboard_auth.py, tests/test_chat_server_security.py, src/json_file.py. Modified: chat/server.py, CLAUDE.md, README.md, website/index.html, website/fa/index.html, scripts/install-chat-mcp.py, src/agent_bootstrap.py + 6 test files."
+    },
+    {
+      "id": "p0-gitenv-isolation",
+      "order": 1,
+      "gate": "script",
+      "eligible": true,
+      "title": "Make the test suite immune to inherited GIT_* env (blocks the whole campaign)",
+      "phase": "0",
+      "source": "Found by the p6-mailer builder during the smoke test, then CONFIRMED BY REAL DAMAGE: the smoke run flipped core.bare=true on the main repo and broke `git status`.",
+      "prereqs": [],
+      "scope_files": [
+        "tests/conftest.py",
+        "tests/_git_ops_helpers.py",
+        "tests/test_git_env_isolation.py"
+      ],
+      "test_target": "tests/test_git_env_isolation.py",
+      "acceptance": "With GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE set to a foreign repo in the environment, the full suite still passes AND provably does not touch that repo (assert its config/HEAD/refs are byte-identical before and after).",
+      "notes": "MECHANISM, verified empirically: a pre-commit hook running inside a LINKED WORKTREE gets an absolute GIT_DIR=<main>/.git/worktrees/<name> and GIT_INDEX_FILE exported by git. .githooks/pre-commit runs `.venv/bin/pytest tests/ -q`, pytest inherits both, and GIT_DIR OVERRIDES cwd \u2014 so any test shelling out to git against a tmp_path repo is redirected onto the real repository. In a normal checkout GIT_DIR is unset, which is why this has never bitten before. DAMAGE OBSERVED: core.bare flipped to true on master, `git status` failed with 'this operation must be run in a work tree'. Refs and files survived; recovery was `git config core.bare false`. THE FIX MUST LIVE INSIDE PYTEST (a root tests/conftest.py, or the earliest-imported helper) \u2014 a scrub in the loop's gate script does NOT cover the hook path, because git invokes the hook itself. The repo has deliberately avoided a root conftest.py (see tests/json_handler/conftest.py's docstring); this is a good enough reason to add one that ONLY scrubs env.",
+      "blocks_campaign": true
+    },
+    {
+      "id": "s0-h5-close",
+      "order": 3,
+      "gate": "script",
+      "eligible": true,
+      "title": "Close + commit MCP transport hardening and dashboard auth; DASHBOARD_PATHS allowlist -> deny-by-default",
+      "phase": "1",
+      "plan_ref": {
+        "section": "\u00a75.1",
+        "lines": "115-119",
+        "anchor": "MCP transport hardening (fixes H5)"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "chat/http_security.py",
+        "chat/dashboard_auth.py",
+        "chat/server.py",
+        "tests/test_chat_server_security.py"
+      ],
+      "test_target": "tests/test_http_security_deny_by_default.py",
+      "acceptance": "AppA H5 (L334): TransportSecuritySettings both transports; loopback startup gate; dashboard auth tests. AppB P1 (L359): DNS-rebinding PoC fails post-fix.",
+      "notes": "The implementation already exists uncommitted. REAL GAP: chat/http_security.py:14-17 protects an ALLOWLIST (DASHBOARD_PATHS frozenset). \u00a75.1 L119 requires 'every dashboard/API asset protected' \u2014 an allowlist is fail-open for any route added later. Invert to deny-by-default: everything not explicitly public (i.e. /dashboard/login and the three MCP routes) requires the dashboard credential. Add a test that a NEWLY registered route is protected without touching http_security.py. chat/server.py is at 151 lines."
+    },
+    {
+      "id": "p6-mailer",
+      "order": 10,
+      "gate": "script",
+      "eligible": true,
+      "smoke_test": true,
+      "title": "Mailer header hygiene: case-insensitive Re:, full References chain, to-header sanitisation",
+      "phase": "6",
+      "plan_ref": {
+        "section": "\u00a710",
+        "lines": "222",
+        "anchor": "Mailer nits: case-insensitive"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "src/mailer.py",
+        "tests/test_mailer_headers.py"
+      ],
+      "test_target": "tests/test_mailer_headers.py",
+      "acceptance": "AppA L4 (L352): Mailer unit tests",
+      "notes": "SMOKE-TEST SLICE \u2014 prove the harness on this one before the campaign. src/mailer.py is 61 lines, ample headroom. src/mailer.py:37 does a case-SENSITIVE 'Re:' check so 'RE:' double-prefixes; :39-41 collapse newlines in In-Reply-To/References (keep that, it is the header-injection defence); References carries only the immediate parent."
+    },
+    {
+      "id": "p6-argv",
+      "order": 11,
+      "gate": "script",
+      "eligible": true,
+      "title": "Fix --max-budget-usd argv position (currently after the positional)",
+      "phase": "6",
+      "plan_ref": {
+        "section": "\u00a710",
+        "lines": "219",
+        "anchor": "`--max-budget-usd` argv position"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "src/executor.py",
+        "tests/test_executor_argv_order.py"
+      ],
+      "test_target": "tests/test_executor_argv_order.py",
+      "acceptance": "AppA L1 (L349): order fixed"
+    },
+    {
+      "id": "p6-imap",
+      "order": 12,
+      "gate": "script",
+      "eligible": true,
+      "title": "IMAP: BODY.PEEK fetch, socket timeout, headers-first pre-scan",
+      "phase": "6",
+      "plan_ref": {
+        "section": "\u00a710",
+        "lines": "218",
+        "anchor": "IMAP: BODY.PEEK fetch"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "src/poller.py",
+        "tests/test_poller_peek.py"
+      ],
+      "test_target": "tests/test_poller_peek.py",
+      "acceptance": "AppA L1 (L349): PEEK fetch; timeout; headers-first",
+      "notes": "FETCH RFC822 currently sets \\Seen before processing, so a crash drops the command. Existing IMAP mocks live in tests/_poller_helpers.py \u2014 reuse _mock_imap."
+    },
+    {
+      "id": "p6-logs",
+      "order": 13,
+      "gate": "script",
+      "eligible": true,
+      "title": "Log rotation to 10 MiB, journald retention, secret-redaction audit",
+      "phase": "6",
+      "plan_ref": {
+        "section": "\u00a710",
+        "lines": "216",
+        "anchor": "Log rotation 10 MiB"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "main.py",
+        "chat_server.py",
+        "tests/test_log_rotation.py"
+      ],
+      "test_target": "tests/test_log_rotation.py",
+      "acceptance": "AppA L2 (L350): per-item fixes + tests",
+      "notes": "Current RotatingFileHandler(maxBytes=10_240) gives ~70 KB total \u2014 too small to diagnose an incident. main.py is at 200 lines (AT CAP): extract before adding."
+    },
+    {
+      "id": "p6-db",
+      "order": 14,
+      "gate": "script",
+      "eligible": true,
+      "title": "Unify SQLite busy-timeout, make migrations fail loudly, add PRAGMA user_version",
+      "phase": "6",
+      "plan_ref": {
+        "section": "\u00a710",
+        "lines": "212",
+        "anchor": "DB busy-timeout unification"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "src/chat_db.py",
+        "src/chat_db_tx.py",
+        "src/task_queue.py",
+        "tests/test_db_migration_policy.py"
+      ],
+      "test_target": "tests/test_db_migration_policy.py",
+      "acceptance": "AppA M11 (L345): Unified policy; loud failures; user_version",
+      "notes": "ChatDB uses 200ms + 1 retry (src/chat_db_tx.py:19,127-156) vs TaskQueue 5s no-retry (src/task_queue.py:27-30). src/chat_db.py:36-42 swallows OperationalError during migration, which surfaces later as 'no such column'. src/task_queue.py is 199 lines and src/chat_db_tx.py 195 \u2014 extract before adding."
+    },
+    {
+      "id": "p6-misc-l",
+      "order": 15,
+      "gate": "script",
+      "eligible": true,
+      "title": "TokenStore.purge scheduling, Starlette public-API migration, nudge thread-safety, guarded env float parsing",
+      "phase": "6",
+      "plan_ref": {
+        "section": "\u00a710",
+        "lines": "217",
+        "anchor": "`TokenStore.purge` scheduling"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "src/reset_control.py",
+        "chat/server.py",
+        "src/chat_db.py",
+        "tests/test_env_parse_guard.py"
+      ],
+      "test_target": "tests/test_env_parse_guard.py",
+      "acceptance": "AppA L2 (L350): per-item fixes + tests",
+      "notes": "chat/server.py:81 uses Starlette's private _send. TokenStore.purge is never called. Malformed WAKE_WATCHER_INTERVAL_SECS / DASHBOARD_POLL_SECS crash create_app at boot."
+    },
+    {
+      "id": "p6-branch",
+      "order": 16,
+      "gate": "script",
+      "eligible": true,
+      "title": "branch_prep: trusted branch base + dirty-state rules",
+      "phase": "6",
+      "plan_ref": {
+        "section": "\u00a710",
+        "lines": "213",
+        "anchor": "Trusted branch base + dirty-state rules"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "src/branch_prep.py",
+        "tests/test_branch_prep_base.py"
+      ],
+      "test_target": "tests/test_branch_prep_base.py",
+      "acceptance": "AppA M8 (L342): Trusted branch base; dirty-state rules + tests",
+      "notes": "Today a follow-up branch is cut from whatever branch the repo happens to sit on, and step 3a commits pre-existing user dirt as ours."
+    },
+    {
+      "id": "p6-reaction",
+      "order": 17,
+      "gate": "script",
+      "eligible": true,
+      "title": "Reactions never answer a blocking ask; plan gates require an explicit signed reply",
+      "phase": "6",
+      "plan_ref": {
+        "section": "\u00a710",
+        "lines": "214",
+        "anchor": "Reaction routing never answers blocking asks"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "src/reaction_router.py",
+        "src/chat_handlers.py",
+        "tests/test_reaction_never_answers_ask.py"
+      ],
+      "test_target": "tests/test_reaction_never_answers_ask.py",
+      "acceptance": "AppA M9 (L343): Reactions never answer asks; explicit signed reply required",
+      "notes": "src/reaction_router.py:40-44 turns an emoji into yes/no on a type=='ask' original \u2014 that downgrades a plan approval to a reaction. Call site is src/chat_handlers.py:115-121, which is AT the 200-line cap."
+    },
+    {
+      "id": "p6-ghost",
+      "order": 18,
+      "gate": "script",
+      "eligible": true,
+      "title": "Ghost-reaper vs cancel race; document is_clean untracked-file policy",
+      "phase": "6",
+      "plan_ref": {
+        "section": "\u00a710",
+        "lines": "221",
+        "anchor": "Ghost-reaper vs cancel race"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "src/ghost_reaper.py",
+        "src/git_ops.py",
+        "tests/test_ghost_cancel_race.py"
+      ],
+      "test_target": "tests/test_ghost_cancel_race.py",
+      "acceptance": "AppA L3 (L351): per-item acceptance criteria"
+    },
+    {
+      "id": "p6-installer",
+      "order": 19,
+      "gate": "script",
+      "eligible": true,
+      "title": "Installer hygiene: python version check, reject empty values, sed-escape paths, jq dependency check, surface hook failures, systemd hardening + StartLimit",
+      "phase": "6",
+      "plan_ref": {
+        "section": "\u00a710",
+        "lines": "220",
+        "anchor": "Installer/hook hygiene"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "install.sh",
+        "claude-email.service",
+        "claude-chat.service",
+        "scripts/auto-install-chat-mcp.sh",
+        "tests/test_install_hygiene.py"
+      ],
+      "test_target": "tests/test_install_hygiene.py",
+      "acceptance": "AppA L3 (L351): per-item acceptance criteria",
+      "notes": "install.sh breaks on & or | in a path; scripts/auto-install-chat-mcp.sh hardcodes /home/cocodedk/0-projects; the drain hook depends on undeclared jq; hooks fail open so real failures are silent."
+    },
+    {
+      "id": "p0-s4-env",
+      "order": 20,
+      "gate": "script",
+      "eligible": true,
+      "title": "Spike S4: derive the explicit child-process env allowlist from what the code actually reads",
+      "phase": "0",
+      "plan_ref": {
+        "section": "\u00a74 spike S4",
+        "lines": "105",
+        "anchor": "S4 \u2014 Child env inventory"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "docs/spikes/s4-child-env-allowlist.md",
+        "tests/test_env_allowlist_covers_reads.py"
+      ],
+      "test_target": "tests/test_env_allowlist_covers_reads.py",
+      "acceptance": "\u00a74 L105: Output is the explicit allowlist for Phase 1 item 4. AppB P0 (L358): spike reports with pass/fail outcomes. \u00a74 L107: spike reports committed.",
+      "notes": "Machine-checkable version of a spike: walk the AST of src/ and chat/ for every os.environ read reachable from a child process, and assert the documented allowlist covers all of them with nothing extra. That artifact is the input to p1-4-child-env."
+    },
+    {
+      "id": "p1-0-extract",
+      "order": 21,
+      "gate": "script",
+      "eligible": true,
+      "title": "Pre-work: extract from src/chat_handlers.py (200) and main.py (200) to create headroom",
+      "phase": "1",
+      "plan_ref": {
+        "section": "\u00a71 invariant",
+        "lines": "42",
+        "anchor": "200-line max per file"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "main.py",
+        "src/chat_handlers.py",
+        "src/email_pipeline.py"
+      ],
+      "test_target": "tests/test_line_limit_headroom.py",
+      "acceptance": "scripts/check-line-limit.sh exits 0 with >=30 lines headroom on both files; suite still green; no behaviour change",
+      "notes": "HARD PREREQUISITE for p1-2a..p1-2e. Both files are at EXACTLY 200 lines \u2014 a single added line fails the gate. Pure refactor: extract process_email into src/email_pipeline.py. Behaviour-preserving, so the test target asserts the headroom, not new behaviour.",
+      "also_read": [
+        {
+          "anchor": "### Invariants (must hold at every phase boundary)",
+          "lines": "41-48"
+        }
+      ]
+    },
+    {
+      "id": "p1-2a-gate-skeleton",
+      "order": 22,
+      "gate": "script",
+      "eligible": true,
+      "title": "New src/ingress_gate/ package: the single admission pipeline",
+      "phase": "1",
+      "plan_ref": {
+        "section": "\u00a75.2",
+        "lines": "121-123",
+        "anchor": "Single ingress gate + fail-closed legacy policy"
+      },
+      "prereqs": [
+        "p1-0-extract"
+      ],
+      "scope_files": [
+        "src/ingress_gate/",
+        "main.py",
+        "tests/test_ingress_gate_pipeline.py"
+      ],
+      "test_target": "tests/test_ingress_gate_pipeline.py",
+      "acceptance": "Pipeline order enforced and tested: sender + size/MIME admission -> bounded syntactic decode -> constant-time verification -> full schema parse -> kind authorization -> dispatch. AppA H1 (L330) spans P1+P3/P4.",
+      "notes": "\u00a75.2 L122 explicitly says 'orchestrator; not necessarily one <=200-line file' \u2014 build it as a PACKAGE from the start so p3-e can wire v3 into it later."
+    },
+    {
+      "id": "p1-2b-v2-failclosed",
+      "order": 23,
+      "gate": "script",
+      "eligible": true,
+      "title": "Admission policy: JSON envelope v2 + configured shared secret ONLY, fail-closed when unconfigured",
+      "phase": "1",
+      "plan_ref": {
+        "section": "\u00a75.2",
+        "lines": "124",
+        "anchor": "Phase 1 admission policy"
+      },
+      "prereqs": [
+        "p1-2a-gate-skeleton"
+      ],
+      "scope_files": [
+        "src/ingress_gate/",
+        "src/security.py",
+        "src/json_handler.py",
+        "tests/test_ingress_v2_failclosed.py"
+      ],
+      "test_target": "tests/test_ingress_v2_failclosed.py",
+      "acceptance": "AppA H1 (L330): v2 fail-closed. Reject plaintext, subject/body AUTH:, and thread authentication.",
+      "notes": "The live bug this fixes: src/json_handler.py:39 checks 'if expected and env.auth != expected' \u2014 when the secret is unconfigured the check is SKIPPED, so a GPG-only deployment silently accepts unauthenticated envelopes. Also src/security.py:160-161 does a non-constant-time 'in' containment for the body AUTH: check."
+    },
+    {
+      "id": "p1-2c-thread-demote",
+      "order": 24,
+      "gate": "script",
+      "eligible": true,
+      "title": "In-Reply-To thread-match becomes routing-only, never authorization",
+      "phase": "1",
+      "plan_ref": {
+        "section": "\u00a75.2",
+        "lines": "125",
+        "anchor": "Thread-match (In-Reply-To) becomes routing-only"
+      },
+      "prereqs": [
+        "p1-2a-gate-skeleton"
+      ],
+      "scope_files": [
+        "src/security.py",
+        "src/chat_router.py",
+        "tests/test_thread_match_not_auth.py"
+      ],
+      "test_target": "tests/test_thread_match_not_auth.py",
+      "acceptance": "AppA H1 (L330): thread-match routing-only",
+      "notes": "src/security.py:135-146 currently checks the thread match BEFORE GPG and returns True \u2014 so any past outbound Message-ID authorizes forever, even in GPG mode. find_message_by_email_id / find_outbound_email stay, but only chat_router and email_thread may call them."
+    },
+    {
+      "id": "p1-2d-msgid-dedupe",
+      "order": 25,
+      "gate": "script",
+      "eligible": true,
+      "title": "RFC Message-ID is provisional delivery dedupe only \u2014 no replay-security claim",
+      "phase": "1",
+      "plan_ref": {
+        "section": "\u00a75.2 / \u00a711.4",
+        "lines": "126",
+        "anchor": "RFC Message-ID used as provisional delivery dedupe"
+      },
+      "prereqs": [
+        "p1-2a-gate-skeleton"
+      ],
+      "scope_files": [
+        "src/poller.py",
+        "src/ingress_gate/",
+        "tests/test_msgid_dedupe_only.py"
+      ],
+      "test_target": "tests/test_msgid_dedupe_only.py",
+      "acceptance": "Message-ID handling carries no security assertion; documented and tested as delivery dedupe",
+      "also_read": [
+        {
+          "anchor": "### 11.4 Replay & idempotency",
+          "lines": "244-250"
+        }
+      ]
+    },
+    {
+      "id": "p1-2e-preauth-drop",
+      "order": 26,
+      "gate": "script",
+      "eligible": true,
+      "title": "Pre-auth failures: silent drop + audit + rate-limited dashboard alert; detailed errors only post-auth",
+      "phase": "1",
+      "plan_ref": {
+        "section": "\u00a75.2 / \u00a71",
+        "lines": "127",
+        "anchor": "Pre-auth failures: silent drop"
+      },
+      "prereqs": [
+        "p1-2a-gate-skeleton",
+        "s0-h5-close"
+      ],
+      "scope_files": [
+        "src/ingress_gate/",
+        "chat/dashboard.py",
+        "tests/test_preauth_silent_drop.py"
+      ],
+      "test_target": "tests/test_preauth_silent_drop.py",
+      "acceptance": "AppB P1 (L359): pre-auth mail silently dropped + alerted",
+      "notes": "No error reply may reach an unauthenticated sender \u2014 that is both an oracle and a reflection vector.",
+      "also_read": [
+        {
+          "anchor": "### Invariants (must hold at every phase boundary)",
+          "lines": "41-48"
+        }
+      ]
+    },
+    {
+      "id": "p1-3-secret-leak",
+      "order": 27,
+      "gate": "script",
+      "eligible": true,
+      "title": "Stop secret leakage: generated subjects from allowlisted tags, central sanitisation, DB + log redaction",
+      "phase": "1",
+      "plan_ref": {
+        "section": "\u00a75.3",
+        "lines": "129-133",
+        "anchor": "Stop secret leakage (fixes H2)"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "src/mailer.py",
+        "src/chat_handlers.py",
+        "src/chat_relay.py",
+        "src/task_row_redact.py",
+        "src/email_extract.py",
+        "tests/test_subject_no_secret_roundtrip.py"
+      ],
+      "test_target": "tests/test_subject_no_secret_roundtrip.py",
+      "acceptance": "AppA H2 (L332): Generated subjects; mailer strip; origin_subject redaction; secret rotated; unit tests. AppB P1 (L359): subject round-trip contains no secret.",
+      "notes": "Today send_threaded_reply reuses the inbound Subject verbatim, so a reply reads 'Re: AUTH:<secret> ...' and every MTA hop logs it. mailer.py:36-37 only collapses newlines. envelope_builder.strip_auth_from_body exists but is DEAD CODE \u2014 no caller. Risk is coverage across six modules, not line count. SECRET ROTATION (\u00a75.3 L132) is an operator action, not code \u2014 surface it, do not fake it."
+    },
+    {
+      "id": "p1-4-child-env",
+      "order": 28,
+      "gate": "script",
+      "eligible": true,
+      "title": "Explicit subprocess environments from the S4 allowlist at every spawn site",
+      "phase": "1",
+      "plan_ref": {
+        "section": "\u00a75.4",
+        "lines": "135-138",
+        "anchor": "Explicit subprocess environments (fixes H3)"
+      },
+      "prereqs": [
+        "p0-s4-env"
+      ],
+      "scope_files": [
+        "src/child_env.py",
+        "src/executor.py",
+        "src/spawner.py",
+        "src/worker_manager.py",
+        "src/project_worker.py",
+        "src/wake_spawn.py",
+        "src/reset_control.py",
+        "src/git_ops.py",
+        "src/process_liveness.py",
+        "tests/test_child_env_absence.py"
+      ],
+      "test_target": "tests/test_child_env_absence.py",
+      "acceptance": "AppA H3 (L332): Env allowlist; /proc/<pid>/environ absence tests. \u00a75.4 L138: native tests assert absence of EMAIL_PASSWORD/SHARED_SECRET/IMAP/SMTP creds in a spawned child.",
+      "notes": "PLAN CORRECTION: \u00a75.4 L137 lists only executor/spawner/worker_manager/wake_spawn. It OMITS src/project_worker.py:82 ({**os.environ, 'MCP_CONNECTION_NONBLOCKING': 'true'}). And src/wake_spawn.py:36-39 passes NO env= at all \u2014 full implicit inheritance \u2014 so it needs the explicit form, not a dict edit. src/reset_control.py, src/git_ops.py, src/process_liveness.py and worker_manager's pgrep call also inherit everything. Add an AST test asserting EVERY subprocess.run/Popen in src/ and chat/ passes env= from build_child_env \u2014 a grep check rots, an AST test fails on a new call site. NO ANTHROPIC_* prefix pass-through: allowlist exact names only. Env scrubbing does NOT close same-UID exfiltration (the child can read .env or /proc/<ppid>/environ) \u2014 say so in the docs rather than claiming H3 is fully fixed."
+    },
+    {
+      "id": "p2-0-extract",
+      "order": 30,
+      "gate": "script",
+      "eligible": true,
+      "title": "Pre-work: split chat/dispatch.py (200), chat/tools.py (186), chat/project_tool_defs.py (186)",
+      "phase": "2",
+      "plan_ref": {
+        "section": "\u00a71 invariant",
+        "lines": "42",
+        "anchor": "200-line max per file"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "chat/dispatch.py",
+        "chat/tools.py",
+        "chat/project_tool_defs.py",
+        "chat/auth.py"
+      ],
+      "test_target": "tests/test_chat_line_limit_headroom.py",
+      "acceptance": "scripts/check-line-limit.sh exits 0 with >=40 lines headroom on all three; suite green; no behaviour change",
+      "notes": "HARD PREREQUISITE for p2-1..p2-9 \u2014 adding per-request auth plus ACL checks to files at 200/186/186 breaches the cap immediately.",
+      "also_read": [
+        {
+          "anchor": "### Invariants (must hold at every phase boundary)",
+          "lines": "41-48"
+        }
+      ]
+    },
+    {
+      "id": "p2-1-credregistry",
+      "order": 31,
+      "gate": "script",
+      "eligible": true,
+      "title": "Credential registry: hashed token, principal, role, canonical project scope, status, expiry",
+      "phase": "2",
+      "plan_ref": {
+        "section": "\u00a76.1",
+        "lines": "146",
+        "anchor": "**Credential registry**"
+      },
+      "prereqs": [
+        "p2-0-extract"
+      ],
+      "scope_files": [
+        "src/chat_schema.py",
+        "src/credential_registry.py",
+        "scripts/agent-provision.py",
+        "tests/test_credential_registry.py"
+      ],
+      "test_target": "tests/test_credential_registry.py",
+      "acceptance": "AppA H4 (L333): Token principals. Minted by trusted spawn or a local agent-provision CLI, NEVER via an MCP tool.",
+      "notes": "Binding lifecycle matters: the pid does not exist until after Popen, so insert 'pending' (token, name, project_path, scope) BEFORE Popen and UPDATE to 'active' with the pid immediately after. A pending token must not authorize \u2014 return a retryable 503, and sweep pending bindings older than a timeout to revoked. This also subsumes the register-then-set-pid split-brain at src/spawner.py:134-135.",
+      "also_read": [
+        {
+          "anchor": "## 13. MCP identity & ACL matrix",
+          "lines": "277-289"
+        }
+      ]
+    },
+    {
+      "id": "p2-2-authn",
+      "order": 32,
+      "gate": "script",
+      "eligible": true,
+      "title": "Authenticate every MCP request; server derives caller and project; _caller removed",
+      "phase": "2",
+      "plan_ref": {
+        "section": "\u00a76.2",
+        "lines": "147",
+        "anchor": "Authenticate every MCP request/session"
+      },
+      "prereqs": [
+        "p2-1-credregistry"
+      ],
+      "scope_files": [
+        "chat/auth.py",
+        "chat/http_security.py",
+        "chat/dispatch.py",
+        "chat/tool_definitions.py",
+        "tests/test_mcp_authn.py"
+      ],
+      "test_target": "tests/test_mcp_authn.py",
+      "acceptance": "AppA H4 (L333): _caller removed",
+      "notes": "_caller is a self-asserted JSON-RPC string (chat/tool_definitions.py:11, chat/dispatch.py:51-60) with no session binding \u2014 any local process can drain any agent's inbox or deregister anyone. Extend the EXISTING HttpSecurityMiddleware; do not add a second middleware. DASHBOARD_PATHS deliberately excludes /mcp, /sse, /messages/ \u2014 those are the routes to close. NO single shared bus token: per-principal tokens from the registry, including explicit principals for the router and each project worker. Tokens go in untracked mode-0600 runtime config; the target repo's .mcp.json must be added to that repo's .git/info/exclude and chmod 0600, or chat_commit_project's 'git add -A' commits the token."
+    },
+    {
+      "id": "p2-3-acl",
+      "order": 33,
+      "gate": "script",
+      "eligible": true,
+      "title": "Roles agent/worker/router/provisioning-admin with a per-tool ACL matrix",
+      "phase": "2",
+      "plan_ref": {
+        "section": "\u00a76.3 / \u00a713",
+        "lines": "148-152",
+        "anchor": "Roles & per-tool ACL"
+      },
+      "prereqs": [
+        "p2-2-authn"
+      ],
+      "scope_files": [
+        "chat/auth.py",
+        "chat/dispatch.py",
+        "tests/test_mcp_acl_matrix.py"
+      ],
+      "test_target": "tests/test_mcp_acl_matrix.py",
+      "acceptance": "AppA H4 (L333): ACL matrix tests",
+      "notes": "Authentication alone changes nothing here \u2014 a token that can do everything is barely better than no token. Each binding carries project_path scope plus a capability set; enforce in dispatch BEFORE the tool runs, one assertion per tool per role.",
+      "also_read": [
+        {
+          "anchor": "## 13. MCP identity & ACL matrix",
+          "lines": "277-289"
+        }
+      ]
+    },
+    {
+      "id": "p2-4-destructive-removal",
+      "order": 34,
+      "gate": "script",
+      "eligible": true,
+      "title": "Remove reset / confirm_reset / commit / push / spawn from the network MCP schema AND dispatch",
+      "phase": "2",
+      "plan_ref": {
+        "section": "\u00a76.4 / \u00a713",
+        "lines": "153",
+        "anchor": "Destructive/control-plane tools removed"
+      },
+      "prereqs": [
+        "p2-3-acl"
+      ],
+      "scope_files": [
+        "chat/project_tool_defs.py",
+        "chat/dispatch.py",
+        "chat/project_mutations.py",
+        "tests/test_destructive_absent_from_schema.py"
+      ],
+      "test_target": "tests/test_destructive_absent_from_schema.py",
+      "acceptance": "AppB P2 (L360): ACL matrix enforced by schema absence. \u00a713 L288: enforcement by construction, not by role checks.",
+      "notes": "Checkable by ABSENCE: assert the tool name is not in list_tools output and not reachable in dispatch. \u00a76.4 L153 says 'never agent-reachable is enforced by absence from the schema \u2014 testable'.",
+      "also_read": [
+        {
+          "anchor": "## 13. MCP identity & ACL matrix",
+          "lines": "277-289"
+        }
+      ]
+    },
+    {
+      "id": "p2-5-regbinding",
+      "order": 35,
+      "gate": "script",
+      "eligible": true,
+      "title": "chat_register activates a pre-provisioned binding; no arbitrary name/path, no pid=None takeover, 'user' reserved",
+      "phase": "2",
+      "plan_ref": {
+        "section": "\u00a76.5",
+        "lines": "154",
+        "anchor": "**Registration binding**"
+      },
+      "prereqs": [
+        "p2-2-authn"
+      ],
+      "scope_files": [
+        "chat/tools.py",
+        "src/agent_registry_impls.py",
+        "src/proc_reconcile.py",
+        "tests/test_register_binding.py"
+      ],
+      "test_target": "tests/test_register_binding.py",
+      "acceptance": "AppA M5 (L339): Pre-provisioned binding required; reconcile only refreshes",
+      "notes": "chat/tools.py:18-21 calls db.register_agent(name, project_path) with NO pid, so the AgentNameTaken / is_alive guard at src/agent_registry_impls.py:44-53 never fires for MCP registrations \u2014 the ON CONFLICT upsert then re-points a live agent's project_path anywhere. Deriving pid from the binding also closes 'supply the victim's pid'. Reserve the names 'user' and 'agent'.",
+      "also_read": [
+        {
+          "anchor": "## 13. MCP identity & ACL matrix",
+          "lines": "277-289"
+        }
+      ]
+    },
+    {
+      "id": "p2-6-checkmsg-auth",
+      "order": 36,
+      "gate": "script",
+      "eligible": true,
+      "title": "check_messages requires a registered, authenticated recipient",
+      "phase": "2",
+      "plan_ref": {
+        "section": "\u00a76.6",
+        "lines": "155",
+        "anchor": "requires a registered authenticated recipient"
+      },
+      "prereqs": [
+        "p2-2-authn"
+      ],
+      "scope_files": [
+        "chat/tools.py",
+        "src/chat_db_impls.py",
+        "tests/test_checkmsg_requires_auth.py"
+      ],
+      "test_target": "tests/test_checkmsg_requires_auth.py",
+      "acceptance": "Folded into AppB P2 (L360) unauthenticated-call battery",
+      "notes": "claim_pending_messages_for (src/chat_db_impls.py:49-59) keys only on to_name and marks delivered in the same statement \u2014 a destructive read any caller can trigger for any agent.",
+      "also_read": [
+        {
+          "anchor": "## 13. MCP identity & ACL matrix",
+          "lines": "277-289"
+        }
+      ]
+    },
+    {
+      "id": "p2-7-audit-ratelimit",
+      "order": 37,
+      "gate": "script",
+      "eligible": true,
+      "title": "Audit records plus per-principal rate limits",
+      "phase": "2",
+      "plan_ref": {
+        "section": "\u00a76.7",
+        "lines": "156",
+        "anchor": "Audit records + rate limits per principal"
+      },
+      "prereqs": [
+        "p2-2-authn"
+      ],
+      "scope_files": [
+        "chat/auth.py",
+        "src/chat_schema.py",
+        "tests/test_principal_ratelimit.py"
+      ],
+      "test_target": "tests/test_principal_ratelimit.py",
+      "acceptance": "Derived: audit row per authenticated call; rate limit trips and is tested"
+    },
+    {
+      "id": "p2-9-testbattery",
+      "order": 38,
+      "gate": "script",
+      "eligible": true,
+      "title": "Attack battery: cross-principal impersonation, token theft, unauthenticated calls, on BOTH SSE and streamable",
+      "phase": "2",
+      "plan_ref": {
+        "section": "\u00a76.9",
+        "lines": "158",
+        "anchor": "Tests: cross-principal impersonation"
+      },
+      "prereqs": [
+        "p2-3-acl",
+        "p2-4-destructive-removal",
+        "p2-5-regbinding"
+      ],
+      "scope_files": [
+        "tests/test_mcp_attack_impersonation.py",
+        "tests/test_mcp_attack_tokentheft.py",
+        "tests/test_mcp_attack_unauth.py",
+        "tests/test_mcp_attack_transport_parity.py"
+      ],
+      "test_target": "tests/test_mcp_attack_unauth.py",
+      "acceptance": "AppB P2 (L360): impersonation/token-theft/unauthenticated-call test battery passes on SSE + streamable; proc-scan no longer enrolls arbitrary sessions",
+      "notes": "Split by attack class \u2014 one file per class, or it breaches the test-file convention. tests/ is exempt from the 200-line gate but keep to the convention anyway."
+    },
+    {
+      "id": "p5-0-extract",
+      "order": 40,
+      "gate": "script",
+      "eligible": true,
+      "title": "Pre-work: split src/task_queue.py (199) and src/chat_db_tx.py (195)",
+      "phase": "5",
+      "plan_ref": {
+        "section": "\u00a71 invariant",
+        "lines": "42",
+        "anchor": "200-line max per file"
+      },
+      "prereqs": [
+        "s0-baseline"
+      ],
+      "scope_files": [
+        "src/task_queue.py",
+        "src/chat_db_tx.py"
+      ],
+      "test_target": "tests/test_queue_line_limit_headroom.py",
+      "acceptance": "check-line-limit clean with >=40 lines headroom; suite green; no behaviour change",
+      "notes": "HARD PREREQUISITE for p5-b / p5-c.",
+      "also_read": [
+        {
+          "anchor": "### Invariants (must hold at every phase boundary)",
+          "lines": "41-48"
+        }
+      ]
+    },
+    {
+      "id": "p5-b-lifecycle",
+      "order": 41,
+      "gate": "script",
+      "eligible": true,
+      "title": "Process-group lifecycle: TERM grace then group KILL, bounded reaping, no unbounded communicate()",
+      "phase": "5",
+      "plan_ref": {
+        "section": "\u00a79 5-B",
+        "lines": "203",
+        "anchor": "5-B. Process lifecycle"
+      },
+      "prereqs": [
+        "p5-0-extract"
+      ],
+      "scope_files": [
+        "src/executor.py",
+        "src/project_worker.py",
+        "src/wake_spawn.py",
+        "tests/test_process_group_reap.py"
+      ],
+      "test_target": "tests/test_process_group_reap.py",
+      "acceptance": "AppA M2 (L336): Process groups; bounded reap; orphan test",
+      "notes": "The executor kills only the direct child, orphaning MCP/hook/bash grandchildren. src/project_worker.py:88-89 does proc.kill() then communicate() with NO timeout \u2014 a pipe-holding grandchild hangs the worker forever and stalls its queue."
+    },
+    {
+      "id": "p5-c-pidident",
+      "order": 42,
+      "gate": "script",
+      "eligible": true,
+      "title": "Identity-checked process liveness: (pid, starttime, argv/cwd); exact /proc argv discovery replacing pgrep -f",
+      "phase": "5",
+      "plan_ref": {
+        "section": "\u00a79 5-C",
+        "lines": "204",
+        "anchor": "5-C. PID identity"
+      },
+      "prereqs": [
+        "p5-0-extract"
+      ],
+      "scope_files": [
+        "src/process_liveness.py",
+        "src/worker_manager.py",
+        "src/wake_helpers.py",
+        "tests/test_pid_identity.py"
+      ],
+      "test_target": "tests/test_pid_identity.py",
+      "acceptance": "AppA M3 (L337): (pid,starttime,argv) identity; PID-reuse simulation test. AppA M4 (L338): Exact argv match; metachar-path test.",
+      "notes": "Liveness is kill(pid,0) only (src/process_liveness.py:136-156, src/wake_helpers.py:20), so PID reuse yields phantom owners and unreaped rows. worker_manager.py:103-106 uses an UNESCAPED pgrep -f <path>, so any cmdline substring match becomes a phantom worker and blocks a real spawn."
+    },
+    {
+      "id": "p3-g-server-keypair",
+      "order": 60,
+      "gate": "script",
+      "eligible": false,
+      "title": "Server keypair in a dedicated GNUPGHOME (0600) so the backend can decrypt",
+      "phase": "3",
+      "amendment": "docs/claude-email-remediation-plan-amendment-e2e.md",
+      "source": "Amendment E2E \u2014 the server holds only a PUBLIC key today; decryption needs its own keypair",
+      "prereqs": [
+        "PLAN:p3-spec-v3-revised",
+        "ACK:agent-Claude-Email-App"
+      ],
+      "scope_files": [
+        "src/server_key.py",
+        "src/config.py",
+        "src/child_env.py",
+        "tests/test_server_keypair.py"
+      ],
+      "test_target": "tests/test_server_keypair.py",
+      "acceptance": "Server keypair exists in its own GNUPGHOME at 0600; the private key is absent from every spawned child's environment and from /proc/<pid>/environ",
+      "exclude_reason": "Blocked on the revised \u00a711 spec and the app ack.",
+      "notes": "A spawned agent that can read this key can decrypt every command ever sent. Phase 2's env allowlist already excludes GPG_HOME \u2014 assert it explicitly for the new home too."
+    },
+    {
+      "id": "p3-h-decrypt-then-verify",
+      "order": 61,
+      "gate": "script",
+      "eligible": false,
+      "title": "Inbound: decrypt, then verify the INNER signature, then replay-check, then parse",
+      "phase": "3",
+      "amendment": "docs/claude-email-remediation-plan-amendment-e2e.md",
+      "source": "Amendment E2E",
+      "prereqs": [
+        "p3-g-server-keypair",
+        "p3-d-v3verifier"
+      ],
+      "scope_files": [
+        "src/ingress_gate/",
+        "src/verify_v3/",
+        "tests/test_decrypt_then_verify.py"
+      ],
+      "test_target": "tests/test_decrypt_then_verify.py",
+      "acceptance": "Anything not encrypted is rejected at admission \u2014 plaintext, a bare multipart/signed, and any mixed/extra part. Identity comes from the inner signature only.",
+      "exclude_reason": "Blocked on the revised spec.",
+      "notes": "Sign-then-encrypt: the signature is INSIDE the ciphertext, so it is verified only after decryption. Nothing outside the ciphertext may influence what executes \u2014 this is why routing moved out of headers."
+    },
+    {
+      "id": "p3-i-encrypt-outbound",
+      "order": 62,
+      "gate": "script",
+      "eligible": false,
+      "title": "Encrypt every outbound reply to the enrolled device and sign it with the server key",
+      "phase": "3",
+      "amendment": "docs/claude-email-remediation-plan-amendment-e2e.md",
+      "source": "Amendment E2E \u2014 answers D2, which had deferred reply encryption",
+      "prereqs": [
+        "p3-g-server-keypair"
+      ],
+      "scope_files": [
+        "src/mailer.py",
+        "src/chat_relay.py",
+        "src/chat_handlers.py",
+        "src/json_handler.py",
+        "tests/test_outbound_encrypted.py"
+      ],
+      "test_target": "tests/test_outbound_encrypted.py",
+      "acceptance": "No outbound body leaves in cleartext on ANY path: result, ack, error, status, relay. A test asserts every send path goes through the encrypting sender.",
+      "exclude_reason": "Blocked on the server keypair.",
+      "notes": "Four separate send paths exist today (send_threaded_reply, chat_relay, json_handler's _send_json_reply, and mailer.send_reply). Funnel them through one encrypting sender and assert it has a single caller, or a cleartext path creeps back."
+    },
+    {
+      "id": "p3-j-protected-headers",
+      "order": 63,
+      "gate": "script",
+      "eligible": false,
+      "title": "Protected headers: dummy outer Subject, real Subject inside the ciphertext",
+      "phase": "3",
+      "amendment": "docs/claude-email-remediation-plan-amendment-e2e.md",
+      "source": "Amendment E2E",
+      "prereqs": [
+        "p3-i-encrypt-outbound"
+      ],
+      "scope_files": [
+        "src/mailer.py",
+        "src/ingress_gate/",
+        "tests/test_protected_headers.py"
+      ],
+      "test_target": "tests/test_protected_headers.py",
+      "acceptance": "Outer Subject is a constant dummy carrying zero task information; the real Subject round-trips inside the encrypted part",
+      "exclude_reason": "Blocked on outbound encryption.",
+      "notes": "SUPERSEDES the 'generated subjects from allowlisted correlation tags' half of p1-3-secret-leak \u2014 a correlation tag in a readable Subject still leaks task identity. Headers are the only remaining leak once bodies are encrypted, so minimise them."
+    }
+  ],
+  "excluded": [
+    {
+      "id": "p0-s1-keystore",
+      "reason": "hardware",
+      "detail": "\u00a74 L102 \u2014 needs OpenPGP signing over a non-exportable Android Keystore key on a REAL device. No test can pass this. Its failure branch is what decision D3 answers."
+    },
+    {
+      "id": "p0-s3-mime",
+      "reason": "hardware/external",
+      "detail": "\u00a74 L104 \u2014 needs a real Angus Mail send through a real provider to prove RFC 3156 multipart/signed survives byte-exactly."
+    },
+    {
+      "id": "p0-s2-mcphdr",
+      "reason": "judgement",
+      "detail": "\u00a74 L103 \u2014 a spike that selects a design fork (per-principal stdio bridge if headers do not survive). Fork choice is human. Blocks p2-1."
+    },
+    {
+      "id": "p0-matrix",
+      "reason": "sign-off",
+      "detail": "AppB P0 (L358) 'matrix frozen' is a signature, not a test."
+    },
+    {
+      "id": "p2-8-rotation-runbook",
+      "reason": "operational prose",
+      "detail": "\u00a76.8 L157 \u2014 runbook plus live session reprovisioning."
+    },
+    {
+      "id": "p3-spec-v3",
+      "reason": "cross-repo ack",
+      "detail": "\u00a77.3 L182 \u2014 protocol v3 spec must be acked by agent-Claude-Email-App via chat_message_agent before anything downstream. Gates all of Phase 3."
+    },
+    {
+      "id": "p3-app-*",
+      "reason": "cross-repo",
+      "detail": "\u00a77.2 L174-178 \u2014 on-device keygen, provisioning screen, sign-every-envelope, drop meta.auth. Lives in /home/cocodedk/0-projects/Claude-Email-App (Kotlin/Android)."
+    },
+    {
+      "id": "p3-fixtures",
+      "reason": "cross-repo",
+      "detail": "\u00a77.3 L181 \u2014 golden MIME/signature fixtures shared across both repos."
+    },
+    {
+      "id": "p3-cer-*",
+      "reason": "hardware",
+      "detail": "\u00a712 L256-273 \u2014 the USB provisioning ceremony: adb transport + sysfs verification, APK digest pinning, nonce challenge-response on an unlocked physical device."
+    },
+    {
+      "id": "p4-*",
+      "reason": "cutover",
+      "detail": "\u00a78 L186-194 \u2014 needs a real enrolled device (p4-1), a scheduled write-unavailable window (D7), and a rollback drill (judgement)."
+    },
+    {
+      "id": "p4-5-senders-envtest",
+      "reason": "decision-blocked D6",
+      "detail": "\u00a78 L192 \u2014 .env.test behind a non-prod flag vs removed entirely are DIFFERENT implementations. Hard block on code until D6 is answered."
+    },
+    {
+      "id": "p5-a-durable",
+      "reason": "large + cross-repo-conditional",
+      "detail": "\u00a79 5-A L202 bundles M1+M13+M14, each with its own migration and failure-injection suite, and \u00a715 L309 makes it app-facing if the delivery protocol changes. Split before looping."
+    },
+    {
+      "id": "p6-closeout",
+      "reason": "sign-off",
+      "detail": "AppB P6 (L364) 'closeout matrix signed'."
+    },
+    {
+      "id": "coverage-restore",
+      "reason": "small, do by hand",
+      "detail": "src/json_file.py lines 31-36 are uncovered (79%), total 99% \u2014 a regression from this session's agent_bootstrap extraction. The repo's 100%-coverage claim is documentation-only: coverage appears in no workflow and no hook, and `coverage` is not even in requirements.txt."
+    }
+  ],
+  "open_decisions": {
+    "note": "Collect these into ONE plain-language conversation at the end. Only D6 and D3 hard-block code.",
+    "D1": {
+      "line": 316,
+      "blocks": "scope only",
+      "plain": "Is the phone the only thing allowed to send commands, or does a tool on this computer count too? Default: phone only."
+    },
+    "D2": {
+      "line": 317,
+      "blocks": "nothing in v1",
+      "plain": "Should replies back to the phone be signed/encrypted too? \u00a711.5 L252 already says out of scope for v1."
+    },
+    "D3": {
+      "line": 318,
+      "blocks": "p3-app-keygen, but only if the S1 spike fails",
+      "plain": "If the phone's secure hardware cannot hold the signing key, is a software key wrapped by that hardware acceptable, or does work stop for a decision?"
+    },
+    "D4": {
+      "line": 319,
+      "blocks": "an optional follow-up only",
+      "plain": "Programs the service starts run as the same user, so they can read the password file regardless. Accept and document, or schedule real OS separation?"
+    },
+    "D5": {
+      "line": 320,
+      "blocks": "confirm only",
+      "plain": "More than one phone eventually? The database already supports it; one gets enrolled at cutover."
+    },
+    "D6": {
+      "line": 321,
+      "blocks": "p4-5-senders-envtest + the M7 slice \u2014 HARD",
+      "plain": "The test mailbox: keep it behind an explicit not-production switch, or delete it entirely?"
+    },
+    "D7": {
+      "line": 322,
+      "blocks": "executing the cutover, not building it",
+      "plain": "When can sending commands stop working for a few minutes?"
+    }
+  },
+  "amendments": [
+    {
+      "file": "docs/claude-email-remediation-plan-amendment-e2e.md",
+      "effect": "\u00a711 becomes encrypt-and-sign; D2 answered yes; routing moves out of headers into the ciphertext"
+    }
+  ]
+}

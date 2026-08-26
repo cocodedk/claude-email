@@ -1,0 +1,42 @@
+{
+  "objective": "Fix the two defects the e2e chain left behind",
+  "plan_file": "docs/claude-email-remediation-plan.md",
+  "plan_repo": "/home/cocodedk/0-projects/claude-email",
+  "repo": "/home/cocodedk/0-projects/claude-email",
+  "origin": "Defects found while auditing the completed e2e chain on 2026-08-25, not from the remediation plan.",
+  "gates": [
+    "scripts/check-line-limit.sh",
+    ".venv/bin/pytest tests/ -q --ignore=tests/e2e",
+    ".venv/bin/pytest \"$1\" -q",
+    ".venv/bin/pytest tests/e2e -q"
+  ],
+  "gate_notes": "The full e2e suite is the regression check and takes ~7min, so each iteration is slow. That is the right trade: this slice rewrites the harness the other 120 tests depend on.",
+  "docs_paths": ["README.md", "CLAUDE.md", "website/index.html", "website/fa/index.html", "docs/"],
+  "rubric_additions": [
+    "AUTO-REJECT: TlsTerminator, or any hand-rolled socket/TLS pump, still present in tests/e2e/.",
+    "AUTO-REJECT: TLS verification weakened anywhere to make this pass — no check_hostname=False, no CERT_NONE, no ssl._create_unverified_context, and src/poller.py and src/mailer.py must still use ssl.create_default_context().",
+    "AUTO-REJECT: fewer than 120 e2e tests passing afterwards, or any e2e test newly skipped."
+  ],
+  "slices": [
+    {
+      "id": "fix-tls-keystore", "order": 10, "gate": "script", "eligible": true,
+      "title": "Give GreenMail a real SAN certificate and delete the hand-rolled TLS terminator",
+      "prereqs": [],
+      "scope_files": [
+        "tests/e2e/docker-compose.yml", "tests/e2e/_stack.py", "tests/e2e/conftest.py",
+        "tests/e2e/test_tls_direct.py", "docs/e2e-testing.md"
+      ],
+      "test_target": "tests/e2e/test_tls_direct.py",
+      "acceptance": "src/poller.py and src/mailer.py reach GreenMail's OWN IMAPS/SMTPS listeners through ssl.create_default_context() with verification fully on. TlsTerminator is deleted. All 120 existing e2e tests still pass.",
+      "notes": "WHY THE TERMINATOR EXISTS (the builder's reasoning was sound, so read it before changing anything): tests/e2e/_stack.py:8-18 explains that GreenMail's built-in cert is CN=GreenMail selfsigned Test Certificate with NO subjectAltName, and Python has required a SAN for hostname verification since 3.7 — so no verifying client can EVER accept it, whatever CA it trusts. The builder could not reshape the keystore because docker-compose.yml was outside its slice scope, so it put a protocol-blind byte pump in front instead. THE BETTER FIX IS NOW IN SCOPE: GreenMail 2.1.9 accepts `greenmail.tls.keystore.file`, `greenmail.tls.keystore.password` and `greenmail.tls.key.password` (verified by extracting the strings from /home/greenmail/greenmail-standalone.jar in the image). Generate a keypair whose SAN covers 127.0.0.1 and localhost, put it in a PKCS12/JKS keystore, mount it into the container, point GreenMail at it, and have the tests trust that CA via SSL_CERT_FILE — exactly as _stack.py:464-466 already does for the terminator's cert. That deletes the byte pump AND both of its crash workarounds (commits d029947 'stop the TLS terminator segfaulting on connection teardown' and fa74f81 'stop the TLS terminator racing OpenSSL across two threads') — a segfaulting, thread-racing TLS proxy has no business sitting under 120 security tests. Keep the ports on 127.0.0.1 and off the default mail ports."
+    }
+  ],
+  "done_without_a_loop": [
+    {
+      "id": "fix-chain-dedup",
+      "title": "Reconcile the hardening chain with what run/e2e already landed",
+      "why_no_loop": "This edits plan data, not code — faster and safer done directly than briefed to an agent.",
+      "detail": "run/e2e landed three Phase-1 fixes the hardening chain still has queued: 730a584 (JSON envelope fails closed when SHARED_SECRET is unset) overlaps p1-2b-v2-failclosed; 2b21c62 (secret never leaves in a reply header) overlaps p1-3-secret-leak; a4fa481 (replay bound to the signature, not the Message-ID) overlaps p1-2d-msgid-dedupe. It also added src/replay_guard.py and src/secret_redact.py. Those three slices must be rewritten from 'implement' to 'verify and complete', because each is BROADER than what e2e did — p1-3 also covers tasks.origin_subject redaction, log output and secret rotation. The hardening chain must also be rebased onto run/e2e rather than the old base, or it will re-implement all three and conflict."
+    }
+  ]
+}

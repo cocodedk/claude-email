@@ -1,0 +1,242 @@
+{
+  "objective": "Real end-to-end tests between Claude-Email-App and claude-email. No mocks.",
+  "plan_file": "docs/claude-email-remediation-plan.md",
+  "plan_repo": "/home/cocodedk/0-projects/claude-email",
+  "repo": "/home/cocodedk/0-projects/claude-email",
+  "gates": [
+    "scripts/check-line-limit.sh",
+    ".venv/bin/pytest tests/ -q",
+    ".venv/bin/pytest \"$1\" -q"
+  ],
+  "docs_paths": [
+    "README.md",
+    "CLAUDE.md",
+    "website/index.html",
+    "website/fa/index.html",
+    "docs/"
+  ],
+  "the_rule": "MOCKS DO NOT COUNT. A mock asserts what the author already believed; it cannot discover that the real transport, the real MIME serialiser or the real provider behaves differently. Every slice here must exercise real processes over real sockets with real keys. Failure injection breaks the real dependency (stop the server) rather than patching it.",
+  "why_this_exists": "The existing suites are ~all mocked \u2014 mocker.patch(\"smtplib.SMTP_SSL\"), _mock_imap in tests/_poller_helpers.py, subprocess patched at the consuming module \u2014 and the repo claims 100% coverage. A read-only audit still found src/json_handler.py:39 accepting an UNAUTHENTICATED envelope whenever the shared secret is unconfigured. 1685 mocked tests did not see it. That is the whole argument for this chain.",
+  "rubric_additions": [
+    "AUTO-REJECT: any mocker.patch / MagicMock / monkeypatch applied to the component under test \u2014 the mail transport, the MIME serialiser, GPG, the poller, the queue, or the bus.",
+    "AUTO-REJECT: a test that asserts on a value it also constructed, with no independent oracle.",
+    "AUTO-REJECT: a test that passes when the implementation is reverted. State, per test, why it would fail.",
+    "Failure injection must break the REAL dependency (stop the mail server, SIGKILL the worker), not patch it."
+  ],
+  "infrastructure": {
+    "mail_server": "GreenMail (docker) \u2014 speaks real SMTP/SMTPS + IMAP/IMAPS, purpose-built for integration tests, and works for BOTH sides (the backend's IMAP4_SSL/SMTP_SSL and the app's Angus Mail). Alternatives considered: Mailpit and MailHog are SMTP-only, so the poller could not fetch.",
+    "keys": "a throwaway GNUPGHOME per run with real generated keys \u2014 never the operator's keyring",
+    "processes": "the real main.py poller and the real chat_server.py, on test ports with a temp DB, using the EXISTING .env.test universe seam (src/universes.py build_universes)",
+    "app": "a DEBUG build on an emulator, pointed at the same GreenMail via the existing intent-extras seam: app/src/main/java/com/cocode/claudeemailapp/app/PrefillCredentials.kt:6-36 reads prefill_email/prefill_password/etc, gated on BuildConfig.ALLOW_PREFILL (debug=true, release=false). That hook already exists for exactly this.",
+    "emulator_note": "An emulator is fine for everything here \u2014 the hardware guarantee (S1) is a separate concern. It is also the only way to test the ceremony's emulator-REJECTION path."
+  },
+  "slices": [
+    {
+      "id": "e2e-00-mailserver",
+      "order": 10,
+      "gate": "script",
+      "eligible": true,
+      "smoke_test": true,
+      "title": "Stand up a real mail server and prove a raw SMTP->IMAP round trip",
+      "prereqs": [],
+      "source": "user requirement: real tests, no mocks",
+      "scope_files": [
+        "tests/e2e/docker-compose.yml",
+        "tests/e2e/conftest.py",
+        "tests/e2e/test_mailserver_roundtrip.py",
+        "docs/e2e-testing.md"
+      ],
+      "test_target": "tests/e2e/test_mailserver_roundtrip.py",
+      "acceptance": "A message sent over real SMTP is retrieved over real IMAP by a second client, byte-identical in body. Zero mocks. Skips cleanly with a clear reason when docker is unavailable.",
+      "notes": "Foundation for everything below. Must be startable and teardown-able from a pytest fixture, on non-default ports so it never touches the operator's real mailbox. Mark the whole tests/e2e/ tree with a pytest marker so the default suite can exclude it and CI can opt in."
+    },
+    {
+      "id": "e2e-01-harness",
+      "order": 11,
+      "gate": "script",
+      "eligible": true,
+      "title": "Boot the real system: mail server + real GPG keys + chat bus + poller, on test ports",
+      "prereqs": [
+        "e2e-00-mailserver"
+      ],
+      "scope_files": [
+        "tests/e2e/conftest.py",
+        "tests/e2e/_stack.py",
+        "tests/e2e/test_stack_boots.py"
+      ],
+      "test_target": "tests/e2e/test_stack_boots.py",
+      "acceptance": "A fixture yields a running stack: real mail server, throwaway GNUPGHOME with real generated keys, real chat_server.py, real main.py poller. Asserts each is genuinely alive (socket connect / process liveness), not merely constructed.",
+      "notes": "Reuse the EXISTING test-universe seam rather than inventing one: src/universes.py build_universes(os.environ, test_env=...) and the .env.test.example shape. Teardown must be unconditional \u2014 a leaked poller process polling a real mailbox is the worst failure mode this chain can have."
+    },
+    {
+      "id": "e2e-02-happy-path",
+      "order": 12,
+      "gate": "script",
+      "eligible": true,
+      "title": "One real command, end to end, observed only from the outside",
+      "prereqs": [
+        "e2e-01-harness"
+      ],
+      "scope_files": [
+        "tests/e2e/test_happy_path.py"
+      ],
+      "test_target": "tests/e2e/test_happy_path.py",
+      "acceptance": "A real authenticated mail goes in; the reply is retrieved over real IMAP and contains the command's effect. The test asserts ONLY on observable outputs (the reply mail, the DB row, the filesystem) \u2014 never by reaching into the process it is testing.",
+      "notes": "This is the designed-oracle test: compute the expected effect independently, then compare. Use a command whose effect is unambiguous and cheap."
+    },
+    {
+      "id": "e2e-03-auth-matrix",
+      "order": 13,
+      "gate": "script",
+      "eligible": true,
+      "title": "The full auth matrix over real mail: route x condition, every cell asserted",
+      "prereqs": [
+        "e2e-02-happy-path"
+      ],
+      "scope_files": [
+        "tests/e2e/test_auth_matrix.py"
+      ],
+      "test_target": "tests/e2e/test_auth_matrix.py",
+      "acceptance": "Rows: plaintext command, JSON envelope, thread reply, @agent, meta (status/spawn/restart), reaction. Columns: unsigned, wrong key, stale timestamp, replayed nonce, valid. Every cell asserted, over real mail.",
+      "notes": "THE cell that mocks missed: envelope + shared secret UNCONFIGURED must be REJECTED (src/json_handler.py:39 currently accepts it). Write that cell first and watch it fail against today's code \u2014 that is the proof this chain earns its keep."
+    },
+    {
+      "id": "e2e-04-replay",
+      "order": 14,
+      "gate": "script",
+      "eligible": true,
+      "title": "Replay a captured real message",
+      "prereqs": [
+        "e2e-03-auth-matrix"
+      ],
+      "scope_files": [
+        "tests/e2e/test_replay.py"
+      ],
+      "test_target": "tests/e2e/test_replay.py",
+      "acceptance": "A byte-identical re-delivery, and the same payload under a FRESH Message-ID, are both refused exactly once-executed. Asserts the effect happened once, not merely that a rejection was logged.",
+      "notes": "Message-ID dedupe alone is not replay protection \u2014 the Message-ID is not covered by any signature. This test is what distinguishes the two."
+    },
+    {
+      "id": "e2e-05-metamorphic-headers",
+      "order": 15,
+      "gate": "script",
+      "eligible": true,
+      "title": "Metamorphic: mutating unsigned headers must not change what executes",
+      "prereqs": [
+        "e2e-03-auth-matrix"
+      ],
+      "scope_files": [
+        "tests/e2e/test_metamorphic_headers.py"
+      ],
+      "test_target": "tests/e2e/test_metamorphic_headers.py",
+      "acceptance": "One valid signed payload, delivered repeatedly with mutated Subject / In-Reply-To / References / To. The executed command, the routing target and the reconstructed prompt are identical every time, or the message is rejected. Never silently re-routed.",
+      "notes": "This is the highest-value test in the chain: it is the property an attacker with mailbox access actually attacks, and no unit test expresses it."
+    },
+    {
+      "id": "e2e-06-invariants",
+      "order": 16,
+      "gate": "script",
+      "eligible": true,
+      "title": "Property tests over real traffic: secret never leaks, ledger is exact, nothing runs twice",
+      "prereqs": [
+        "e2e-02-happy-path"
+      ],
+      "scope_files": [
+        "tests/e2e/test_invariants.py"
+      ],
+      "test_target": "tests/e2e/test_invariants.py",
+      "acceptance": "Over a generated stream of real messages: no outbound mail body OR header ever contains the secret; every accepted command has exactly one ledger row; no command's effect is observed twice.",
+      "notes": "Property-based over the real transport. The secret-in-Subject leak (H2) is exactly the bug this catches \u2014 and a header check is what catches it, since the leak was in Subject, not body."
+    },
+    {
+      "id": "e2e-07-failure-injection",
+      "order": 17,
+      "gate": "script",
+      "eligible": true,
+      "title": "Break the real dependencies mid-flight",
+      "prereqs": [
+        "e2e-02-happy-path"
+      ],
+      "scope_files": [
+        "tests/e2e/test_failure_injection.py"
+      ],
+      "test_target": "tests/e2e/test_failure_injection.py",
+      "acceptance": "Stop the mail server mid-poll; SIGKILL the worker mid-task; drop the IMAP connection mid-fetch; SIGKILL the poller between accepting a command and executing it. Each asserts the documented outcome \u2014 in particular that the at-most-once claim holds and no command is silently lost without a trace.",
+      "notes": "BREAK the real thing, do not patch it. The at-most-once case is the one the design explicitly accepts as a trade \u2014 this test is what makes that claim honest rather than aspirational."
+    },
+    {
+      "id": "e2e-08-concurrency",
+      "order": 18,
+      "gate": "script",
+      "eligible": true,
+      "title": "Concurrent and duplicated real delivery",
+      "prereqs": [
+        "e2e-04-replay"
+      ],
+      "scope_files": [
+        "tests/e2e/test_concurrency.py"
+      ],
+      "test_target": "tests/e2e/test_concurrency.py",
+      "acceptance": "Two commands delivered simultaneously; the same nonce delivered twice in parallel; the same message delivered twice by the mail server (real IMAP re-delivery). Exactly-one-execution semantics hold under all three.",
+      "notes": "The nonce claim is supposed to be an atomic barrier via a PK conflict. Parallel delivery is the only way to actually test that; a sequential unit test cannot."
+    },
+    {
+      "id": "e2e-09-encryption",
+      "order": 19,
+      "gate": "script",
+      "eligible": false,
+      "title": "Real PGP round trip in both directions, plus tampered and wrong-key ciphertext",
+      "prereqs": [
+        "e2e-03-auth-matrix",
+        "PLAN:amendment-e2e"
+      ],
+      "scope_files": [
+        "tests/e2e/test_encryption_roundtrip.py"
+      ],
+      "test_target": "tests/e2e/test_encryption_roundtrip.py",
+      "acceptance": "Real encrypt->decrypt both ways with real keys. Tampered ciphertext, wrong recipient, and a revoked key are all refused. A captured message on the wire contains no plaintext of the command or the result.",
+      "exclude_reason": "Blocked on Amendment E2E (docs/claude-email-remediation-plan-amendment-e2e.md) being acked and built.",
+      "notes": "Also assert what CANNOT be hidden \u2014 Subject after protected-headers is a dummy, but From/To/Date/size remain visible. The test should pin the honest boundary so nobody later claims more than the crypto delivers."
+    },
+    {
+      "id": "e2e-10-app-emulator",
+      "order": 20,
+      "gate": "script",
+      "eligible": true,
+      "title": "The real app on an emulator against the same real mail server",
+      "prereqs": [
+        "e2e-01-harness"
+      ],
+      "repo_override": "/home/cocodedk/0-projects/Claude-Email-App",
+      "scope_files": [
+        "app/src/androidTest/java/com/cocode/claudeemailapp/e2e/"
+      ],
+      "test_target": "com.cocode.claudeemailapp.e2e.RealMailE2ETest",
+      "acceptance": "An instrumentation test on an emulator drives the app's REAL Angus Mail path against the real mail server: the app sends a command, the backend acts, the app receives and renders the reply. No mocked mail layer.",
+      "notes": "Point the app at the test server through the existing seam \u2014 PrefillCredentials.kt:6-36 intent extras, gated on BuildConfig.ALLOW_PREFILL (debug only). The emulator must reach the host mail server: 10.0.2.2 is the host loopback from inside an Android emulator. Gate command differs here: ./gradlew :app:connectedDebugAndroidTest."
+    },
+    {
+      "id": "e2e-11-differential",
+      "order": 21,
+      "gate": "script",
+      "eligible": true,
+      "title": "Differential: an app-built message and a script-built message must be treated identically",
+      "prereqs": [
+        "e2e-10-app-emulator"
+      ],
+      "scope_files": [
+        "tests/e2e/test_differential_clients.py",
+        "tests/e2e/fixtures/"
+      ],
+      "test_target": "tests/e2e/test_differential_clients.py",
+      "acceptance": "For every envelope kind, the app's real output and the reference script's output produce the same backend decision and the same effect. Divergence fails, naming the differing bytes.",
+      "notes": "This is the cross-repo contract made executable, and it is where the golden fixtures (\u00a77.3 L181) actually earn their place \u2014 as shared bytes both repos test against, not a document."
+    }
+  ],
+  "not_covered_here": [
+    "Spike S3 (a real PROVIDER hop \u2014 Gmail/Fastmail may rewrite MIME). A local mail server cannot prove that; keep S3 as a separate manual spike.",
+    "Spike S1 (non-exportable hardware key). Needs the physical device; an emulator implements Keymaster in software and would give a false green.",
+    "The USB provisioning ceremony. Needs a physically attached device \u2014 though the emulator IS the right tool for its emulator-rejection path."
+  ],
+  "origin": "A standing user requirement, not the remediation plan: build every imaginable REAL test between the app and the server. Mock tests do not count as logical tests."
+}

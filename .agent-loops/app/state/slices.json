@@ -1,0 +1,211 @@
+{
+  "objective": "App-side half of the claude-email hardening campaign (Claude-Email-App)",
+  "plan_file": "docs/claude-email-remediation-plan.md",
+  "plan_repo": "/home/cocodedk/0-projects/claude-email",
+  "repo": "/home/cocodedk/0-projects/Claude-Email-App",
+  "gates": [
+    "./gradlew buildSmoke --quiet",
+    "./gradlew :app:testDebugUnitTest --quiet --tests \"$1\""
+  ],
+  "gate_notes": "buildSmoke = assembleDebug + testDebugUnitTest + lintDebug (build.gradle.kts:7-11), the same command .githooks/pre-commit and CI run. test_target is a fully-qualified test CLASS, not a path; a class that does not exist yet makes gradle exit non-zero, so red-first still holds. The loop keeps the gradle daemon (CI uses --no-daemon); a cold build per iteration would dominate wall-clock.",
+  "coordination": "This repo has its own agent on the chat bus: agent-Claude-Email-App. Both CLAUDE.md files require an ack via chat_message_agent before landing a contract change. This file is a plan, not a change to their repo \u2014 nothing here was written into Claude-Email-App.",
+  "critical_path": "Almost the entire app side is blocked behind ONE item: the protocol v3 spec ack (\u00a77.3 L182). Until that lands, the app cannot sign anything the backend can verify. Getting that ack is worth more than any amount of parallel app work.",
+  "sequencing": "The two chains meet at the golden fixtures (\u00a77.3 L181). Backend p3-d (verifier) and app app-signedsender must be tested against the SAME bytes, so fixtures land between them \u2014 the app must not start signing before the backend can verify, and vice versa.",
+  "slices": [
+    {
+      "id": "app-re-prefix-guard",
+      "order": 10,
+      "gate": "script",
+      "eligible": true,
+      "smoke_test": true,
+      "title": "Guard the steering reply path against double 'Re: ' prefixing",
+      "source": "found while auditing the backend p6-mailer slice \u2014 NOT from the remediation plan",
+      "prereqs": [],
+      "scope_files": [
+        "app/src/main/java/com/cocode/claudeemailapp/app/AppViewModel.kt",
+        "app/src/test/java/com/cocode/claudeemailapp/app/ReplySubjectTest.kt"
+      ],
+      "test_target": "com.cocode.claudeemailapp.app.ReplySubjectTest",
+      "acceptance": "A subject already starting with any case of 'Re:' is not prefixed again, on EVERY reply path",
+      "notes": "AppRoot.kt:447 does this correctly \u2014 `if (title.trim().startsWith(\"Re:\", ignoreCase = true))`. AppViewModel.kt:429 does `\"Re: ${pending.subject}\"` unconditionally, so the steering path can emit 'Re: Re: ...'. Two reply paths, one guard: extract the shared helper and use it in both. This is the ONLY app slice runnable today, and it is a good smoke slice precisely because it is small and self-contained."
+    },
+    {
+      "id": "app-drop-subject-auth",
+      "order": 20,
+      "gate": "script",
+      "eligible": false,
+      "title": "Stop putting AUTH:<secret> in the reply Subject",
+      "plan_ref": {
+        "section": "\u00a77.2 / \u00a715 P4",
+        "lines": "178, 308"
+      },
+      "prereqs": [
+        "BACKEND:p1-2b-v2-failclosed"
+      ],
+      "scope_files": [
+        "app/src/main/java/com/cocode/claudeemailapp/app/AppRoot.kt"
+      ],
+      "test_target": "com.cocode.claudeemailapp.app.ReplySubjectTest",
+      "acceptance": "No outbound subject contains the shared secret; \u00a75.3 residual-risk note covers already-sent mail",
+      "exclude_reason": "CROSS-REPO ORDERING: the app must keep sending subject auth until the backend stops requiring it. Unblocks the moment backend p1-2b lands (v2-envelope-only admission).",
+      "notes": "AppRoot.kt:446-452 replySubject() writes AUTH:<secret> into the Subject, which every MTA hop logs \u2014 the app half of backend H2. privacy.md:56 already acknowledges it."
+    },
+    {
+      "id": "app-pgp-lib-keygen",
+      "order": 30,
+      "gate": "script",
+      "eligible": false,
+      "title": "Add an OpenPGP library and generate the signing key on-device, non-exportable",
+      "plan_ref": {
+        "section": "\u00a77.2",
+        "lines": "175"
+      },
+      "prereqs": [
+        "SPIKE:p0-s1-keystore",
+        "DECISION:D3"
+      ],
+      "scope_files": [
+        "app/build.gradle.kts",
+        "gradle/libs.versions.toml",
+        "app/src/main/java/com/cocode/claudeemailapp/crypto/"
+      ],
+      "acceptance": "Key generated on-device, never exported, excluded from Android auto-backup; StrongBox preferred not required (minSdk 24)",
+      "exclude_reason": "Blocked on the S1 spike (real hardware) and, if S1 fails, on decision D3. No OpenPGP dependency exists today \u2014 PGPainless/BouncyCastle is greenfield here.",
+      "notes": "USER REQUIREMENT: key material may enter the app ONLY over the physical USB wire \u2014 no paste, no QR, no file import, no intent extra, no cloud backup. CredentialsStore.kt:75-89 currently WIPES prefs silently on AEADBadTagException; for a signing key that must surface as 'device unenrolled, re-enroll at the machine', never a silent reset."
+    },
+    {
+      "id": "app-signedsender",
+      "order": 40,
+      "gate": "script",
+      "eligible": false,
+      "title": "One fail-closed signing path for EVERY service-bound send",
+      "plan_ref": {
+        "section": "\u00a77.2",
+        "lines": "177"
+      },
+      "prereqs": [
+        "app-pgp-lib-keygen",
+        "PLAN:p3-spec-v3",
+        "PLAN:p3-fixtures"
+      ],
+      "scope_files": [
+        "app/src/main/java/com/cocode/claudeemailapp/mail/SmtpMailSender.kt",
+        "app/src/main/java/com/cocode/claudeemailapp/protocol/",
+        "app/src/main/java/com/cocode/claudeemailapp/app/AppViewModel.kt"
+      ],
+      "acceptance": "\u00a711.1 L232: all kinds signed, including status/list \u2014 one uniform boundary. No key -> no send, with a visible error.",
+      "exclude_reason": "Blocked on the v3 spec ack and the golden fixtures.",
+      "notes": "Not just the envelope builder: the ordinary conversation reply (AppViewModel.kt:350-369, AppRoot.kt:372-380), project refresh and steering dispatch all send raw text today. Make SmtpMailSender reachable from exactly ONE caller and assert that in a test, or an unsigned path creeps back in."
+    },
+    {
+      "id": "app-provscreen",
+      "order": 50,
+      "gate": "judge",
+      "eligible": false,
+      "title": "Provisioning screen with explicit in-app approval showing key security level",
+      "plan_ref": {
+        "section": "\u00a77.2 / \u00a712 step 2",
+        "lines": "176, 266"
+      },
+      "prereqs": [
+        "app-pgp-lib-keygen"
+      ],
+      "acceptance": "\u00a712 requires a physically unlocked device and an in-app confirmation before enrollment proceeds",
+      "exclude_reason": "UI affordance on a physical device \u2014 no unit test can judge it. Replaces the shared-secret field at SetupFormSections.kt:88-109."
+    },
+    {
+      "id": "app-drop-meta-auth",
+      "order": 60,
+      "gate": "script",
+      "eligible": false,
+      "title": "Remove meta.auth and the stored shared secret from the app entirely",
+      "plan_ref": {
+        "section": "\u00a77.2 / \u00a78",
+        "lines": "178, 191"
+      },
+      "prereqs": [
+        "app-signedsender",
+        "BACKEND:p4-3-cutover"
+      ],
+      "scope_files": [
+        "app/src/main/java/com/cocode/claudeemailapp/protocol/Envelope.kt",
+        "app/src/main/java/com/cocode/claudeemailapp/data/CredentialsStore.kt",
+        "app/src/main/java/com/cocode/claudeemailapp/app/SetupFormSections.kt"
+      ],
+      "acceptance": "grep finds no shared secret in storage, build config, or test logging; KEY_SHARED_SECRET removed",
+      "exclude_reason": "Must not land before the cutover, or the app loses the only auth the backend still accepts.",
+      "notes": "Envelope.kt:52 meta.auth; CredentialsStore.kt:71 KEY_SHARED_SECRET; set at AppViewModel.kt:273,390,423. Envelope.kt:98-99 already has 'unauthorized'/'forbidden' error codes \u2014 reuse them for unsigned/replayed/revoked with the reason in error.hint."
+    },
+    {
+      "id": "app-pin-server-key",
+      "order": 32,
+      "gate": "script",
+      "eligible": false,
+      "title": "Receive and PIN the server's public key at USB enrollment",
+      "amendment": "docs/claude-email-remediation-plan-amendment-e2e.md",
+      "source": "Amendment E2E \u2014 enrollment becomes a two-way key exchange",
+      "prereqs": [
+        "app-pgp-lib-keygen"
+      ],
+      "scope_files": [
+        "app/src/main/java/com/cocode/claudeemailapp/crypto/"
+      ],
+      "test_target": "com.cocode.claudeemailapp.crypto.ServerKeyPinTest",
+      "acceptance": "The server key is accepted ONLY from the USB enrollment channel and pinned; a key arriving by any other route is refused",
+      "exclude_reason": "Blocked on the revised spec + app keygen.",
+      "notes": "Without pinning, a mail-server MITM substitutes its own key and the app encrypts to the attacker. The base ceremony (\u00a712) only pulls the device key to the host \u2014 it must also push the server key to the device."
+    },
+    {
+      "id": "app-encrypt-outbound",
+      "order": 42,
+      "gate": "script",
+      "eligible": false,
+      "title": "Encrypt every outbound message to the pinned server key, signed with the device key",
+      "amendment": "docs/claude-email-remediation-plan-amendment-e2e.md",
+      "source": "Amendment E2E",
+      "prereqs": [
+        "app-pin-server-key",
+        "app-signedsender"
+      ],
+      "scope_files": [
+        "app/src/main/java/com/cocode/claudeemailapp/mail/SmtpMailSender.kt",
+        "app/src/main/java/com/cocode/claudeemailapp/protocol/"
+      ],
+      "test_target": "com.cocode.claudeemailapp.mail.EncryptedSendTest",
+      "acceptance": "Sign-then-encrypt; no cleartext body on any send path; fail closed with a visible error when either key is missing",
+      "exclude_reason": "Blocked on the revised spec."
+    },
+    {
+      "id": "app-decrypt-inbound",
+      "order": 43,
+      "gate": "script",
+      "eligible": false,
+      "title": "Decrypt inbound replies and verify the server's signature",
+      "amendment": "docs/claude-email-remediation-plan-amendment-e2e.md",
+      "source": "Amendment E2E",
+      "prereqs": [
+        "app-pin-server-key"
+      ],
+      "scope_files": [
+        "app/src/main/java/com/cocode/claudeemailapp/mail/ImapMailFetcher.kt",
+        "app/src/main/java/com/cocode/claudeemailapp/crypto/"
+      ],
+      "test_target": "com.cocode.claudeemailapp.crypto.InboundDecryptTest",
+      "acceptance": "A reply that fails to decrypt or whose server signature does not verify surfaces 'unreadable reply \u2014 re-enroll', never a silent retry or a cleartext fallback",
+      "exclude_reason": "Blocked on the revised spec."
+    }
+  ],
+  "excluded_note": "app-fixtures (\u00a77.3 L181) and p3-cer-* (\u00a712) are tracked in the backend workspace's excluded list: fixtures are a shared artifact owned by neither chain alone, and the ceremony needs a physically attached device.",
+  "amendments": [
+    {
+      "file": "docs/claude-email-remediation-plan-amendment-e2e.md",
+      "effect": "app must encrypt outbound and decrypt inbound; pins the server key at enrollment"
+    }
+  ],
+  "docs_paths": [
+    "README.md",
+    "CLAUDE.md",
+    "website/index.html",
+    "docs/"
+  ]
+}
