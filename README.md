@@ -1,6 +1,6 @@
 # claude-email
 
-**Website**: [cocodedk.github.io/claude-email](https://cocodedk.github.io/claude-email/) · [فارسی](https://cocodedk.github.io/claude-email/fa/)
+**Website**: [claude-email.cocode.dk](https://claude-email.cocode.dk/) · [فارسی](https://claude-email.cocode.dk/fa/)
 
 An email-driven wrapper for the [Claude Code CLI](https://claude.ai/code) with an integrated chat relay for managing multiple Claude Code agents. Polls an IMAP mailbox for commands, executes them via `claude --print`, and replies via SMTP. Includes a full MCP-based chat system where `claude-email` acts as the user's avatar, brokering conversations between the user (via email) and multiple Claude Code agents (via MCP tools).
 
@@ -579,7 +579,7 @@ scripts/check-line-limit.sh
 
 ## Author
 
-**Babak Bandpey** — [example.com](https://example.com) | [LinkedIn](https://linkedin.com/in/babakbandpey) | [GitHub](https://github.com/cocodedk) | [Project site](https://cocodedk.github.io/claude-email/)
+**Babak Bandpey** — [example.com](https://example.com) | [LinkedIn](https://linkedin.com/in/babakbandpey) | [GitHub](https://github.com/cocodedk) | [Project site](https://claude-email.cocode.dk/)
 
 ## License
 
