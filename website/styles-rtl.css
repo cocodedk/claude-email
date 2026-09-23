@@ -1,7 +1,5 @@
 /* ─── RTL ────────────────────────────────────────────────── */
 
-[dir="rtl"] .header-inner { flex-direction: row-reverse; }
-[dir="rtl"] .site-title::before { margin-right: 0; margin-left: 10px; }
 [dir="rtl"] .hero .container,
 [dir="rtl"] .hero-eyebrow,
 [dir="rtl"] .hero h1,
