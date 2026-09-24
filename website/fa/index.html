@@ -41,6 +41,8 @@
   <link rel="stylesheet" href="../styles-animations.css" />
   <link rel="stylesheet" href="../styles-rtl.css" />
   <link rel="stylesheet" href="../styles-responsive.css" />
+  <link rel="stylesheet" href="https://brand.cocode.dk/v1.css" />
+  <script type="module" src="https://brand.cocode.dk/v1.js"></script>
 
   <script type="application/ld+json">
   {
@@ -65,12 +67,12 @@
 </head>
 <body>
 
-  <header class="site-header">
-    <div class="container header-inner">
-      <div class="site-title"><code>claude-email</code> &nbsp;·&nbsp; نسخه ۱ · متن‌باز</div>
-      <a href="../" class="lang-switch">English</a>
-    </div>
-  </header>
+  <!-- The cocode.dk family frame. Without JavaScript its children show instead: a way home
+       and the language link. -->
+  <cocode-head project="claude-email" accent="#c32e38" on-accent="#f3ead5">
+    <a href="https://cocode.dk">cocode.dk</a>
+    <a href="../" hreflang="en">English</a>
+  </cocode-head>
 
   <section class="hero">
     <div class="postmark" aria-hidden="true">
@@ -272,9 +274,13 @@ journalctl --user -u claude-email -f</code></pre>
 
   <footer class="site-footer">
     <div class="container">
-      Apache-2.0 &nbsp;·&nbsp; &copy; ۲۰۲۶ <a href="https://cocode.dk">Cocode</a> &nbsp;·&nbsp; ارسال‌شده توسط <a href="https://linkedin.com/in/babakbandpey">بابک بندپی</a>
+      Apache-2.0
     </div>
   </footer>
+
+  <cocode-foot repo="cocodedk/claude-email">
+    <a href="https://cocode.dk">cocode.dk</a>
+  </cocode-foot>
 
 </body>
 </html>
